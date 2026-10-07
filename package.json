@@ -8,6 +8,8 @@
     ".": "./src/core.ts"
   },
   "scripts": {
+    "test": "bun test --parallel=4",
+    "test:serial": "bun test",
     "start": "bun src/main.ts",
     "local-start": "test -f .empty-vessel/config.json && EMPTY_VESSEL_HOME=\"$PWD/.empty-vessel\" EMPTY_VESSEL_CHANNEL=telegram bun src/main.ts",
     "build": "bun scripts/build.ts",
