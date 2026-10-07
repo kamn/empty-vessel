@@ -115,7 +115,11 @@ export const checkWithServer = async (tsc: string, dir: string, file: string, ch
     server.notify("textDocument/didClose", { textDocument: { uri } })
     entry.seen.add(dir)
 
-    const errors = (report?.items ?? []).filter((d: { severity?: number }) => (d.severity ?? 1) === 1)
+    // No previousResultId was sent: only a full report can establish that this cell was checked.
+    // Missing diagnostics (or an unchanged report) are not a successful check: use the fallback.
+    if (report?.kind !== "full" || !Array.isArray(report.items)) throw new Error("invalid diagnostic report")
+
+    const errors = report.items.filter((d: { severity?: number }) => (d.severity ?? 1) === 1)
     return errors.map((d: { range: { start: { line: number; character: number } }; code?: number | string; message: string }) =>
       `${basename(file)}(${d.range.start.line + 1},${d.range.start.character + 1}): error TS${d.code ?? ""}: ${d.message}`).join("\n")
   } catch {

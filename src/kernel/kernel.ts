@@ -136,7 +136,8 @@ const typeCheck = (options: KernelOptions, file: string, changed: ReadonlyArray<
     writeFileSync(`${options.dir}/tsconfig.check.json`, JSON.stringify({ compilerOptions: compilerOptions(options), files: [file] }))
     const proc = Bun.spawn([options.tsc!, "-p", `${options.dir}/tsconfig.check.json`], { cwd: options.dir, stdout: "pipe", stderr: "pipe" })
     const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
-    return (await proc.exited) === 0 ? undefined : out.trim()
+    const exit = await proc.exited
+    return exit === 0 ? undefined : out.trim() || `the type check failed: compiler exited with code ${exit} without diagnostics`
   }).pipe(Effect.catch((e) => Effect.succeed(`the type check couldn't run: ${e}`)))
 
 const SPARE_IDLE_MS = 60_000 // how long a Worker started ahead waits for a cell before it ends itself

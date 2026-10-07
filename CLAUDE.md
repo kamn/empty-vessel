@@ -4,6 +4,8 @@ A coding agent harness.
 
 ## How we work
 
+- Create Git worktrees under `/Users/kamn/Projects/empty-vessel/worktrees/` (the workspace's `worktrees/` directory, not filesystem-root `/worktrees`).
+
 - Explain plainly, with concrete examples over jargon.
 - Use clickable Markdown links when referring to a file or web page with a known destination. For local files, use absolute `file://` URLs (percent-encode spaces) so the TUI can open them; for web pages, use HTTPS links.
 - Code style: group related lines in a function with blank lines (setup and lookups, the main work, recording and logging, the return), and put blank lines around loops and multi-line `if` blocks. Leave short functions (about 4 lines or fewer) as they are.
