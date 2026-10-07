@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { Effect, Fiber } from "effect"
 import { checkWithServer, warmChecker } from "./checker"
-import { cellProblems } from "./rules"
+import { cellProblems, kernelImports } from "./rules"
+import { effectExports } from "./effect-exports"
 
 // The kernel: code runs in cells, and what cells define stays available to later ones. A library: it knows
 // nothing about who uses it. The host gives it a folder, optionally a module of
@@ -77,16 +78,17 @@ export const rewriteImports = (code: string, n: number) => code.replace(/(from\s
 
 // Everything Effect exports, then by name (so they win over Effect's names, e.g. a built-in called Clock): the kernel's
 // call and result, the built-ins, and each earlier definition. A cell's definition wins over a built-in of the same name.
-// Every earlier cell written under the rules: loading one only defines things, so offering them all costs nothing.
+// Named imports expose only the requested Effect modules; namespace imports keep the complete API.
+// Every earlier cell written under the rules: loading one only defines things, so offering them all has no side effects.
 // A text cell from before them too: its file is only a string constant.
 export const underRules = (c: Cell) => c.rules === true || c.summary.startsWith("text cell: defined ")
-export const scopeFor = (cells: ReadonlyArray<Cell>, builtins?: string, sources: ReadonlyArray<string> = []) => {
+export const scopeFor = (cells: ReadonlyArray<Cell>, builtins?: string, sources: ReadonlyArray<string> = [], names?: ReadonlyArray<string>) => {
   const latest = new Map<string, number>()
   for (const c of cells) if (c.status === "ok" && underRules(c)) for (const d of c.defines) latest.set(d, c.n)
   const own = builtins ? new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(builtins, "utf8")).exports.filter((e) => e !== "default" && !latest.has(e)) : []
 
   return [
-    `export * from ${JSON.stringify(EFFECT)}`,
+    ...effectExports(EFFECT, names?.filter(name => !latest.has(name) && !own.includes(name) && !sources.includes(name))),
     // `call` (the host, untyped) only when there are no built-ins: with them, cells reach the host through their
     // services, so every Effect's requirements say what it touches (and remember can check them).
     `export { ${[...(builtins ? [] : ["call"]), "result"].filter((e) => !latest.has(e)).join(", ")} } from ${JSON.stringify(RUNTIME)}`,
@@ -241,7 +243,7 @@ export const makeKernel = (given: KernelOptions) => {
       const sources = options.sources ?? []
       const lists = yield* Effect.forEach(sources, (s) => s.list.pipe(Effect.map((tools) => ({ source: s.name, tools })), Effect.orElseSucceed(() => ({ source: s.name, tools: [] }))), { concurrency: "unbounded" })
       if (sources.length) writeFileSync(`${options.dir}/sources.ts`, sourcesModule(lists))
-      writeFileSync(`${options.dir}/scope-${n}.ts`, scopeFor(before, options.builtins, sources.map((s) => s.name)))
+      writeFileSync(`${options.dir}/scope-${n}.ts`, scopeFor(before, options.builtins, sources.map((s) => s.name), kernelImports(code)))
       // Calls to a source's tools reach it through the host function $source.
       const withSources: HostFunctions = sources.length ? { ...host, $source: (arg) => {
         const { source, tool, args } = arg as { source: string; tool: string; args: unknown }

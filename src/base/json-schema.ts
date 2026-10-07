@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import * as Schema from "effect/Schema"
 
 // The JSON schema a strict structured-output request needs: Effect's version, every object in it closed to extra
 // fields (strict mode requires it at every level, not only the top: adoption's proposals are objects in an array).
