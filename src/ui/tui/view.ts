@@ -1,3 +1,4 @@
+import { suggestions } from "./completion"
 import { type Line, type Model, PREVIEW } from "./app"
 import { renderMarkdown } from "./markdown"
 import { beforeCursor } from "./edit"
@@ -47,6 +48,7 @@ export const printLine = (line: Line, width = 80): ReadonlyArray<string> => {
 
 // Cut plain text to a width (wide characters count 2), with … when cut.
 const fit = (text: string, width: number) => {
+  if (width <= 0) return ""
   if (widthOf(text) <= width) return text
   let out = ""
   for (const ch of text) if (widthOf(out + ch) < width) out += ch; else break
@@ -80,20 +82,20 @@ export const conversationWindow = (rows: ReadonlyArray<string>, height: number, 
 }
 
 // The live area, and where the cursor goes in it: where it is in what's being typed, inside the box.
-export const live = (model: Model, width: number): { readonly lines: ReadonlyArray<string>; readonly cursor: { readonly row: number; readonly col: number } } => {
+export const live = (model: Model, width: number, height = Infinity): { readonly lines: ReadonlyArray<string>; readonly cursor: { readonly row: number; readonly col: number } } => {
   const lines: Array<string> = [""]
   if (model.asking) lines.push(style.bold(fit(model.asking.question, width)), ...[...model.asking.options, "Other (type your answer)"].map((o, i) => `${i === model.selectedOption ? style.accent("❯") : " "} ${style.accent(`${i + 1}.`)} ${fit(o, width - 6)}`))
   if (model.running && !model.asking) lines.push(...working(model, width))
 
   // The box: │ › text │, the text padded to the inner width. Dim while a turn runs (what's typed then is queued).
-  const inner = Math.max(10, width - 7) // one column spare: a line that fills the last column can wrap early on some terminals
+  const inner = Math.max(1, width - 7) // one column spare: a line that fills the last column can wrap early on some terminals
   const border = model.running && !model.asking ? style.dim : style.accent
   const rows = model.input.split("\n").flatMap((l) => wrap(l, inner))
   const upToCursor = beforeCursor(model).split("\n").flatMap((l) => wrap(l, inner)) // the rows that end at the cursor
   const questionHint = model.asking && model.selectedOption === model.asking.options.length
     ? "Type your answer · ↑↓ select · Enter confirm"
     : "Optional note · ↑↓ select · Enter sends choice + note"
-  const hint = model.asking ? questionHint : model.running ? "Type to queue a message for after this turn" : "Type a message · Enter to send · \\ Enter new line · Ctrl+V image · ↑ earlier · Ctrl+D leave"
+  const hint = model.asking ? questionHint : model.running ? "Type to queue a message for after this turn" : "Type a message · / commands · Enter to send · \\ Enter new line · Ctrl+V image · ↑ earlier · Ctrl+D leave"
   lines.push(border(`╭${"─".repeat(inner + 4)}╮`))
 
   for (const [i, row] of rows.entries()) {
@@ -104,6 +106,15 @@ export const live = (model: Model, width: number): { readonly lines: ReadonlyArr
 
   const cursor = { row: lines.length - rows.length + upToCursor.length - 1, col: 4 + widthOf(upToCursor.at(-1)!) }
   lines.push(border(`╰${"─".repeat(inner + 4)}╯`))
+  const items = suggestions(model)
+  const selected = Math.max(0, Math.min(model.completionSelected, items.length - 1))
+  // Reserve footer rows; autocomplete must not push the input/cursor outside a short terminal.
+  const count = Math.max(0, Math.min(5, height - lines.length - 1 - (model.total ? 1 : 0)))
+  const first = Math.max(0, selected - Math.max(0, count - 1))
+  for (const [offset, item] of items.slice(first, first + count).entries()) {
+    const text = fit(`${first + offset === selected ? "❯" : " "} ${item.command}  ${item.description.replace(/[\r\n\t]/g, " ")}`, width)
+    lines.push(first + offset === selected ? style.accent(text) : style.dim(text))
+  }
   lines.push(style.dim(fit(`  ${model.status}`, width)))
   if (model.total) lines.push(style.dim(fit(`  ${model.total}`, width)))
   return { lines, cursor }

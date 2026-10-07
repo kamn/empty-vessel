@@ -34,6 +34,11 @@ export const loadConversation = (dir: string): Conversation => {
     else if (e.role === "compact" && e.thread) c.thread.splice(0, c.thread.length, ...e.thread.map(fromSaved))
     else if (e.role === "size") c.size = Number(e.text)
     else if (e.role === "tools") c.tools.add(e.text)
+    else if (e.role === "skill" && typeof e.text === "string" && typeof e.content === "string") {
+      c.activeSkills ??= Object.create(null)
+      c.activeSkills![e.text] = e.content
+      c.activeSkillsPending = true
+    }
     else if (e.role === "agent") c.agent = e.text // the agent this conversation works as (src/answer.ts, useAgent)
     else if (e.role === "systemTwo") {
       if (c.backend && c.backend !== e.text) { c.thread.length = 0; c.size = undefined; switched = true } // another backend took over: its thread starts here
@@ -119,6 +124,8 @@ export const switchConversation = (conversation: Conversation, dir: string) => {
   conversation.size = undefined
   conversation.saved.thread = 0
   conversation.takeover = takeoverNote(dir, conversation)
+  conversation.skillCatalogPending = true
+  conversation.activeSkillsPending = true
 }
 
 // The session goes on with System Two `use` (a systemTwo.use name): recorded when it changes, and a change from one

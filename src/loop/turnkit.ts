@@ -1,3 +1,4 @@
+import type { SkillCatalog } from "../base/skills"
 import { type Grants, narrow } from "../base/grants"
 import { Duration, Effect } from "effect"
 import type { AskUser } from "../ui/ask"
@@ -37,6 +38,11 @@ export type Conversation = {
   readonly remembered: Array<string> // memory changes this turn ("remembered (project): …"), shown to the user at its end
   saved: { thread: number; stash: number } // how much of the thread and stash is in the session file (src/loop/resume.ts)
   briefing?: string
+  skills?: SkillCatalog // metadata snapshot; bodies are loaded only on activation
+  skillCatalogPending?: boolean // refreshed or lost to compaction/provider handover
+  activeSkills?: Record<string, string> // loaded envelopes, persisted separately from prunable outputs
+  activeSkillsPending?: boolean // replay loaded instructions after context loss
+  explicitSkill?: boolean // host-owned user invocation must reach System Two
   size?: number
   olderCells?: string // a resumed session's cells from before the kernel's rules: told to System Two once (resume.ts)
   agent?: string // the agent this conversation works as (src/answer.ts, pickAgent), recorded in the session

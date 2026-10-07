@@ -1,5 +1,8 @@
 import { mkdirSync } from "node:fs"
 import { Context, Effect } from "effect"
+import { discoverSkills, loadSkill } from "../base/skills"
+import { has } from "../base/grants"
+import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
 import { type CellResult, describeCell, type HostFunctions } from "../kernel/kernel"
 import { Kernel } from "../tools/kernel-service"
@@ -20,6 +23,19 @@ import { type Ctx, type Needs, timed } from "./turnkit"
 // System Two's kernel and System One's. `services`: empty-vessel's systems, since a hook runs inside System Two's own Effect.
 export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFunctions => {
   const host: HostFunctions = {
+    skill: (arg: unknown) => Effect.gen(function* () {
+      if (!has(ctx.config.kernel.tools, "read")) return yield* Effect.fail(new Error("skill requires the files read grant"))
+      if (typeof arg !== "object" || arg === null || Array.isArray(arg)) return yield* Effect.fail(new Error("skill expects { name, arguments? }"))
+      const input = arg as Record<string, unknown>
+      if (typeof input.name !== "string" || !input.name.trim() || (input.arguments !== undefined && typeof input.arguments !== "string")) return yield* Effect.fail(new Error("skill expects a nonempty name and optional string arguments"))
+      const catalog = ctx.conversation.skills ??= discoverSkills(process.cwd())
+      // Never accept an origin from a cell, including a forged extra field.
+      const content = yield* loadSkill(catalog, { name: input.name, ...(input.arguments === undefined ? {} : { arguments: input.arguments }) }, "model")
+      yield* ctx.session.record("skill", input.name, { content })
+      const active = ctx.conversation.activeSkills ??= {}
+      Object.defineProperty(active, input.name, { value: content, enumerable: true, writable: true, configurable: true })
+      return content
+    }),
     systemOne: (arg: unknown) => {
       const { evidence, questions } = arg as { evidence: unknown; questions: Record<string, { question: string; options: Record<string, string> }> }
       // A short goal, not the whole task: System One answers questions about this evidence (it judged "done" against the literal goal before).
@@ -110,8 +126,11 @@ export const makeKernelHook = (ctx: Ctx, services: Context.Context<Needs>, trial
 
   // A code cell, or a text cell (name + text).
   return (args: typeof KernelArgs.Type) => {
+    // Capture successful loads independently of the cell's return value (even if it discards them).
+    const skills: string[] = []
+    const cellHost = { ...host, skill: (arg: unknown) => host.skill!(arg).pipe(Effect.tap((content) => Effect.sync(() => { skills.push(String(content)) }))) }
     const cell = args.text !== undefined && args.name ? kernel.text(args.name, args.text, args.summary)
-      : args.code !== undefined ? kernel.run(args.code, host, args.summary)
+      : args.code !== undefined ? kernel.run(args.code, cellHost, args.summary)
       : undefined
     if (!cell) return Effect.succeed("give code (a code cell), or name and text (a text cell)")
 
@@ -119,6 +138,6 @@ export const makeKernelHook = (ctx: Ctx, services: Context.Context<Needs>, trial
     const recordUse = (r: CellResult) => Effect.sync(() => {
       for (const tool of used) record(libraryDir(process.cwd()), { session: ctx.session.id, turn, tool, for: "systemTwo", event: "used", ok: r.status === "ok" })
     })
-    return cell.pipe(Effect.tap(recordUse), Effect.map(describeCell), Effect.catch((e) => Effect.succeed(`the kernel failed: ${e}`)))
+    return cell.pipe(Effect.tap(recordUse), Effect.map((r) => [describeCell(r), ...(skills.length ? [KERNEL_PASSTHROUGH, ...skills] : [])].join("\n")), Effect.catch((e) => Effect.succeed(`the kernel failed: ${e}`)))
   }
 }

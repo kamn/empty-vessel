@@ -77,7 +77,7 @@ export const KernelArgs = Schema.Struct({
 // The kernel tool's description, naming only the built-ins `g` grants (src/base/grants.ts); with everything granted,
 // exactly the text from before grants.
 const DESCRIBED_FILES: ReadonlyArray<readonly [Need, string]> = [
-  ["read", "read(path, offset?, limit?)"], ["read", "readText(path)"], ["write", "write(path, content)"], ["write", "edit(path, [{ oldText, newText }])"], ["shell", "bash(command, timeoutSeconds?)"],
+  ["read", "read(path, offset?, limit?)"], ["read", "readText(path)"], ["read", "skill({ name, arguments? }) (load skill instructions; never executes them)"], ["write", "write(path, content)"], ["write", "edit(path, [{ oldText, newText }])"], ["shell", "bash(command, timeoutSeconds?)"],
 ]
 const DESCRIBED_OTHERS: ReadonlyArray<readonly [Need | undefined, string]> = [
   [undefined, "now()"], [undefined, "random()"],
@@ -118,6 +118,8 @@ export type Hooks = {
   // What the loop hands over with every request: the project's instructions (AGENTS.md / CLAUDE.md), then what empty-vessel
   // learned about the project (notes, saved checks). The same all session. Backends add it to their own instructions.
   readonly briefing?: string
+  // Durable skill state for providers that compact their own sessions; refreshed at each provider run.
+  readonly skillContext?: () => string
   // Images in the user's message (paths that exist), for System Two to look at: sent with this run's prompt.
   readonly images?: ReadonlyArray<{ readonly label: string; readonly path: string }>
   // Outputs System One hid (shortened or compacted), by id, so more_output can bring them back. One per session.

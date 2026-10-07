@@ -1,3 +1,4 @@
+import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { Effect, Option, Schema } from "effect"
 import { emit } from "../base/events"
 import { exitOf, lessonIn } from "../base/lessons"
@@ -145,7 +146,7 @@ export const afterCommand = (name: string, parsed: unknown, output: string, hook
     yield* Effect.logDebug(`system two command ${JSON.stringify({ tool: name, args: parsed, output: output.slice(0, 8000) })}`)
     if (hooks.onCommand) yield* hooks.onCommand({ tool: name, args: parsed, output })
 
-    if (!hooks.prune || !state.pruning || name !== "kernel" || output.length <= PRUNE_OVER) return output
+    if (output.includes(KERNEL_PASSTHROUGH) || !hooks.prune || !state.pruning || name !== "kernel" || output.length <= PRUNE_OVER) return output
     const shorter = yield* hooks.prune(shownAs(name, parsed), output)
     if (shorter.length >= output.length) return output
     const id = `out${state.stash.size + 1}`

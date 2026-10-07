@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.1
+# empty-vessel core 0.0.2
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## ActiveAgent (src/base/memory)
@@ -235,6 +235,7 @@ export type Hooks = {
     readonly kernel?: (args: typeof KernelArgs.Type) => Effect.Effect<string>;
     readonly thread?: Array<unknown>;
     readonly briefing?: string;
+    readonly skillContext?: () => string;
     readonly images?: ReadonlyArray<{
         readonly label: string;
         readonly path: string;

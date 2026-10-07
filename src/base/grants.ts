@@ -18,7 +18,7 @@ export const has = (g: Grants, need: Need) =>
 // granted ones (src/loop/library.ts), so a cell importing another fails the type check before it runs. Unlisted
 // exports (now, random, remember, forget, layer, types) need nothing.
 export const NEEDS: Readonly<Record<string, Need>> = {
-  read: "read", readText: "read", Files: "read", write: "write", edit: "write",
+  read: "read", readText: "read", skill: "read", Files: "read", write: "write", edit: "write",
   bash: "shell", Shell: "shell",
   systemOne: "systemOne", judge: "systemOne", SystemOne: "systemOne",
   spawn: "agents", wait: "agents", cancel: "agents", jobs: "agents", Agents: "agents",

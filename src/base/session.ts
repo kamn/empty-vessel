@@ -22,7 +22,7 @@ export const CurrentSession = Context.Reference<SessionHandle | undefined>("empt
 // What a session file holds. For resuming: thread (an item System Two added), stash (an output System One hid),
 // actions (System One's line for a turn), given (a file System Two was given), size (the thread's size), resumed,
 // code (a piece of code System Two declared), shown (the library tools on System One's shortlist this turn), tools (a library tool handed to System One).
-type Role = "project" | "resumed" | "systemTwo" | "agent" | "user" | "assistant" | "spawn" | "result" | "decision" | "step" | "command" | "check" | "review" | "compact" |
+type Role = "skill" | "project" | "resumed" | "systemTwo" | "agent" | "user" | "assistant" | "spawn" | "result" | "decision" | "step" | "command" | "check" | "review" | "compact" |
   "thread" | "stash" | "actions" | "given" | "size" | "code" | "shown" | "tools" | "steer" | "scope" | "flag" | "memory"
 // steer: what the user typed mid-run, as System Two got it; scope: the note System Two got when its changes reached
 // another part of the project; flag: the user's /flag (never sent to System Two; read by /refine, src/loop/signals.ts)

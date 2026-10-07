@@ -125,7 +125,7 @@ export const makeScreen = () => {
 
   const draw = (model: Model) => {
     const width = Math.max(1, (process.stdout.columns || 80) - 1)
-    const area = live(model, width)
+    const area = live(model, width, process.stdout.rows || 24)
     // A printed line never changes, so its rows are worked out once (again only if the width changes): a redraw costs
     // the same however long the conversation is, not a re-render of every earlier reply.
     if (width !== rowsWidth) { rowsOf = new WeakMap(); rowsWidth = width }

@@ -162,8 +162,14 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
 
     let last = "", finishedByCheck = false, waitingForUser = false
 
+    const explicitSkill = conversation.explicitSkill === true
+    delete conversation.explicitSkill
+
     while (state.steps.length < config.maxSteps) {
-      const { choice, finished } = yield* decide(ctx, state, optionsNow(), library)
+      // A user explicitly chose this workflow: no library shortcut may answer instead.
+      const { choice, finished } = explicitSkill && state.escalated === 0
+        ? { choice: "escalate", finished: false }
+        : yield* decide(ctx, state, optionsNow(), library)
       if (finished) break
 
       const result = yield* (steps[choice] ?? STEPS.escalate!)(ctx, state) // a pick with no step (e.g. the fake's "ask") goes to System Two
