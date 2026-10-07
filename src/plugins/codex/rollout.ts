@@ -80,6 +80,7 @@ const usageTimestamp = () => {
 export const recordCodexUsage = (
   key: string, model: string,
   usage: { input: number; cached?: number; output: number; thinking?: number },
+  usageId?: string,
 ): Effect.Effect<void> => safely(Effect.suspend(() => {
   const timestamp = usageTimestamp()
   const last_token_usage = {
@@ -90,6 +91,6 @@ export const recordCodexUsage = (
 
   return append(key, [
     row(timestamp, "turn_context", { model }),
-    row(timestamp, "event_msg", { type: "token_count", info: { last_token_usage } }),
+    row(timestamp, "event_msg", { type: "token_count", ...(usageId === undefined ? {} : { usage_id: usageId }), info: { last_token_usage } }),
   ])
 }))

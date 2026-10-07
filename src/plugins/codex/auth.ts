@@ -1,6 +1,6 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { EMPTY_VESSEL_HOME } from "../../base/home"
+import { EMPTY_VESSEL_HOME } from "empty-vessel"
 import { makeCodexAuthStore } from "./auth-store"
 import { refreshCodexCredentials } from "./oauth"
 

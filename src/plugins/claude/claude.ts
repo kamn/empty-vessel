@@ -1,5 +1,5 @@
 import { Duration, Effect, Layer, Option, Schema } from "effect"
-import { Ask, AskError, emit, Fill, FillError, type Hooks, jobsReminder, jsonSchemaFor, kernelInstructions, loadImage, serveTools, SystemTwo, SYSTEM_TWO_TOOLS, type ToolRelay } from "empty-vessel"
+import { Ask, AskError, emit, Fill, FillError, type Hooks, jobsReminder, jsonSchemaFor, kernelInstructions, loadImage, recordUsage, serveTools, SystemTwo, SYSTEM_TWO_TOOLS, type ToolRelay } from "empty-vessel"
 
 // System Two as `claude -p` (Claude Code, on its own login). Its tools are Codex's (kernel, yield_to_system_one,
 // wait_for_user), and they're empty-vessel's: the core serves them to Claude over MCP (serveTools), and empty-vessel answers each
@@ -10,7 +10,7 @@ import { Ask, AskError, emit, Fill, FillError, type Hooks, jobsReminder, jsonSch
 // Claude Code names an MCP server's tools mcp__<server>__<tool>; these are the ones it may use without asking.
 const allowed = (relay: ToolRelay) => SYSTEM_TWO_TOOLS.map((t) => `mcp__${relay.server}__${t.name}`).join(",")
 
-export type Reply = { type?: string; subtype?: string; result?: string; total_cost_usd?: number; structured_output?: unknown; session_id?: string; is_error?: boolean; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
+export type Reply = { model?: string; type?: string; subtype?: string; result?: string; total_cost_usd?: number; structured_output?: unknown; session_id?: string; is_error?: boolean; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
 // Two replies' tokens as one (a run that hit its round limit, then its wrap-up).
 const sumUsage = (a: Reply, b: Reply) => ({
   input_tokens: (a.usage?.input_tokens ?? 0) + (b.usage?.input_tokens ?? 0),
@@ -21,6 +21,21 @@ const sumUsage = (a: Reply, b: Reply) => ({
 
 // All the input the model read, as Codex counts it: Anthropic reports new, cache-written and cache-read input apart.
 const inputOf = (r: Reply) => (r.usage?.input_tokens ?? 0) + (r.usage?.cache_creation_input_tokens ?? 0) + (r.usage?.cache_read_input_tokens ?? 0)
+
+// Persist before validation or wrap-up aggregation. Session ids span multiple calls,
+// so they cannot identify individual usage records.
+const recordReplyUsage = (reply: Reply, model: string | undefined) => {
+  const usage = reply.usage
+  if (!usage || ![usage.input_tokens, usage.output_tokens]
+    .every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0) ||
+    ![usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
+      .every((n) => n === undefined || (typeof n === "number" && Number.isFinite(n) && n >= 0))) return Effect.void
+  return recordUsage({
+    system: "systemTwo", provider: "claude", granularity: "provider-result",
+    model: reply.model || model || "claude-code-default",
+    tokens: { input: inputOf(reply), output: usage.output_tokens ?? 0, cached: usage.cache_read_input_tokens ?? 0 },
+  }).pipe(Effect.asVoid)
+}
 
 // `claude -p` with none of the user's own Claude Code settings (hooks, plugins, skills), and without the API key, so it
 // uses its own login.
@@ -86,7 +101,7 @@ export const streamProgress = (live: Pick<Live, "say" | "saw">) => {
 
 // The prompt goes in on stdin as one message (--input-format stream-json), so it can hold images; text-only runs go the
 // same way.
-export const claudeLive = (args: ReadonlyArray<string>, env: Record<string, string>, live: Live, content: ReadonlyArray<Content>) =>
+export const claudeLive = (args: ReadonlyArray<string>, env: Record<string, string>, live: Live, content: ReadonlyArray<Content>, model?: string) =>
   Effect.gen(function* () {
     const proc = spawnClaude(args, ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"], env, "pipe")
     const input = proc.stdin as import("bun").FileSink
@@ -118,18 +133,20 @@ export const claudeLive = (args: ReadonlyArray<string>, env: Record<string, stri
     }
     const reply = yield* Effect.promise(read).pipe(Effect.onInterrupt(() => Effect.sync(() => proc.kill())), Effect.ensuring(Effect.sync(() => clearInterval(watch))))
 
+    yield* recordReplyUsage(reply, model)
     yield* Effect.logDebug(`claude -p run ${JSON.stringify({ session: reply.session_id, cost: reply.total_cost_usd ?? 0 })}`)
     return reply
   })
 
 // A run of claude -p with one JSON reply at the end (fill, and the wrap-up: short, nothing to show on the way).
-const claude = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
+const claude = (args: ReadonlyArray<string>, env: Record<string, string> = {}, model?: string) =>
   Effect.gen(function* () {
     const proc = spawnClaude(args, ["--output-format", "json"], env)
     const [out, err] = yield* Effect.promise(() => Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])).pipe(Effect.onInterrupt(() => Effect.sync(() => proc.kill())))
     const reply = yield* Effect.try(() => JSON.parse(out) as Reply).pipe(Effect.orElseSucceed((): Reply => ({ is_error: true, result: `claude -p gave no answer: ${(err || out).slice(-2000)}` })))
 
     // Its cost (the plan's API-equivalent price) and session, for evals: empty-vessel's own summary counts tokens only.
+    yield* recordReplyUsage(reply, model)
     yield* Effect.logDebug(`claude -p run ${JSON.stringify({ session: reply.session_id, cost: reply.total_cost_usd ?? 0 })}`)
     return reply
   })
@@ -178,11 +195,11 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
       // MCP_TOOL_TIMEOUT: a cell may run up to the kernel's 10 minutes.
       // Web search: Claude Code's own WebSearch and WebFetch, the only built-in tools it gets (the rest is empty-vessel's kernel).
       const web = ["--tools", webSearch ? "WebSearch,WebFetch" : ""]
-      const started = yield* claudeLive([...common(), ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])]).pipe(Effect.timeoutOption(limit))
+      const started = yield* claudeLive([...common(), ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])], model).pipe(Effect.timeoutOption(limit))
       if (Option.isNone(started)) return { text: `(System Two failed: claude -p hadn't finished after ${Duration.format(Duration.fromInputUnsafe(limit))} and was stopped)`, tokens }
       const first = started.value
       const reply = first.subtype === "error_max_turns" && first.session_id
-        ? yield* claude([WRAP_UP, ...common(), "--tools", "", "--disallowedTools", "mcp__*", "--max-turns", "1", "--resume", first.session_id]).pipe(Effect.map((r) => ({ ...r, usage: sumUsage(first, r) })))
+        ? yield* claude([WRAP_UP, ...common(), "--tools", "", "--disallowedTools", "mcp__*", "--max-turns", "1", "--resume", first.session_id], {}, model).pipe(Effect.map((r) => ({ ...r, usage: sumUsage(first, r) })))
         : first
       tokens.input += inputOf(reply)
       tokens.output += reply.usage?.output_tokens ?? 0
@@ -223,7 +240,7 @@ export const makeClaudeSystemTwo = (model?: string, maxRounds = 30, reasoning?: 
 export const makeClaudeAsk = (model: string | undefined, reasoning: string) => Layer.succeed(Ask, {
   ask: (instructions, schema, input) =>
     Effect.gen(function* () {
-      const reply = yield* claude([input, ...(model ? ["--model", model] : []), "--effort", reasoning, "--tools", "", "--json-schema", JSON.stringify(jsonSchemaFor(schema)), "--system-prompt", instructions])
+      const reply = yield* claude([input, ...(model ? ["--model", model] : []), "--effort", reasoning, "--tools", "", "--json-schema", JSON.stringify(jsonSchemaFor(schema)), "--system-prompt", instructions], {}, model)
       if (reply.is_error || reply.structured_output === undefined) return yield* Effect.fail(new AskError({ message: `claude -p: ${reply.result ?? "no structured output"}` }))
 
       const value = yield* Schema.decodeUnknownEffect(schema)(reply.structured_output).pipe(Effect.mapError((e) => new AskError({ message: `Claude's answer doesn't fit: ${e.message}` })))
@@ -234,7 +251,7 @@ export const makeClaudeAsk = (model: string | undefined, reasoning: string) => L
 export const makeClaudeFill = (model: string) => Layer.succeed(Fill, {
   fill: (name, schema, goal) =>
     Effect.gen(function* () {
-      const reply = yield* claude([goal, "--model", model, "--tools", "", "--json-schema", JSON.stringify(jsonSchemaFor(schema)), "--system-prompt", `Fill in the arguments for ${name}.`])
+      const reply = yield* claude([goal, "--model", model, "--tools", "", "--json-schema", JSON.stringify(jsonSchemaFor(schema)), "--system-prompt", `Fill in the arguments for ${name}.`], {}, model)
       if (reply.is_error || reply.structured_output === undefined) return yield* Effect.fail(new FillError({ message: `claude -p couldn't fill ${name}: ${reply.result ?? "no structured output"}` }))
 
       const args = yield* Schema.decodeUnknownEffect(schema)(reply.structured_output).pipe(Effect.mapError((e) => new FillError({ message: e.message })))

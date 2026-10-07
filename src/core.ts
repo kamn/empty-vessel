@@ -3,6 +3,7 @@
 // name and test/layers.test.ts keeps them from reaching past it. Its API is snapshotted in core-api.txt and versioned
 // by CORE_VERSION (test/core-api.test.ts says which bump a change needs).
 export { CORE_VERSION } from "./base/version"
+export { EMPTY_VESSEL_HOME } from "./base/home"
 
 // What a plugin is and provides.
 export { type Plugin, PluginError, pluginSettings, type Provides, type SystemTwoParts } from "./plugins/plugin"
@@ -21,7 +22,7 @@ export { CurrentSession, type SessionEntry, type SessionMirrorFn } from "./base/
 export { withLock } from "./base/files"
 export { Channel } from "./base/channel"
 export { ActiveAgent, Memory, MemoryError, type Scope } from "./base/memory"
-export type { Tokens } from "./base/usage"
+export { recordUsage, type Tokens } from "./base/usage"
 
 // Small helpers every kind of plugin uses: showing what it does (an event: activity, an error), one more try after a
 // temporary failure, a Schema as JSON schema (for a provider's structured output), an image the user attached.

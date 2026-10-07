@@ -56,7 +56,7 @@ export const makeCodexAuthCommands = (deps: CommandsDependencies) => ({
       })))
 
     yield* deps.store.save(credentials)
-    yield* deps.print(`Independent Codex login saved to ${deps.file}. Codex CLI credentials were not changed.`)
+    yield* deps.print(`Independent Codex login saved to ${deps.file}.`)
   }),
   logout: deps.store.logout.pipe(Effect.andThen(deps.print("Logged out of Codex in empty-vessel. Codex CLI credentials were not changed; automatic fallback is disabled. Run `empty-vessel login codex` to reconnect."))),
 })

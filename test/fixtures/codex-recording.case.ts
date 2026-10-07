@@ -70,7 +70,7 @@ test("Codex turns mirror messages and identical usage again after reopening a di
   expect(entries.filter((e) => e.payload.type === "agent_message").map((e) => e.payload.message)).toEqual(["Recorded answer", "Recorded answer"])
   expect(entries.filter((e) => e.payload.type === "task_complete")).toHaveLength(2)
   const disk = rows(join(reopened.dir, "main.jsonl"))
-  expect(disk.map((e) => e.role)).toEqual(["project", "user", "assistant", "resumed", "user", "assistant"])
+  expect(disk.map((e) => e.role)).toEqual(["project", "user", "usage", "assistant", "resumed", "user", "usage", "assistant"])
   expect(disk.filter((e) => e.role === "assistant").map((e) => e.text)).toEqual(["Recorded answer", "Recorded answer"])
 }).pipe(Effect.provide(diskStore()))))
 
@@ -89,7 +89,7 @@ test("auxiliary Codex calls record with CurrentSession but leave disk untouched 
   expect(entries.filter((e) => e.type === "session_meta")).toHaveLength(1)
   expect(entries.filter((e) => e.type === "turn_context").map((e) => e.payload.model)).toEqual(["recording-auxiliary"])
   expect(tokenRows(entries).map((e) => e.payload.info.last_token_usage)).toEqual([expected])
-  expect(rows(join(session.dir, "main.jsonl")).map((e) => e.role)).toEqual(["project"])
+  expect(rows(join(session.dir, "main.jsonl")).map((e) => e.role)).toEqual(["project", "usage"])
 }).pipe(Effect.provide(diskStore()))))
 
 test("a non-Codex model with session context records no Codex usage or rollout", () => Effect.runPromise(Effect.gen(function* () {

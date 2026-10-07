@@ -1,4 +1,6 @@
+import { randomUUIDv7 } from "bun"
 import { Context, Effect, Layer, Ref } from "effect"
+import { CurrentSession } from "./session"
 
 // What one model call sent and got back.
 export interface Tokens {
@@ -7,6 +9,38 @@ export interface Tokens {
   readonly cached?: number // how many of the input tokens the provider served from its prompt cache
   readonly thinking?: number // how many of the output tokens were hidden reasoning ("thinking") before the answer
 }
+
+// Durable provider usage is independent of the runtime tallies below. Invoke only after
+// parsing real provider usage, never from counters or invented fallback tokens.
+export const recordUsage = (request: {
+  readonly system: "systemOne" | "systemTwo"
+  readonly model: string
+  readonly tokens: Tokens
+  readonly provider?: string
+  readonly usageId?: string
+  readonly granularity?: "provider-result"
+}): Effect.Effect<string | undefined> => Effect.gen(function* () {
+  const session = yield* CurrentSession
+  if (!session) return undefined
+  const usageId = request.usageId ?? randomUUIDv7()
+  const { input, output, cached, thinking } = request.tokens
+  const extra = {
+    usageVersion: 1, usageId, system: request.system, model: request.model, agent: session.key,
+    input, output,
+    ...(cached === undefined ? {} : { cached }),
+    ...(thinking === undefined ? {} : { thinking }),
+    ...(request.provider === undefined ? {} : { provider: request.provider }),
+    ...(request.granularity === undefined ? {} : { granularity: request.granularity }),
+  }
+  // Keep the allocated ID even when writing fails: provider mirrors use it for fallback
+  // and deduplication. A broken writer (or logger) must never retry a successful call.
+  yield* Effect.suspend(() => session.record("usage", "model request", { extra })).pipe(
+    Effect.catchCause(() => Effect.logWarning("Usage persistence failed; agent continues").pipe(
+      Effect.catchCause(() => Effect.void),
+    )),
+  )
+  return usageId
+})
 
 type Tally = { readonly ms: number; readonly input: number; readonly cached: number; readonly output: number; readonly thinking: number }
 // turn: wall-clock time of whole turns (tokens stay 0); systemOne and systemTwo: time and tokens of their calls.
