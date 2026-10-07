@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
-import { Context, Effect } from "effect"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
 
 // The kernel's side inside a cell's Worker: calls to the host (the program that runs the kernel), and earlier results.
 // Every generated scope re-exports these, so a cell can `yield* call("name", arg)` and `result(3)`.

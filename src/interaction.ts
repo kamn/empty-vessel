@@ -7,6 +7,7 @@ import { Inbox, makeInbox } from "./base/inbox"
 import type { SessionHandle } from "./base/session"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
+import { skillCommand } from "./loop/skill-commands"
 import type { Conversation } from "./loop/turnkit"
 import type { SystemOne } from "./system-one/systemone"
 import { AskUser } from "./ui/ask"
@@ -30,7 +31,7 @@ export interface InteractionAdapters {
 }
 
 // Injection keeps lifecycle tests independent of providers, kernels and credentials.
-export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand }
+export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand }
 export const makeSessionRunner = (session: SessionHandle, conversation: Conversation, adapters: InteractionAdapters, operations = interactionOperations) =>
   Effect.gen(function* () {
     let services = yield* Effect.context<Effect.Services<ReturnType<typeof answer>> | Config | SystemOne>() // an agent or /model replaces System Two's
@@ -84,10 +85,12 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       }))
 
     const run = (input: string): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
-      const refine = /^\/refine\b/.test(input)
-      const review = /^\/review\b/.test(input)
-      const model = input.match(/^\/model\b\s*(\S*)/)
-      const named = input.match(/^\/agent\b\s*(\S*)/)
+      const refine = /^\/refine(?=\s|$)/.test(input)
+      const review = /^\/review(?=\s|$)/.test(input)
+      const model = input.match(/^\/model(?=\s|$)\s*(\S*)/)
+      const named = input.match(/^\/agent(?=\s|$)\s*(\S*)/)
+      let turnInput = input
+      let skillOnly = false
       const work = Effect.gen(function* () {
         if (refine) return { reply: yield* provide(operations.refineCommand(input.slice("/refine".length))), usage: [] }
         // /review (save [n…]): look back over this project's sessions (src/loop/review.ts).
@@ -106,24 +109,31 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
           return { reply: chose.reply ?? "", usage: [] }
         }
 
+        const skill = yield* operations.skillCommand(session, conversation, input)
+        if (skill?.kind === "reply") {
+          skillOnly = true
+          return { reply: skill.reply, usage: [] }
+        }
+        if (skill?.kind === "activation") turnInput = skill.content
+
         // Before the conversation's first message, System One picks its agent.
-        const picked = yield* operations.firstAgent(session, conversation, input, services, owner)
+        const picked = yield* operations.firstAgent(session, conversation, turnInput, services, owner)
         services = picked.services
         if (picked.line) yield* adapters.events.emit({ kind: "note", depth: 0, text: picked.line })
 
         inbox.drain() // the host owns leftovers between turns (TUI keeps its own displayed queue)
-        const result = yield* provide(operations.answer(session, input, conversation))
+        const result = yield* provide(operations.answer(session, turnInput, conversation))
         conversation.history.push({ user: input, answer: result.reply })
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
-        if (refine || review || model || named) return { reply: "(stopped)", usage: [] }
-        const reply = yield* provide(operations.stopped(session, input, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
+        if (refine || review || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
+        const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
         conversation.history.push({ user: input, answer: reply })
         return { reply, usage: [] }
       })
 
-      return execute(work, interrupted)
+      return execute(work.pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false }))), interrupted)
     })
     const runner: SessionRunner = {
       run,

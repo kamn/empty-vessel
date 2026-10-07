@@ -28,6 +28,7 @@ import type { SystemOne } from "./system-one/systemone"
 import { addSource, closeSources, describeSources, entryFor, loginTo, makeSources, removeSource, useSources } from "./loop/sources"
 import { type Conversation, newConversation } from "./loop/turnkit"
 import { refineCommand } from "./loop/refine"
+import { skillCommand } from "./loop/skill-commands"
 import { Usage } from "./base/usage"
 import { EMPTY_VESSEL_HOME } from "./base/home"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
@@ -167,10 +168,19 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
       if (picked.line) yield* say(picked.line)
     })
 
+  // Both CLI paths activate skills on the host and keep the typed command in history.
+  const runInput = (input: string) => Effect.gen(function* () {
+    const skill = yield* skillCommand(session, conversation, input)
+    if (skill?.kind === "reply") return yield* Console.log(skill.reply)
+    const turnInput = skill?.kind === "activation" ? skill.content : input
+    yield* pick(turnInput)
+    const reply = yield* answerOrStop(session, turnInput, conversation).pipe(Effect.provideContext(services))
+    conversation.history.push({ user: input, answer: reply })
+  }).pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false })))
+
   const background = yield* Background
   if (Option.isSome(prompt)) {
-    yield* pick(prompt.value)
-    yield* answerOrStop(session, prompt.value, conversation).pipe(Effect.provideContext(services)) // one message, then exit (Ctrl+C stops it cleanly first)
+    yield* runInput(prompt.value) // one message, then exit (Ctrl+C stops it cleanly first)
     yield* background.drain // … once the background work (the reviewer, adoption) is done
 
     // What that background work spent: it runs after the turn's line was printed, so it would be counted nowhere.
@@ -199,14 +209,14 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
     const shell = line.match(/^(!!?)\s*(.*\S)/)
     if (shell) { yield* Console.log(yield* userCommand(session, conversation, shell[2]!, shell[1] === "!").pipe(Effect.provideContext(services))); continue }
     // /refine ([--yes], log, undo <id>): look back over this project's sessions, when asked (src/loop/refine.ts); /flag <note>: mark this moment for it.
-    if (/^\/refine\b/.test(line)) { yield* Console.log(yield* refineCommand(line.slice("/refine".length)).pipe(Effect.provideContext(services))); continue }
+    if (/^\/refine(?=\s|$)/.test(line)) { yield* Console.log(yield* refineCommand(line.slice("/refine".length)).pipe(Effect.provideContext(services))); continue }
     // /memory (remove <scope> <n>, edit [scope]): what empty-vessel remembers (src/learning/notes.ts).
-    if (/^\/memory\b/.test(line)) { yield* Console.log(yield* memoryCommand(line.slice("/memory".length)).pipe(Effect.provideContext(services))); continue }
-    const flag = line.match(/^\/flag\b\s*(.*)$/)
+    if (/^\/memory(?=\s|$)/.test(line)) { yield* Console.log(yield* memoryCommand(line.slice("/memory".length)).pipe(Effect.provideContext(services))); continue }
+    const flag = line.match(/^\/flag(?=\s|$)\s*(.*)$/)
     if (flag) { yield* session.record("flag", flag[1]!.trim(), { running: false, activity: "" }).pipe(Effect.ignore); yield* Console.log("flagged"); continue }
 
     // /model [name]: which System Two, or another for the rest of the session.
-    const model = line.match(/^\/model\b\s*(\S*)/)
+    const model = line.match(/^\/model(?=\s|$)\s*(\S*)/)
     if (model) {
       const switched = yield* modelCommand(session, conversation, model[1]!, services)
       services = switched.services
@@ -215,7 +225,7 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
     }
 
     // /agent [name]: which agent this conversation works as; before the first message, pick one yourself.
-    const named = line.match(/^\/agent\b\s*(\S*)/)
+    const named = line.match(/^\/agent(?=\s|$)\s*(\S*)/)
     if (named) {
       const chose = yield* agentCommand(session, conversation, named[1]!, services)
       services = chose.services
@@ -223,8 +233,7 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
       continue
     }
 
-    yield* pick(line)
-    conversation.history.push({ user: line, answer: yield* answerOrStop(session, line, conversation).pipe(Effect.provideContext(services)) })
+    yield* runInput(line)
   }
 })
 

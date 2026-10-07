@@ -56,6 +56,15 @@ empty-vessel setup                  # checks what's needed, asks for your Jev AP
 
 ## Use
 
+Resume the latest session with `empty-vessel --continue`, or choose one with
+`empty-vessel --resume <session-id>`. In the TUI, resuming restores the saved conversation
+view: comments, cells and their results, expanded sections, scroll position, input history,
+and unfinished drafts. The view is saved locally inside that session as you work.
+Restoring the view does not rerun commands or resume an interrupted operation.
+
+Older sessions without a saved view are reconstructed from the available session records;
+visual details that were never recorded cannot be recovered.
+
 ## Terminal theme
 
 Add `"theme": "teal"` alongside your existing settings in `~/.empty-vessel/config.json`,

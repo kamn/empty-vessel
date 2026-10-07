@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
-import { Effect, Schema } from "effect"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import { BASH_TIMEOUT_SECONDS, MAX_BYTES, MAX_LINES, runBash } from "./bash"
 import { jsonSchemaFor } from "../base/json-schema"
 

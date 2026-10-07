@@ -1,6 +1,6 @@
 import { Cause, Context, Duration, Effect, Exit, Scope } from "effect"
 import { Config } from "./base/config"
-import { reportState } from "./integrations/herdr"
+import { finishTurn, reportState } from "./integrations/herdr"
 import { systemTwoServices } from "./loop/systems"
 import { type Agent, applyAgent, listAgents, loadAgent } from "./base/agents"
 import { SystemOne } from "./system-one/systemone"
@@ -25,7 +25,6 @@ export const answer = (session: SessionHandle, input: string, conversation: Conv
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
     const [took, reply] = yield* Effect.timed(turn(session, input, 0, conversation).pipe(
       Effect.ensuring(conversation.jobs.cancelAll),
-      Effect.ensuring(reportState("idle")), // also after a failed or interrupted turn
     ))
 
     const usage = yield* Usage
@@ -39,7 +38,7 @@ export const answer = (session: SessionHandle, input: string, conversation: Conv
       usage: [usageLine("turn   ", thisTurn), usageLine("session", sessionSoFar)],
       brief: { turn: briefLine("turn   ", thisTurn), session: briefLine("session", sessionSoFar) },
     }
-  })
+  }).pipe(Effect.onExit((exit) => Exit.isSuccess(exit) ? finishTurn : reportState("idle")))
 
 // Time and tokens, per system: a turn's, or a whole run's.
 const secs = (ms: number) => `${(ms / 1000).toFixed(2)}s`

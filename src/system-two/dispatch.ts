@@ -1,3 +1,4 @@
+import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { Effect, Option, Schema } from "effect"
 import { emit } from "../base/events"
 import { exitOf, lessonIn } from "../base/lessons"
@@ -59,7 +60,7 @@ const cellSummary = (name: string, parsed: any) => {
 
 // How a tool call is shown: a kernel cell by its title (a text cell by its name); any other tool by name.
 export const shownAs = (name: string, parsed: any) =>
-  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellSummary(name, parsed) ?? codeTitle(String(parsed?.code ?? ""))}`)
+  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellSummary(name, parsed)?.replace(/\s+/g, " ").trim() || codeTitle(String(parsed?.code ?? ""))}`)
   : name
 
 // What can be unfolded under it: a cell's code (or text) and its result.
@@ -145,7 +146,7 @@ export const afterCommand = (name: string, parsed: unknown, output: string, hook
     yield* Effect.logDebug(`system two command ${JSON.stringify({ tool: name, args: parsed, output: output.slice(0, 8000) })}`)
     if (hooks.onCommand) yield* hooks.onCommand({ tool: name, args: parsed, output })
 
-    if (!hooks.prune || !state.pruning || name !== "kernel" || output.length <= PRUNE_OVER) return output
+    if (output.includes(KERNEL_PASSTHROUGH) || !hooks.prune || !state.pruning || name !== "kernel" || output.length <= PRUNE_OVER) return output
     const shorter = yield* hooks.prune(shownAs(name, parsed), output)
     if (shorter.length >= output.length) return output
     const id = `out${state.stash.size + 1}`

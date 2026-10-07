@@ -26,6 +26,9 @@ export const compactIfNeeded = (ctx: Ctx) =>
     const done = yield* ctx.systemTwo.compact(conversation.thread, { score, stash: conversation.stash, size: before, target: Math.round(config.compactAt / 2) })
     yield* ctx.usage.add("systemTwo", 0, done.tokens)
     conversation.size = done.after
+    // Skill instructions are not ordinary expendable output. Replay their saved envelopes after compaction.
+    conversation.skillCatalogPending = true
+    conversation.activeSkillsPending = true
 
     const what = `${done.masked} old outputs hidden (~${Math.round(done.savedTokens / 1000)}k)${done.summarized ? `, ${done.summarized} older items summarized` : ""}`
     // The compacted thread as a whole (resuming starts from it), and whatever was hidden (so more_output still works).

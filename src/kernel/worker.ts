@@ -1,4 +1,9 @@
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { dirname, isAbsolute, resolve } from "node:path"
+import * as Cause from "effect/Cause"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
 import { guardGlobals } from "./guard"
 import { answer, Sources, sourcesThroughHost } from "./runtime"
 
@@ -6,6 +11,20 @@ import { answer, Sources, sourcesThroughHost } from "./runtime"
 // to the host as log lines (a Worker's console would print straight onto the host's terminal).
 
 declare const self: Worker
+
+// A prestarted Worker can miss newly written files in Bun's cached directory listing.
+// Resolve only this kernel's generated modules explicitly; Bun still loads and parses them.
+const dir = resolve(process.env.KERNEL_DIR!)
+Bun.plugin({
+  name: "kernel-generated-modules",
+  setup(build) {
+    build.onResolve({ filter: /(?:^|[\\/])(?:cell-\d+|scope-\d+|sources)\.ts$/ }, ({ path, importer }) => {
+      if (!isAbsolute(path) && !path.startsWith(".")) return
+      const file = resolve(importer ? dirname(importer) : dir, path)
+      if (dirname(file) === dir) return { path: file }
+    })
+  },
+})
 
 const text = (v: unknown) => (typeof v === "string" ? v : Bun.inspect(v, { depth: 4 }))
 const log = (...args: ReadonlyArray<unknown>) => self.postMessage({ type: "log", text: args.map(text).join(" ") })

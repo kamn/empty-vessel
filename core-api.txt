@@ -265,6 +265,7 @@ export type Hooks = {
     readonly kernel?: (args: typeof KernelArgs.Type) => Effect.Effect<string>;
     readonly thread?: Array<unknown>;
     readonly briefing?: string;
+    readonly skillContext?: () => string;
     readonly images?: ReadonlyArray<{
         readonly label: string;
         readonly path: string;

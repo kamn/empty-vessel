@@ -75,3 +75,38 @@ export const cellProblems = (code: string, imports: RegExp = /^kernel$/): Readon
 
   return problems
 }
+
+// Names a cell asks the kernel for. Namespace imports and unfamiliar syntax keep the full scope.
+// Use the same string/comment mask as the rules: apparent imports inside text aren't declarations.
+export const kernelImports = (code: string): ReadonlyArray<string> | undefined => {
+  const { text, depths } = blank(code)
+  // The rules mask is not a regex parser: braces in a regex can distort its depth tracking.
+  // Any remaining slash (including division) conservatively keeps the original full scope.
+  if (text.includes("/")) return undefined
+  const names = new Set<string>()
+
+  for (const token of text.matchAll(/\b(import|export)\b/g)) {
+    const at = token.index!
+    if (depths[at] !== 0) continue
+    const rest = text.slice(at)
+    if (token[1] === "export") {
+      if (/^export\s+(?:type\s+)?(?:\{|\*)/.test(rest)) return undefined
+      continue
+    }
+
+    const declaration = /^import\s+(?:type\s+)?\{([^}]*)\}\s+from\s*(["'])/.exec(rest)
+    if (!declaration) return undefined
+    const start = at + declaration[0].length
+    const end = code.indexOf(declaration[2]!, start)
+    if (code.slice(start, end) !== "kernel") return undefined
+
+    for (const binding of declaration[1]!.split(",")) {
+      if (!binding.trim()) continue
+      const named = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+[A-Za-z_$][\w$]*)?$/.exec(binding.trim())
+      if (!named) return undefined
+      names.add(named[1]!)
+    }
+  }
+
+  return [...names]
+}

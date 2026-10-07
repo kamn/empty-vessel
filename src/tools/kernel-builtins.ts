@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Context, Effect, Layer } from "effect"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import { ALL, type Grants, has } from "../base/grants"
 import { outsideCaller } from "../kernel/guard"
 import { call, isPlainData, Sources } from "../kernel/runtime"
@@ -19,9 +21,12 @@ type Answers = Readonly<Record<string, { choice: string; confidence: number }>>
 export type Question = { readonly question: string; readonly options: Readonly<Record<string, string>> }
 export type JobView = { readonly status: "queued" | "running" | "done" | "failed" | "cancelled" | "unknown"; readonly answer?: string }
 
+export type SkillArgs = { readonly name: string; readonly arguments?: string }
+
 export class Files extends Context.Service<Files, {
   readonly read: (path: string, offset?: number, limit?: number) => Effect.Effect<string>
   readonly readText: (path: string) => Effect.Effect<string, Error>
+  readonly skill: (args: SkillArgs) => Effect.Effect<string, Error>
   readonly write: (path: string, content: string) => Effect.Effect<string>
   readonly edit: (path: string, edits: ReadonlyArray<{ oldText: string; newText: string }>) => Effect.Effect<string>
 }>()("empty-vessel/Files") {}
@@ -58,6 +63,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
   Layer.succeed(Random, Random.of({ next: Effect.sync(() => Math.random()) })),
   ...(has(g, "read") ? [Layer.succeed(Files, Files.of({
     read: (path, offset, limit) => tool("read", { path, ...(offset ? { offset } : {}), ...(limit ? { limit } : {}) }),
+    skill: (args) => call("skill", args) as Effect.Effect<string, Error>,
     readText: (path) => Effect.tryPromise({ try: () => readFile(path, "utf8"), catch: (e) => new Error(`can't read ${path}: ${e}`) }),
     write: (path, content) => (has(g, "write") ? tool("write", { path, content }) : readOnly(`write ${path}`)),
     edit: (path, edits) => (has(g, "write") ? tool("edit", { path, edits }) : readOnly(`edit ${path}`)),
@@ -87,6 +93,8 @@ export const layer = layerFor(ALL)
 
 // A file's text with line numbers (2,000 lines at a time: offset/limit for more). readText: the raw text.
 export const read = (path: string, offset?: number, limit?: number) => Files.use((f) => f.read(path, offset, limit))
+// Load instructions, not executable code. Files capability keeps remember and grants honest.
+export const skill = (args: SkillArgs) => Files.use((f) => f.skill(args))
 export const readText = (path: string) => Files.use((f) => f.readText(path))
 export const write = (path: string, content: string) => Files.use((f) => f.write(path, content))
 export const edit = (path: string, edits: ReadonlyArray<{ oldText: string; newText: string }>) => Files.use((f) => f.edit(path, edits))

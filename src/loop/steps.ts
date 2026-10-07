@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs"
 import { Effect } from "effect"
 import { AskUser } from "../ui/ask"
+import { withAsking } from "../integrations/herdr"
 import type { AskUserArgs } from "../system-two/systemtwo"
 import { loadChecks } from "../learning/checks"
 import { explore, packFiles } from "../system-one/explore"
@@ -18,6 +19,7 @@ import { remember } from "./resume"
 import { scopeNote, watchScope } from "./scope"
 import { Inbox } from "../base/inbox"
 import { listAgents } from "../base/agents"
+import { skillContext, skillNotes } from "./skills"
 import { Memory } from "../base/memory"
 import { type Conversation, type Ctx, type Exchange, type Needs, type Step, timed } from "./turnkit"
 
@@ -91,10 +93,12 @@ const escalate: Step = (ctx, state) =>
     const unseen = state.escalated === 0 ? ctx.conversation.unseen.splice(0) : []
     const once = state.escalated === 0 ? onceNotes(ctx.conversation) : []
     const agents = state.escalated === 0 ? agentsLine(ctx) : undefined
+    const skills = state.escalated === 0 ? skillNotes(ctx.conversation, ctx.config.kernel.tools.files !== "none") : []
     const handed = yield* handOver(unseen, makePrune(ctx), ctx.conversation.stash)
     const prompt = [
       ...(handed ? [handed] : []),
       ...once,
+      ...skills,
       ...(state.escalated === 0 ? [`Goal: ${attached.text}`] : ["The goal isn't done yet. What happened since your last answer:"]),
       ...(state.escalated === 0 && attached.images.length ? [`Images attached to this message (you can see them): ${attached.images.map((i) => `${i.label} ${i.path}`).join(", ")}`] : []),
       ...(state.escalated === 0 && state.gathered ? [`System One loaded these files for you (read others if you need them):\n\n${state.gathered}`] : []),
@@ -115,7 +119,7 @@ const escalate: Step = (ctx, state) =>
     const user = yield* AskUser
     // Only the root agent can take over the interactive input.
     const askUser = ctx.depth === 0
-      ? (args: typeof AskUserArgs.Type) => user.ask(args.questions).pipe(Effect.map((answers) => JSON.stringify(answers)))
+      ? (args: typeof AskUserArgs.Type) => withAsking(Effect.suspend(() => user.ask(args.questions))).pipe(Effect.map((answers) => JSON.stringify(answers)))
       : undefined
 
     // What the turn has changed so far, so its changes reaching another part of the project can be told (src/loop/scope.ts).
@@ -138,6 +142,7 @@ const escalate: Step = (ctx, state) =>
       askUser, progressEveryMs: progressMinutes * 60_000, ...remembered, ...(scopeCheck ? { scope: () => scopeNote(state).pipe(Effect.tap((note) => (note ? ctx.session.record("scope", note).pipe(Effect.ignore) : Effect.void))) } : {}), ...(ctx.depth === 0 ? { inbox } : {}),
       handoff: makeHandoff(ctx, state, checks), onCommand: makeOnCommand(ctx, state), prune: makePrune(ctx),
       kernel: makeKernelHook(ctx, yield* Effect.context<Needs>(), state.offered.systemTwo, state.turn),
+      skillContext: () => skillContext(ctx.conversation, ctx.config.kernel.tools.files !== "none"),
       grants: ctx.config.kernel.tools, // System Two is told only of the built-ins this kernel grants
       images: attached.images, thread: ctx.conversation.thread, briefing: ctx.conversation.briefing, stash: ctx.conversation.stash, cacheKey: ctx.session.id, depth: ctx.depth, pending: () => ctx.conversation.jobs.pending(),
     }

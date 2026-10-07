@@ -7,6 +7,9 @@ if (!args.includes("--lsp")) {
   process.exit(7)
 }
 
+// Lifecycle tests keep exit asynchronous to catch callers that only send a kill request.
+if (args.includes("--slow-exit")) process.on("SIGTERM", () => { setTimeout(() => process.exit(0), 100) })
+
 let buffer = Buffer.alloc(0)
 for await (const chunk of Bun.stdin.stream()) {
   buffer = Buffer.concat([buffer, Buffer.from(chunk)])

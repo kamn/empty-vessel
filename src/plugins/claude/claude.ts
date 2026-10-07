@@ -149,6 +149,9 @@ export const withUnsent = (thread: ReadonlyArray<unknown>, prompt: string) => [.
 // When a run used all its rounds (claude -p --max-turns, documented: "exits with an error when the limit is reached"),
 // it's resumed once with no tools and asked for this, so it answers instead of failing (as Codex's last round, with
 // no tools, must answer).
+// Skills activated after this invocation starts are not in its durable system snapshot.
+const SKILL_COMPACTION = "Skill instructions survive in the current system snapshot below. After internal compaction, any skill activated later than the current system snapshot must be reloaded via kernel skill before continuing its workflow. Never rely on a compacted summary as its full instructions. If reload fails, stop and report the failure rather than proceeding. Initial user-only activations already included in this snapshot do not need reloading."
+
 const WRAP_UP = "You've used all your tool rounds for this request. Without calling any tools, reply now: what's done, what isn't, and what's left to do."
 
 // A claude -p run that hasn't finished after `limit` (15 minutes, as for a Codex request) is killed and reported as a
@@ -158,7 +161,12 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
     const thread = hooks.thread ?? []
     const tokens = { input: 0, output: 0, cached: 0 }
     const mcp = relay.mcpConfig
-    const system = [kernelInstructions(hooks.grants), hooks.briefing ?? ""].filter(Boolean).join("\n\n")
+    // Fetch at every CLI invocation, including job reminders and max-turn wrap-up retries.
+    // The hook is a read-only snapshot; it must not consume skill replay flags.
+    const common = () => {
+      const system = [kernelInstructions(hooks.grants), hooks.briefing ?? "", hooks.skillContext ? SKILL_COMPACTION : "", hooks.skillContext?.() ?? ""].filter(Boolean).join("\n\n")
+      return ["--system-prompt", system, "--strict-mcp-config", "--mcp-config", JSON.stringify(mcp), ...(model ? ["--model", model] : []), ...(reasoning ? ["--effort", reasoning] : [])]
+    }
     yield* emit("activity", hooks.depth ?? 0, "System Two (claude -p) is thinking")
 
     const notes = unsent(thread).length > 0
@@ -168,14 +176,13 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
     for (let reminders = 0; ; reminders++) {
       const last = thread.findLast((t) => (t as { claudeSession?: string }).claudeSession) as { claudeSession: string } | undefined
       // MCP_TOOL_TIMEOUT: a cell may run up to the kernel's 10 minutes.
-      const common = ["--system-prompt", system, "--strict-mcp-config", "--mcp-config", JSON.stringify(mcp), ...(model ? ["--model", model] : []), ...(reasoning ? ["--effort", reasoning] : [])]
       // Web search: Claude Code's own WebSearch and WebFetch, the only built-in tools it gets (the rest is empty-vessel's kernel).
       const web = ["--tools", webSearch ? "WebSearch,WebFetch" : ""]
-      const started = yield* claudeLive([...common, ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])]).pipe(Effect.timeoutOption(limit))
+      const started = yield* claudeLive([...common(), ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])]).pipe(Effect.timeoutOption(limit))
       if (Option.isNone(started)) return { text: `(System Two failed: claude -p hadn't finished after ${Duration.format(Duration.fromInputUnsafe(limit))} and was stopped)`, tokens }
       const first = started.value
       const reply = first.subtype === "error_max_turns" && first.session_id
-        ? yield* claude([WRAP_UP, ...common, "--tools", "", "--disallowedTools", "mcp__*", "--max-turns", "1", "--resume", first.session_id]).pipe(Effect.map((r) => ({ ...r, usage: sumUsage(first, r) })))
+        ? yield* claude([WRAP_UP, ...common(), "--tools", "", "--disallowedTools", "mcp__*", "--max-turns", "1", "--resume", first.session_id]).pipe(Effect.map((r) => ({ ...r, usage: sumUsage(first, r) })))
         : first
       tokens.input += inputOf(reply)
       tokens.output += reply.usage?.output_tokens ?? 0

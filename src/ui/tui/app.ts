@@ -1,3 +1,4 @@
+import { acceptCompletion, selectedCompletion, suggestions, type Completion } from "./completion"
 import { Context, Effect, Schema } from "effect"
 import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
@@ -33,6 +34,9 @@ export type Line = typeof Line.Type
 const Question = Schema.Struct({ question: Schema.String, options: Schema.Array(Schema.String) })
 
 const Model = Schema.Struct({
+  completions: Schema.Array(Schema.Struct({ command: Schema.String, description: Schema.String, skillName: Schema.optionalKey(Schema.String) })),
+  completionSelected: Schema.Number,
+  completionDismissed: Schema.Boolean,
   input: Schema.String,                 // what's being typed (may hold newlines)
   after: Schema.Number,                 // where the cursor is: how many characters of `input` are after it (0: the end)
   // Images pasted into the input (their paths), shown there as [Image #1]; sent as the paths when the message goes.
@@ -58,6 +62,7 @@ const Model = Schema.Struct({
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
+  UpdatedCompletions: { items: Schema.Array(Schema.Struct({ command: Schema.String, description: Schema.String, skillName: Schema.optionalKey(Schema.String) })) },
   PressedKey: { key: Schema.String },   // a key or escape sequence
   PastedText: { text: Schema.String }, // literal text, never a keyboard command
   AttachedImages: { images: Schema.Array(Schema.Struct({ label: Schema.String, path: Schema.String })) }, // a paste held images
@@ -140,10 +145,17 @@ export const Commands = { RunTurn, RunShell, StopTurn, Answer, Steer, Flag }
 
 // INIT
 // `banner`: shown first, at the top of the conversation (the logo, as the screen takes over).
-export const init = (status: string, banner?: string): Model => ({
-  input: "", after: 0, history: [], historyAt: 0, queued: [], steering: [], running: false, stopping: false, activity: "", frame: 0,
-  attached: [], pastes: [], scrollBack: 0, printed: banner ? [{ kind: "banner", text: banner }] : [], status, total: "", asking: null, selectedOption: 0, questionDraft: "", exiting: false,
-})
+// Also accept the original (status, banner, completions?) call used by the terminal bridge.
+export const init = (status: string, historyOrBanner: ReadonlyArray<string> | string = [], bannerOrCompletions?: string | ReadonlyArray<Completion>, completions: ReadonlyArray<Completion> = []): Model => {
+  const history = typeof historyOrBanner === "string" ? [] : [...historyOrBanner]
+  const banner = typeof historyOrBanner === "string" ? historyOrBanner : typeof bannerOrCompletions === "string" ? bannerOrCompletions : undefined
+  const items = typeof bannerOrCompletions === "object" ? bannerOrCompletions : completions
+  return {
+    completions: [...items], completionSelected: 0, completionDismissed: false,
+    input: "", after: 0, history, historyAt: history.length, queued: [], steering: [], running: false, stopping: false, activity: "", frame: 0,
+    attached: [], pastes: [], scrollBack: 0, printed: banner ? [{ kind: "banner", text: banner }] : [], status, total: "", asking: null, selectedOption: 0, questionDraft: "", exiting: false,
+  }
+}
 
 // UPDATE
 type Return = Update.Return<Model, Message, TurnRunner>
@@ -191,7 +203,7 @@ const submit = (model: Model, later = false): Return => {
   if (!text) return { model }
 
   // /flag <note>: marks this moment for /refine, running or not; never interrupts, never goes to System Two.
-  const flag = text.match(/^\/flag\b\s*([\s\S]*)$/)
+  const flag = text.match(/^\/flag(?=\s|$)\s*([\s\S]*)$/)
   if (flag) {
     const flagged = print({ ...model, input: "", after: 0 }, { kind: "user", text }, { kind: "info", text: "  flagged" })
     return { model: flagged, commands: [Flag({ note: flag[1]!.trim(), running: model.running, activity: model.activity })] }
@@ -288,6 +300,16 @@ const pressed = (model: Model, key: string): Return => {
     return { model: model.input ? { ...model, input: "", after: 0 } : { ...model, exiting: true } }
   }
 
+  const items = suggestions(model)
+  const selected = selectedCompletion(model, items)
+  if (selected) {
+    if (key === "\x1b") return { model: { ...model, completionDismissed: true } }
+    if (key === KEY.up || key === KEY.down) return { model: { ...model, completionSelected: Math.max(0, Math.min(items.length - 1, model.completionSelected + (key === KEY.up ? -1 : 1))) } }
+    if (key === "\t" || (key === KEY.enter && acceptCompletion(model, selected).input !== model.input)) {
+      return { model: { ...model, ...acceptCompletion(model, selected), completionDismissed: true, completionSelected: 0 } }
+    }
+  }
+
   if (key === KEY.ctrlD) return { model: !model.running && !model.input ? { ...model, exiting: true } : model }
   // Enter sends, but after a \ it's a line break (as Alt+Enter is), for a message of several lines.
   if (key === KEY.enter && beforeCursor(model).endsWith("\\")) return { model: { ...model, ...insert(backspace(model), "\n") } }
@@ -323,12 +345,19 @@ const got = (model: Model, { kind, depth, text, body, summary }: { kind: string;
 
 export const update = (model: Model, message: Message): Return =>
   Message.match<Return>(message, {
-    PressedKey: ({ key }) => pressed(model, key),
+    UpdatedCompletions: ({ items }) => ({ model: { ...model, completions: items, completionSelected: 0 } }),
+    PressedKey: ({ key }) => {
+      const next = pressed(model, key)
+      // Acceptance stays dismissed; all other draft/cursor edits reopen and reset the menu.
+      const accepting = suggestions(model).length > 0 && (key === "\t" || key === KEY.enter)
+      return !accepting && (next.model.input !== model.input || next.model.after !== model.after)
+        ? { ...next, model: { ...next.model, completionDismissed: false, completionSelected: 0 } } : next
+    },
     PastedText: ({ text }) => {
       const clean = text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
       const { shown, pastes } = foldPaste(clean, model.pastes)
 
-      return { model: { ...model, ...insert(model, shown), pastes } }
+      return { model: { ...model, ...insert(model, shown), pastes, completionDismissed: false, completionSelected: 0 } }
     },
     AttachedImages: ({ images }) => ({ model: { ...model, attached: [...model.attached, ...images] } }),
     GotEvent: (event) => ({ model: got(model, event) }),

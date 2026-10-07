@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { raw } from "../kernel/guard"
-import { Effect } from "effect"
+import * as Effect from "effect/Effect"
 import { type Action, authorizeAction, withActionGuard } from "./action-guard"
 
 // Output limits, the same as Pi's: keep the LAST 2000 lines or 50KB, whichever comes first

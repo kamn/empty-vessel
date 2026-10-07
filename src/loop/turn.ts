@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect"
+import { reportState } from "../integrations/herdr"
 import { systemTwoServices } from "./systems"
 import { AgentError } from "../base/agents"
 import { emit } from "../base/events"
@@ -162,8 +163,14 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
 
     let last = "", finishedByCheck = false, waitingForUser = false
 
+    const explicitSkill = conversation.explicitSkill === true
+    delete conversation.explicitSkill
+
     while (state.steps.length < config.maxSteps) {
-      const { choice, finished } = yield* decide(ctx, state, optionsNow(), library)
+      // A user explicitly chose this workflow: no library shortcut may answer instead.
+      const { choice, finished } = explicitSkill && state.escalated === 0
+        ? { choice: "escalate", finished: false }
+        : yield* decide(ctx, state, optionsNow(), library)
       if (finished) break
 
       const result = yield* (steps[choice] ?? STEPS.escalate!)(ctx, state) // a pick with no step (e.g. the fake's "ask") goes to System Two
@@ -171,6 +178,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       last = result.reply
       finishedByCheck = result.finishedByCheck === true
       waitingForUser = result.outcome === "waiting_for_user"
+      if (depth === 0 && waitingForUser) yield* reportState("blocked")
 
       // A human checkpoint ends this turn before System One can retry the unfinished goal.
       if (finishedByCheck || waitingForUser) break
