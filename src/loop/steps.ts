@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs"
 import { Effect } from "effect"
 import { AskUser } from "../ui/ask"
+import { withAsking } from "../integrations/herdr"
 import type { AskUserArgs } from "../system-two/systemtwo"
 import { loadChecks } from "../learning/checks"
 import { explore, packFiles } from "../system-one/explore"
@@ -115,7 +116,7 @@ const escalate: Step = (ctx, state) =>
     const user = yield* AskUser
     // Only the root agent can take over the interactive input.
     const askUser = ctx.depth === 0
-      ? (args: typeof AskUserArgs.Type) => user.ask(args.questions).pipe(Effect.map((answers) => JSON.stringify(answers)))
+      ? (args: typeof AskUserArgs.Type) => withAsking(Effect.suspend(() => user.ask(args.questions))).pipe(Effect.map((answers) => JSON.stringify(answers)))
       : undefined
 
     // What the turn has changed so far, so its changes reaching another part of the project can be told (src/loop/scope.ts).
