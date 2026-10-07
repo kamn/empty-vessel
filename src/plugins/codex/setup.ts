@@ -1,16 +1,15 @@
 import { Effect, Option } from "effect"
-import { readCodexAuth } from "./codex"
+import { readCodexAuth } from "./auth"
 import { type PluginSetup } from "empty-vessel"
 
-// What Codex needs: the Codex CLI, logged in (System Two runs on your ChatGPT plan through it).
+// Native ChatGPT login requires no Codex CLI; an existing CLI login remains a read-only fallback.
 export const setup: PluginSetup = {
   name: "codex",
   kind: "systemTwo",
-  title: "Codex, on your ChatGPT plan through the Codex CLI",
+  title: "Codex, on your ChatGPT plan",
   about: "https://github.com/openai/codex",
   checks: [
-    { what: "the Codex CLI", ok: Effect.sync(() => Bun.which("codex") !== null), fix: "install it: https://github.com/openai/codex" },
-    { what: "logged in to Codex", ok: Effect.option(readCodexAuth).pipe(Effect.map(Option.isSome)), fix: "run `codex login` (or `codex` once if it expired), then `empty-vessel setup` again" },
+    { what: "logged in to Codex", ok: Effect.option(readCodexAuth).pipe(Effect.map(Option.isSome)), fix: "run `empty-vessel login codex` (or add `--device-code` for a remote terminal), then `empty-vessel setup` again" },
   ],
   defaults: { model: "gpt-6-astra" },
 }

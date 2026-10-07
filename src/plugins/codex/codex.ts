@@ -1,36 +1,12 @@
-import { readFileSync } from "node:fs"
-import { homedir } from "node:os"
-import { join } from "node:path"
 import { Data, Duration, Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { CurrentSession, SystemTwo, askFromModel, emit, fillFromModel, type Model, retryIfTemporary, systemTwoFromModel } from "empty-vessel"
 import { codexSessionMirror, recordCodexUsage } from "./rollout"
+import { CodexAuthError } from "./auth-store"
+import { readCodexAuth } from "./auth"
+export { readCodexAuth } from "./auth"
 
-// Codex's own login file. We only READ it and never refresh it: refresh tokens are single-use,
-// so if empty-vessel refreshed too, empty-vessel and Codex would keep logging each other out.
-const AUTH_FILE = join(homedir(), ".codex", "auth.json")
-
-class CodexAuthError extends Data.TaggedError("CodexAuthError")<{ message: string }> {}
 class CodexReplyError extends Data.TaggedError("CodexReplyError")<{ message: string }> {}
-
-const CodexAuthFile = Schema.Struct({
-  tokens: Schema.Struct({ access_token: Schema.RedactedFromValue(Schema.String), account_id: Schema.String }),
-})
-
-// The token is a JWT: three dot-separated parts, the middle one is JSON with `exp` (seconds since 1970).
-const expiresAt = (token: Redacted.Redacted<string>): number =>
-  JSON.parse(Buffer.from(Redacted.value(token).split(".")[1] ?? "", "base64url").toString()).exp * 1000
-
-// Codex's access token and account id, or a clear error telling you what to run.
-export const readCodexAuth = Effect.gen(function* () {
-  const fail = (message: string) => new CodexAuthError({ message })
-  const raw = yield* Effect.try({ try: () => JSON.parse(readFileSync(AUTH_FILE, "utf8")), catch: () => fail(`can't read ${AUTH_FILE}: run \`codex login\``) })
-  const { tokens } = yield* Schema.decodeUnknownEffect(CodexAuthFile)(raw).pipe(Effect.mapError(() => fail(`no ChatGPT login in ${AUTH_FILE}: run \`codex login\``)))
-
-  const expires = yield* Effect.try({ try: () => expiresAt(tokens.access_token), catch: () => fail("can't read the Codex token's expiry") })
-  if (expires < Date.now()) return yield* Effect.fail(fail("the Codex login has expired: run `codex` once to refresh it"))
-  return { token: tokens.access_token, accountId: tokens.account_id, expires }
-})
 
 // The events we need from a Codex reply. Only the fields we use are checked.
 const TextDone = Schema.Struct({ type: Schema.Literal("response.output_text.done"), text: Schema.String })
@@ -97,7 +73,7 @@ export const readWithin = <E>(stream: Stream.Stream<Uint8Array, E>, idle: Durati
   )
 }
 
-// One request to the Codex endpoint with the read-only login; returns the parsed reply (text, tool calls, usage).
+// One request to the Codex endpoint with native login (or read-only CLI fallback); returns the parsed reply (text, tool calls, usage).
 // `store: false` means the server keeps nothing, so callers resend the whole conversation each time.
 // `sessionId` goes in the `session-id` header: ChatGPT picks the server (and so the prompt cache) from it, not from
 // the body's prompt_cache_key. Without it, cached_tokens was 0 on every request.
@@ -115,6 +91,10 @@ export const postCodex = (client: HttpClient.HttpClient, body: Record<string, un
       HttpClientRequest.bodyJsonUnsafe({ ...body, store: false, stream: true }),
       client.execute,
     )
+
+    if (response.status === 401 || response.status === 403) {
+      return yield* Effect.fail(new CodexAuthError({ message: "Codex denied this login or account access. Run `empty-vessel login codex` to reconnect; no fallback account was used." }))
+    }
 
     const reply = readReply(yield* readWithin(response.stream, idle))
     if (!reply) return yield* Effect.fail(new CodexReplyError({ message: "no response.completed event in the Codex reply" }))

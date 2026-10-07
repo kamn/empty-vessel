@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { grantWarnings } from "./base/grants"
+import { codexLoginCommand, codexLogoutCommand } from "./plugins/codex/commands"
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Console, Effect, Exit, Fiber, LogLevel, Option } from "effect"
 import { Argument, Command, Flag } from "effect/unstable/cli"
@@ -295,12 +296,25 @@ const emptyVessel = Command.make(
       memoryCommand(args.join(" "), true).pipe(Effect.flatMap((text) => Console.log(text)), Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer)),
     ).pipe(Command.withDescription("What empty-vessel remembers (this agent, this project): each entry numbered, how full each scope is; remove <scope> <n> forgets one, edit opens the file")),
     Command.make("onboarding", {}, () => onboarding).pipe(Command.withDescription("Show the walkthrough of empty-vessel's two ideas again (it leads into setup)")),
-    Command.make("login", { source: Argument.String("source").pipe(Argument.withDescription("A remote tool source in the config's sources, with \"auth\": \"oauth\"")) }, ({ source }) =>
-      Effect.gen(function* () {
-        const said = yield* loginTo(source, (yield* Config).sources)
-        yield* Console.log(said)
-      }).pipe(Effect.catch((e) => Console.error(`login: ${e instanceof Error ? e.message : String(e)}`)), Effect.provide(Config.layer)),
-    ).pipe(Command.withDescription("Log in to a remote tool source (OAuth in your browser); the login is kept in ~/.empty-vessel/auth")),
+    Command.make("login", {
+      source: Argument.String("source").pipe(Argument.withDescription("codex, or a remote OAuth tool source in config")),
+      deviceCode: Flag.Boolean("device-code").pipe(Flag.withDefault(false), Flag.withDescription("Codex: log in using a device code (remote/headless terminals)")),
+      status: Flag.Boolean("status").pipe(Flag.withDefault(false), Flag.withDescription("Codex: show credential source and expiry without logging in")),
+    }, ({ source, deviceCode, status }) => source === "codex"
+      ? codexLoginCommand({ deviceCode, status })
+      : deviceCode || status
+        ? Effect.fail(new Error("--device-code and --status are only supported for login codex"))
+        : Effect.gen(function* () {
+          const said = yield* loginTo(source, (yield* Config).sources)
+          yield* Console.log(said)
+        }).pipe(Effect.catch((e) => Console.error(`login: ${e instanceof Error ? e.message : String(e)}`)), Effect.provide(Config.layer)),
+    ).pipe(Command.withDescription("Log in to Codex independently, or to a remote OAuth tool source")),
+    Command.make("logout", {
+      provider: Argument.String("provider").pipe(Argument.withDescription("codex")),
+    }, ({ provider }) => provider === "codex"
+      ? codexLogoutCommand
+      : Effect.fail(new Error("Only `empty-vessel logout codex` is supported")),
+    ).pipe(Command.withDescription("Remove empty-vessel's Codex credentials without changing the Codex CLI login")),
     // Tool sources from the command line, like `claude mcp add`: no need to edit config.json by hand.
     Command.make("plugins").pipe(
       Command.withDescription("Plugins from outside empty-vessel's repo (a folder whose default export is a plugin): add, list, remove"),
