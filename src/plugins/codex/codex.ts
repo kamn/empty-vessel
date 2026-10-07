@@ -1,6 +1,6 @@
 import { Data, Duration, Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { CurrentSession, SystemTwo, askFromModel, emit, fillFromModel, type Model, retryIfTemporary, systemTwoFromModel } from "empty-vessel"
+import { CurrentSession, SystemTwo, askFromModel, emit, fillFromModel, type Model, recordUsage, retryIfTemporary, systemTwoFromModel } from "empty-vessel"
 import { codexSessionMirror, recordCodexUsage } from "./rollout"
 import { CodexAuthError } from "./auth-store"
 import { readCodexAuth } from "./auth"
@@ -128,8 +128,10 @@ export const codexModel = (client: HttpClient.HttpClient, model: string, reasoni
       // One structured answer (Ask, Fill): strict, so the model fills every field (not strict, gpt-6-luna left fields out).
       ...(schema ? { text: { format: { type: "json_schema", name: schema.name, schema: schema.schema, strict: true } } } : {}),
     }, cacheKey).pipe(Effect.tap((r) => Effect.gen(function* () {
+      const tokens = requestUsage(r.usage)
+      const usageId = yield* recordUsage({ system: "systemTwo", model, tokens, provider: "codex" })
       const session = yield* CurrentSession
-      if (session) yield* recordCodexUsage(session.key, model, requestUsage(r.usage))
+      if (session) yield* recordCodexUsage(session.key, model, tokens, usageId)
     })), Effect.map((r) => ({
       text: r.text, keep: r.reasoning, thinking: r.thinking, searches: r.searches, usage: requestUsage(r.usage),
       calls: r.calls.map((c) => ({ id: c.call_id, name: c.name, arguments: c.arguments })),

@@ -1,6 +1,6 @@
 import { Effect, Layer, Redacted, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
-import { emit, retryIfTemporary, type StepState, SystemOne } from "empty-vessel"
+import { emit, recordUsage, retryIfTemporary, type StepState, SystemOne } from "empty-vessel"
 
 // Jev's answers to our two questions: "next" (a choice) and "done" (yes/no). Only the fields we use are checked.
 const JevResponse = Schema.Struct({
@@ -21,6 +21,10 @@ const JevChoices = Schema.Struct({
   answers: Schema.Record(Schema.String, Schema.Struct({ choice: Schema.String, confidence: Schema.Number })),
   usage: Schema.Struct({ input_tokens: Schema.Number, output_tokens: Schema.Number }),
 })
+
+// Only decoded provider results are usage boundaries; persistence never changes returned tokens.
+const recordJevUsage = ({ usage }: { readonly usage: { readonly input_tokens: number; readonly output_tokens: number } }) =>
+  recordUsage({ system: "systemOne", model: "jev-latest", provider: "jev", tokens: { input: usage.input_tokens, output: usage.output_tokens } })
 
 // Real System One: one Jev call per step, two questions answered in parallel (API: docs.typesafe.ai/api.md).
 export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
@@ -46,6 +50,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, { type: "noul", instructions: q.question, criteria: { true: q.yes, false: q.no } }])),
           }).pipe(
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevRelevant)),
+            Effect.tap(recordJevUsage),
             Effect.map(({ answers, usage }) => ({ answers: Object.fromEntries(Object.keys(questions).map((k) => [k, answers[k]?.noul ?? 0])), tokens: { input: usage.input_tokens, output: usage.output_tokens } })),
             // A failed judgment means "no": nothing is flagged, nothing breaks.
             Effect.catch((e) => emit("error", 0, `jev failed, judging no: ${e}`).pipe(Effect.as({ answers: Object.fromEntries(Object.keys(questions).map((k) => [k, 0])), tokens: { input: 0, output: 0 } }))),
@@ -61,6 +66,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             }])),
           }).pipe(
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevRelevant)),
+            Effect.tap(recordJevUsage),
             Effect.map(({ answers, usage }) => ({ scores: items.map((_, i) => answers[`f${i}`]?.noul ?? 0), tokens: { input: usage.input_tokens, output: usage.output_tokens } })),
             // Gathering is optional: if Jev fails, no files are picked and System Two reads what it needs itself.
             Effect.catch((e) => emit("error", 0, `jev failed, gathering nothing: ${e}`).pipe(Effect.as({ scores: items.map(() => 0), tokens: { input: 0, output: 0 } }))),
@@ -71,6 +77,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, { type: "choice", instructions: q.question, criteria: q.options }])),
           }).pipe(
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevChoices)),
+            Effect.tap(recordJevUsage),
             Effect.map(({ answers, usage }) => ({ answers, tokens: { input: usage.input_tokens, output: usage.output_tokens } })),
             // Jev failed: no answer stands (confidence 0), so each question goes to the caller's fallback.
             Effect.catch((e) => emit("error", 0, `jev failed, deciding nothing: ${e}`).pipe(Effect.as({ answers: Object.fromEntries(Object.keys(questions).map((k) => [k, { choice: "", confidence: 0 }])), tokens: { input: 0, output: 0 } }))),
@@ -100,6 +107,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             Effect.timeout("10 seconds"),
             retryIfTemporary,
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevResponse)),
+            Effect.tap(recordJevUsage),
             Effect.map(({ answers, usage }) => ({
               ...answers.next,
               done: answers.done.noul,

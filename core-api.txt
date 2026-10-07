@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.2
+# empty-vessel core 0.0.3
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -198,6 +198,9 @@ export declare const described: <F extends Readonly<Record<string, Setting>>>(fi
 
 ## emit (src/base/events)
 export declare const emit: (kind: Kind, depth: number, text: string, body?: string, summary?: string) => Effect.Effect<void, never, never>;
+
+## EMPTY_VESSEL_HOME (src/base/home)
+export declare const EMPTY_VESSEL_HOME: string;
 
 ## Ended (src/system-two/dispatch)
 export type Ended = {
@@ -417,6 +420,16 @@ export type Provides = {
     readonly store?: Effect.Effect<Layer.Layer<Store>, ConfigError, Config>;
     readonly memory?: Effect.Effect<Layer.Layer<Memory, never, Store>, ConfigError, Config>;
 };
+
+## recordUsage (src/base/usage)
+export declare const recordUsage: (request: {
+    readonly system: "systemOne" | "systemTwo";
+    readonly model: string;
+    readonly tokens: Tokens;
+    readonly provider?: string;
+    readonly usageId?: string;
+    readonly granularity?: "provider-result";
+}) => Effect.Effect<string | undefined>;
 
 ## retryIfTemporary (src/base/retry)
 export declare const retryIfTemporary: <A, E, R>(call: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;

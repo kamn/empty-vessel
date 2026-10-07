@@ -52,7 +52,7 @@ describe("Codex auth commands", () => {
     expect(f.opened).toEqual(["https://example.test/authorize?state=fake"])
     expect(f.saved).toEqual([credentials])
     expect(f.calls()).toEqual({ browserCalls: 1, deviceCalls: 0, logoutCalls: 0 })
-    expect(f.messages.at(-1)).toContain("Codex CLI credentials were not changed")
+    expect(f.messages.at(-1)).toBe("Independent Codex login saved to /fake/providers/codex.json.")
     noCredentialOutput(f.messages)
   })
 
@@ -63,6 +63,7 @@ describe("Codex auth commands", () => {
     expect(f.saved).toEqual([credentials])
     expect(f.calls().deviceCalls).toBe(1)
     expect(f.messages[0]).toContain("ABCD-TEST")
+    expect(f.messages.at(-1)).toBe("Independent Codex login saved to /fake/providers/codex.json.")
     noCredentialOutput(f.messages)
   })
 
