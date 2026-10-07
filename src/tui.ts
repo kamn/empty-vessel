@@ -7,6 +7,7 @@ import type { Conversation } from "./loop/turnkit"
 import { init, Message, TurnRunner } from "./ui/tui/app"
 import { setTheme } from "./ui/tui/style"
 import { runTui } from "./ui/tui/runtime"
+import { loadView, saveView } from "./ui/tui/session"
 import { clipboardImage, imagesIn } from "./base/images"
 import { discoverSkills } from "./base/skills"
 import { skillCompletions } from "./skill-completions"
@@ -38,7 +39,19 @@ export const tui = (session: SessionHandle, conversation: Conversation, status: 
       onSteerRead: (text) => dispatch(Message.SteerRead({ text })),
     })
 
-    yield* runTui(init(status, banner, completions()), (d) => { dispatch = d }, {
+    let warned = false
+    const start = loadView(session.dir, init(status, banner, completions()))
+
+    yield* runTui(start, (d) => { dispatch = d }, {
+      checkpoint: (model) => {
+        try { saveView(session.dir, model) } catch {
+          // Keep the terminal usable if storage fails, but do not silently promise a saved view.
+          if (!warned && !model.exiting) {
+            warned = true
+            dispatch(Message.GotEvent({ kind: "error", depth: 0, text: "Could not save this session’s view. Check available disk space and session folder permissions." }))
+          }
+        }
+      },
       attach: (text, from) => imagesIn(text, process.cwd(), from),
       clipboard: () => clipboardImage()?.replace(/ /g, "\\ "),
       copy: (text) => { Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(text) }) }, // ponytail: macOS; OSC 52 for others

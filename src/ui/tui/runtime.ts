@@ -212,12 +212,14 @@ export const makeScreen = () => {
 // the text they're shown as labels in, numbered from `from`.
 // `clipboard`: saves a picture on the clipboard to a file and gives its path (undefined: no picture there).
 // `copy`: puts selected text on the clipboard.
+// `checkpoint`: saves the visible state after real messages and on exit (not on spinner ticks).
 type Io = {
   readonly attach?: (text: string, from: number) => { images: ReadonlyArray<{ label: string; path: string }>; text: string }
   readonly clipboard?: () => string | undefined
   readonly copy?: (text: string) => void
+  readonly checkpoint?: (model: Model) => void
 }
-export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void) => void, { attach = (text) => ({ images: [], text }), clipboard = () => undefined, copy = () => {} }: Io = {}) =>
+export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void) => void, { attach = (text) => ({ images: [], text }), clipboard = () => undefined, copy = () => {}, checkpoint = () => {} }: Io = {}) =>
   Effect.gen(function* () {
     const queue = yield* Queue.unbounded<Msg>()
     const dispatch = (message: Msg) => { Queue.offerUnsafe(queue, message) }
@@ -258,7 +260,7 @@ export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void)
     const screen = makeScreen()
     const { draw, erase } = screen
     let model = start
-    draw(model)
+    model = { ...model, scrollBack: draw(model) }
 
     const loop = Effect.gen(function* () {
       while (!model.exiting) {
@@ -267,6 +269,7 @@ export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void)
         model = next
         for (const command of commands) yield* Effect.forkChild(command.effect.pipe(Effect.map(dispatch)))
         model = { ...model, scrollBack: draw(model) }
+        if (message._tag !== "Ticked") checkpoint(model)
       }
     })
 
@@ -276,5 +279,6 @@ export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void)
       process.stdin.setRawMode(false)
       process.stdout.write("\x1b[?1002l\x1b[?1006l\x1b[?2004l") // restore normal mouse and paste handling
       erase()
+      checkpoint(model)
     })))
   })
