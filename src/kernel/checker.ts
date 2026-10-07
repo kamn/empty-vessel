@@ -1,4 +1,4 @@
-import { basename } from "node:path"
+import { basename, resolve } from "node:path"
 
 // The type check as a language server (TypeScript 7's `tsc --lsp --stdio`), one per kernel folder: it keeps Effect's and
 // Bun's types loaded, so checking a new cell takes milliseconds instead of a fresh `tsc` reloading ~430 files each time.
@@ -12,7 +12,7 @@ const FIRST_MS = 20_000 // the first check loads the types
 const NEXT_MS = 5_000
 
 type Pending = (message: { result?: any; error?: unknown }) => void
-type Server = { readonly request: (method: string, params: object, ms: number) => Promise<any>; readonly notify: (method: string, params: object) => void; readonly kill: () => void; dead: boolean }
+type Server = { readonly request: (method: string, params: object, ms: number) => Promise<any>; readonly notify: (method: string, params: object) => void; readonly kill: () => void; readonly exited: Promise<number>; dead: boolean }
 
 const start = (tsc: string, dir: string): Server => {
   const proc = Bun.spawn([tsc, "--lsp", "--stdio"], { cwd: dir, stdin: "pipe", stdout: "pipe", stderr: "ignore" })
@@ -20,6 +20,7 @@ const start = (tsc: string, dir: string): Server => {
   const waiting = new Map<number, Pending>()
   const server: Server = {
     dead: false,
+    exited: proc.exited,
     notify: (method, params) => send({ jsonrpc: "2.0", method, params }),
     request: (method, params, ms) => new Promise((resolve, reject) => {
       if (server.dead) { reject(new Error("language server closed")); return }
@@ -82,6 +83,7 @@ const start = (tsc: string, dir: string): Server => {
 // files loaded for one folder serve the next. `seen`: folders it has checked before (their first check is slower).
 type Checker = { readonly server: Server; readonly ready: Promise<boolean>; readonly seen: Set<string>; idle?: ReturnType<typeof setTimeout> }
 const checkers = new Map<string, Checker>()
+const closing = new Map<string, Promise<void>>()
 
 const checkerFor = (tsc: string, dir: string) => {
   const known = checkers.get(tsc)
@@ -93,6 +95,31 @@ const checkerFor = (tsc: string, dir: string) => {
   const entry: Checker = { server, ready, seen: new Set() }
   checkers.set(tsc, entry)
   return entry
+}
+
+// Stop the shared checker for this compiler and wait until it releases its working directory.
+// Owners of temporary projects call this after all their kernel work finishes, before deleting them.
+// Other kernels can start a fresh checker on their next check; closing twice is harmless.
+export const closeChecker = async (tsc: string): Promise<void> => {
+  const key = resolve(tsc)
+  const pending = closing.get(key)
+  const entry = checkers.get(key)
+  if (!entry) {
+    await pending
+    return
+  }
+
+  checkers.delete(key)
+  clearTimeout(entry.idle)
+  entry.server.kill()
+  const stopped = Promise.all([pending, entry.server.exited]).then(() => {})
+  closing.set(key, stopped)
+
+  try {
+    await stopped
+  } finally {
+    if (closing.get(key) === stopped) closing.delete(key)
+  }
 }
 
 // Start the checker (when a kernel opens), so the first cell doesn't wait for it.
@@ -126,7 +153,9 @@ export const checkWithServer = async (tsc: string, dir: string, file: string, ch
     server.kill() // a checker that didn't answer is restarted next time
     return undefined
   } finally {
-    entry.idle = setTimeout(() => { if (checkers.get(tsc) === entry) checkers.delete(tsc); server.kill() }, IDLE_MS)
-    entry.idle.unref()
+    if (checkers.get(tsc) === entry && !server.dead) {
+      entry.idle = setTimeout(() => { if (checkers.get(tsc) === entry) checkers.delete(tsc); server.kill() }, IDLE_MS)
+      entry.idle.unref()
+    }
   }
 }

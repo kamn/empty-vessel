@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect"
+import { reportState } from "../integrations/herdr"
 import { systemTwoServices } from "./systems"
 import { AgentError } from "../base/agents"
 import { emit } from "../base/events"
@@ -177,6 +178,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       last = result.reply
       finishedByCheck = result.finishedByCheck === true
       waitingForUser = result.outcome === "waiting_for_user"
+      if (depth === 0 && waitingForUser) yield* reportState("blocked")
 
       // A human checkpoint ends this turn before System One can retry the unfinished goal.
       if (finishedByCheck || waitingForUser) break

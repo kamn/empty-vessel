@@ -7,7 +7,7 @@ const run = (env: Record<string, string>, action: string, throws = false) => {
   const code = `
     import { Effect } from "effect";
     const calls = [];
-    Bun.spawn = (args) => { calls.push(args); ${throws ? 'throw new Error("missing binary")' : 'return {}'} };
+    Bun.spawn = (args) => { calls.push(args); ${throws ? 'throw new Error("missing binary")' : 'return { exited: Promise.resolve(0) }'} };
     const { reportState, releaseAgent } = await import(${JSON.stringify(resolve("src/integrations/herdr.ts"))});
     await Effect.runPromise(Effect.gen(function* () { ${action} }));
     console.log(JSON.stringify(calls));
@@ -24,9 +24,10 @@ const inside = { HERDR_ENV: "1", HERDR_BIN_PATH: "/fake/herdr", HERDR_PANE_ID: "
 
 test("reports session, working, idle and release with increasing sequence numbers", () => {
   const calls = run(inside, `yield* reportState("idle", ["--agent-session-id", "session-test"]); yield* reportState("working"); yield* reportState("idle"); yield* releaseAgent;`)
-  const common = ["/fake/herdr", "pane", "report-agent", "pane-test", "--source", "custom:empty-vessel", "--agent", "empty-vessel", "--seq"]
+  const common = ["/fake/herdr", "pane", "report-agent", "pane-test", "--source", calls[0]![5]!, "--agent", "empty-vessel", "--seq"]
 
   expect(calls).toHaveLength(4)
+  expect(calls[0]![5]).toMatch(/^custom:empty-vessel:[0-9a-f-]+$/)
   expect(calls[0]!.slice(0, 9)).toEqual(common)
   expect(calls[0]!.slice(10)).toEqual(["--state", "idle", "--agent-session-id", "session-test"])
   expect(calls[1]!.slice(10)).toEqual(["--state", "working"])
