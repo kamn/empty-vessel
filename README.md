@@ -66,6 +66,15 @@ errors remain red. The default orange theme retains the rotating logo palettes.
 The TUI renders Markdown web links and absolute `file://` links as clickable terminal
 links. Percent-encode spaces in file URLs. Opening links requires terminal support.
 
+## ActionGuard
+
+Optional shell-execution policy: allow, deny, request a revision, or ask for human approval.
+Kernel workers ask the host before execution; no guard is enabled by default.
+The bundled `no-absolute-rm` policy blocks explicit absolute deletion targets such as `rm -rf /tmp/folder`.
+Preview without execution: `bun src/main.ts guard --policy no-absolute-rm --command 'rm -rf /tmp/folder'`.
+The bundled `jev-guard` also accepts a policy prompt and requires confident Jev approval.
+See [ActionGuard configuration and limits](docs/action-guard.md).
+
 ## Secret check
 
 A pre-commit hook (`.githooks/pre-commit`) runs [gitleaks](https://github.com/gitleaks/gitleaks) on the staged changes

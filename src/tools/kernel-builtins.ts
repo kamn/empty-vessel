@@ -8,7 +8,7 @@ import { outsideCaller } from "../kernel/guard"
 import { call, isPlainData, Sources } from "../kernel/runtime"
 import { type Choice, verdictFor, withUnclear } from "./judge-rules"
 import { TOOLS } from "./tools"
-import { BASH_TIMEOUT_SECONDS } from "./bash"
+import { BASH_TIMEOUT_SECONDS, runBash } from "./bash"
 
 // What every kernel cell can import from "kernel" in empty-vessel (besides Effect, call and result). Everything that touches
 // the world is a service, so each Effect's requirements say what it touches: Files, Shell,
@@ -62,7 +62,10 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     write: (path, content) => (has(g, "write") ? tool("write", { path, content }) : readOnly(`write ${path}`)),
     edit: (path, edits) => (has(g, "write") ? tool("edit", { path, edits }) : readOnly(`edit ${path}`)),
   }))] : []),
-  ...(g.shell ? [Layer.succeed(Shell, Shell.of({ run: (command, timeout) => tool("bash", { command, timeout }) }))] : []),
+  // Always ask the host. A cell replacing local Effect services cannot authorize its own command.
+  ...(g.shell ? [Layer.succeed(Shell, Shell.of({ run: (command, timeout) =>
+    runBash(command, (timeout ?? BASH_TIMEOUT_SECONDS) * 1000, (action) => call("$actionGuard", action)),
+  }))] : []),
   ...(g.systemOne ? [Layer.succeed(SystemOne, SystemOne.of({
     ask: (evidence, questions) => call("systemOne", { evidence, questions }) as Effect.Effect<Answers, Error>,
     recheck: (evidence, questions) => call("recheck", { evidence, questions }) as Effect.Effect<Readonly<Record<string, string>>, Error>,

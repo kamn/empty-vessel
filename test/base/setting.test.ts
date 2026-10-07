@@ -28,6 +28,7 @@ test("an empty config decodes to the same defaults as before settings were descr
     maxDepth: 2, systemOne: { use: "fake" }, systemTwo: { use: "fake", reasoning: "medium", maxRounds: 30, webSearch: true, progressMinutes: 5, scopeCheck: true, style: "i-have-adhd" },
     store: { use: "disk" }, memory: { use: "notes", projectChars: 2200, agentChars: 2400 },
     channel: { use: "terminal" },
+    actionGuard: { use: [] },
     kernel: { tools: { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true } },
     plugins: {},
   })

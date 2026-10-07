@@ -119,6 +119,6 @@ export const makeKernelHook = (ctx: Ctx, services: Context.Context<Needs>, trial
     const recordUse = (r: CellResult) => Effect.sync(() => {
       for (const tool of used) record(libraryDir(process.cwd()), { session: ctx.session.id, turn, tool, for: "systemTwo", event: "used", ok: r.status === "ok" })
     })
-    return cell.pipe(Effect.tap(recordUse), Effect.map(describeCell), Effect.catch((e) => Effect.succeed(`the kernel failed: ${e}`)))
+    return cell.pipe(Effect.tap(recordUse), Effect.map(describeCell), Effect.catch((e) => Effect.succeed(`the kernel failed: ${e}`)), Effect.provideContext(services))
   }
 }

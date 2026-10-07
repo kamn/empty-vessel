@@ -63,6 +63,9 @@ export const ConfigSchema = described({
     // src/system-two/style.ts: added to System Two's briefing each session.
     style: setting(Schema.Literals(["i-have-adhd", "none"]), "How System Two shapes what it writes to you: i-have-adhd (the i-have-adhd skill by Ayoub Ghriss, MIT: lead with the next action, numbered steps, no preamble), or none", { default: "i-have-adhd" }),
   }, "System Two: the model that thinks and writes code, whichever plugin it is"),
+  actionGuard: section({
+    use: setting(Schema.Array(Schema.String), "Required action guard plugins, checked before shell execution", { default: [] }),
+  }, "ActionGuard: approve or block actions before execution"),
   channel: section({
     use: setting(Schema.String, "The conversation channel (terminal: built-in interactive routing)", { default: "terminal" }),
   }, "Where messages are received and replies are sent"),

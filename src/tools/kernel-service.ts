@@ -2,6 +2,7 @@ import { join } from "node:path"
 import { Context, Effect } from "effect"
 import { makeKernel } from "../kernel/kernel"
 import { runBash } from "./bash"
+import { authorizeAction, type Action } from "./action-guard"
 
 // The world empty-vessel works in: a kernel for cells in a folder, a command where the cells'
 // files are, and those files read. Every action on the project goes through here (System Two's cells, System One's tool
@@ -45,4 +46,31 @@ const localFiles: ProjectFiles = {
   size: (root, path) => Effect.sync(() => Bun.file(join(root, path)).size),
 }
 
-export const Kernel = Context.Reference<KernelService>("empty-vessel/Kernel", { defaultValue: () => ({ open: makeKernel, exec: runBash, files: localFiles }) })
+// Application bridge, not part of the generic kernel. Capture each run's services before the
+// Worker's callback crosses into a fresh fiber, so guards and the active approval UI are preserved.
+export const makeGuardedKernel: typeof makeKernel = (options) => {
+  const kernel = makeKernel(options)
+
+  return {
+    ...kernel,
+    run: (code, host = {}, title) => Effect.gen(function* () {
+      const services = yield* Effect.context<never>()
+      const authorize = (input: unknown) => Effect.suspend(() => {
+        if (!input || typeof input !== "object") return Effect.fail(new Error("Invalid action request"))
+        const action = input as Partial<Action>
+
+        if (action.kind !== "shell" || typeof action.command !== "string" || action.cwd !== process.cwd()
+          || typeof action.timeoutMs !== "number" || !Number.isFinite(action.timeoutMs) || action.timeoutMs <= 0) {
+          return Effect.fail(new Error("Invalid action request"))
+        }
+
+        return authorizeAction({ kind: "shell", command: action.command, cwd: action.cwd, timeoutMs: action.timeoutMs })
+      }).pipe(Effect.provideContext(services))
+
+      // Reserved: a supplied host function must not replace the authorization boundary.
+      return yield* kernel.run(code, { ...host, $actionGuard: authorize }, title)
+    }),
+  }
+}
+
+export const Kernel = Context.Reference<KernelService>("empty-vessel/Kernel", { defaultValue: () => ({ open: makeGuardedKernel, exec: runBash, files: localFiles }) })

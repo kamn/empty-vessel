@@ -1,4 +1,5 @@
-import { Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect"
+import { ActionGuard, combineActionGuards } from "../tools/action-guard"
 import { Config, ConfigError } from "../base/config"
 import type { Plugin, Provides } from "./plugin"
 import { memoryOnStore } from "../base/memory"
@@ -13,6 +14,8 @@ import { codex } from "./codex"
 import { jev, jevMock } from "./jev"
 import { openai, openaiAs } from "./openai"
 import { telegram } from "./telegram"
+import { noAbsoluteRm } from "./no-absolute-rm"
+import { jevGuard } from "./jev-guard"
 import { loadOutside } from "./outside"
 
 // The plugins bundled with empty-vessel, and which of them the config picks. The only file that
@@ -35,7 +38,7 @@ const notes: Plugin = { name: "notes", provides: { memory: Effect.gen(function* 
   return memoryOnStore(process.cwd(), { project: memory.projectChars, agent: memory.agentChars })
 }) } }
 
-export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram]
+export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]
 
 // What each plugin needs before it can be used, for `empty-vessel setup`, in the order offered.
 export const SETUPS: ReadonlyArray<PluginSetup> = PLUGINS.flatMap((p) => (p.setup ? [p.setup] : []))
@@ -73,11 +76,11 @@ export const allPlugins = Effect.gen(function* () {
 
 // What the config chose for a kind (<kind>.use): made by the plugin of that name that provides it, bundled or outside.
 // "plugin:model" (claude:opus, openrouter:org/some-model) is that plugin with its model setting replaced, for this use.
-const chosen = <K extends keyof Provides>(kind: K) =>
+const chosen = <K extends keyof Provides>(kind: K, selected?: string) =>
   Effect.gen(function* () {
     const config = yield* Config
-    const use = config[kind].use
-    const [name, model] = [use.split(":")[0]!, use.split(":").slice(1).join(":")]
+    const use = selected ?? (config[kind].use as string)
+    const [name, model] = kind === "actionGuard" ? [use, ""] : [use.split(":")[0]!, use.split(":").slice(1).join(":")]
     const { plugins: all, outside: others } = yield* allPlugins
     const plugin = all.find((p) => p.name === name && p.provides[kind])
     const failed = others.find((o) => o.name === name && o.error)
@@ -92,6 +95,22 @@ const chosen = <K extends keyof Provides>(kind: K) =>
     const made = plugin.provides[kind]! as Effect.Effect<Effect.Success<NonNullable<Provides[K]>>, ConfigError, Config>
     return yield* made.pipe(Effect.provideService(Config, { ...config, plugins }))
   })
+
+// Build each guard independently: merging layers would let the last provider replace earlier guards.
+// Layer.build shares this layer's scope, keeping acquired provider resources alive until shutdown.
+export const ActionGuardFromConfig = Layer.effect(ActionGuard, Effect.gen(function* () {
+  const { actionGuard } = yield* Config
+  const guards = yield* Effect.forEach(actionGuard.use, (name) => Effect.gen(function* () {
+    const layer = yield* chosen("actionGuard", name)
+    const context = yield* Layer.build(layer)
+    // A malformed provider must not silently inherit the reference's default allow.
+    if (!context.mapUnsafe.has(ActionGuard.key)) {
+      return yield* new ConfigError({ message: `actionGuard.use is "${name}", but its layer did not provide ActionGuard` })
+    }
+    return Context.get(context, ActionGuard)
+  }))
+  return combineActionGuards(guards)
+}))
 
 // Only nonterminal routing builds this layer; terminal is the entry point's built-in sentinel.
 export const ChannelFromConfig = Layer.unwrap(chosen("channel"))

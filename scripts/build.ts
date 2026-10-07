@@ -16,6 +16,7 @@ const SOURCES = [
   "src/kernel/worker.ts", "src/kernel/runtime.ts", "src/kernel/guard.ts",
   "src/tools/kernel-builtins.ts", "src/tools/tools.ts", "src/tools/bash.ts", "src/tools/judge-rules.ts",
   "src/base/json-schema.ts", "src/base/grants.ts",
+  "src/tools/action-guard.ts", "src/ui/ask.ts",
 ]
 // A file of the list that imports empty-vessel code outside it would fail in the kit: say so rather than ship it.
 const missing = SOURCES.flatMap((file) =>

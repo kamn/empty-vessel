@@ -12,6 +12,7 @@ export { Config, ConfigError } from "./base/config"
 export { described, type Setting, setting, type Settings } from "./base/setting"
 
 // The services a plugin can provide.
+export { ActionGuard, type Action, type ActionGuardProvider, type GuardVerdict, combineActionGuards } from "./tools/action-guard"
 export { type Choice, type StepState, SystemOne } from "./system-one/systemone"
 export { type CompactOptions, type Handoff, type Hooks, SystemTwo, type ToolCall } from "./system-two/systemtwo"
 export { Ask, AskError } from "./system-two/ask"

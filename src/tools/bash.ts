@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { raw } from "../kernel/guard"
 import { Effect } from "effect"
+import { type Action, authorizeAction, withActionGuard } from "./action-guard"
 
 // Output limits, the same as Pi's: keep the LAST 2000 lines or 50KB, whichever comes first
 // (errors and test summaries are at the end), and save the full output to a temp file.
@@ -32,7 +33,8 @@ export const truncateTail = (text: string) => {
   return `${shown}\n\n[Showing ${range} of ${lines.length}. Full output: ${path}]`
 }
 
-// Run a shell command in the folder empty-vessel was started in. YOLO: no confirmation (isolation comes from containers).
+// Run a shell command only after ActionGuard authorizes its exact proposal. With no configured guard, behavior is unchanged.
+// This policy boundary is not OS isolation: use a sandbox/container for that.
 // Returns the exit code plus stdout and stderr as text, killed after `timeoutMs`, trimmed to the limits above,
 // so one huge or endless command can't flood the LLM's context or hang the turn.
 // ponytail: Bun.spawn inside a promise; Effect's ChildProcess module is the upgrade if we need streaming or cancellation.
@@ -40,11 +42,17 @@ export const truncateTail = (text: string) => {
 // the model reran the same batch, which timed out again).
 export const BASH_TIMEOUT_SECONDS = 120
 
-export const runBash = (command: string, timeoutMs = BASH_TIMEOUT_SECONDS * 1000) =>
+export const runBash = (command: string, timeoutMs = BASH_TIMEOUT_SECONDS * 1000, authorize: (action: Action) => Effect.Effect<unknown, unknown> = authorizeAction) =>
+  Effect.gen(function* () {
+    const action: Action = Object.freeze({ kind: "shell", command, cwd: process.cwd(), timeoutMs })
+    return yield* withActionGuard(action, executeBash(action), Effect.suspend(() => authorize(action)))
+  })
+
+const executeBash = ({ command, timeoutMs, cwd }: Action) =>
   // The command runs in its own process group, so a stop (Ctrl+C aborts `signal`) or the timeout kills everything it
   // started: killing only `bash` would leave its children (e.g. a `sleep`) running.
   Effect.tryPromise(async (signal) => {
-    const proc = raw.spawn(["bash", "-c", command], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe", detached: true })
+    const proc = raw.spawn(["bash", "-c", command], { cwd, stdout: "pipe", stderr: "pipe", detached: true })
     const killGroup = () => { try { process.kill(-proc.pid, "SIGKILL") } catch {} } // already gone: nothing to do
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; killGroup() }, timeoutMs)

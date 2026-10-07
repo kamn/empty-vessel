@@ -1,5 +1,21 @@
-# empty-vessel core 0.0.1
+# empty-vessel core 0.0.2
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
+
+## Action (src/tools/action-guard)
+export type Action = {
+    readonly kind: "shell";
+    readonly command: string;
+    readonly cwd: string;
+    readonly timeoutMs: number;
+};
+
+## ActionGuard (src/tools/action-guard)
+export declare const ActionGuard: Context.Reference<ActionGuardProvider>;
+
+## ActionGuardProvider (src/tools/action-guard)
+export interface ActionGuardProvider {
+    readonly beforeAction: (action: Action) => Effect.Effect<GuardVerdict, unknown>;
+}
 
 ## ActiveAgent (src/base/memory)
 export declare const ActiveAgent: Context.Reference<string>;
@@ -64,6 +80,9 @@ export type Choice = {
     readonly options: Readonly<Record<string, string>>;
 };
 
+## combineActionGuards (src/tools/action-guard)
+export declare const combineActionGuards: (guards: ReadonlyArray<ActionGuardProvider>) => ActionGuardProvider;
+
 ## CompactOptions (src/system-two/systemtwo)
 export type CompactOptions = {
     readonly score: (labels: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<number>>;
@@ -119,6 +138,9 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
         readonly progressMinutes: number;
         readonly scopeCheck: boolean;
         readonly style: "i-have-adhd" | "none";
+    };
+    readonly actionGuard: {
+        readonly use: readonly string[];
     };
     readonly channel: {
         readonly use: string;
@@ -216,6 +238,14 @@ export type Grants = {
     readonly agents: boolean;
     readonly library: boolean;
     readonly sources: boolean;
+};
+
+## GuardVerdict (src/tools/action-guard)
+export type GuardVerdict = {
+    readonly decision: "allow";
+} | {
+    readonly decision: "deny" | "revise" | "ask";
+    readonly reason: string;
 };
 
 ## Handoff (src/system-two/systemtwo)
@@ -379,6 +409,7 @@ export type PluginSetup = {
 
 ## Provides (src/plugins/plugin)
 export type Provides = {
+    readonly actionGuard?: Effect.Effect<Layer.Layer<never, PluginError, SystemOne>, ConfigError, Config>;
     readonly channel?: Effect.Effect<Layer.Layer<Channel, PluginError>, ConfigError, Config>;
     readonly systemOne?: Effect.Effect<Layer.Layer<SystemOne>, ConfigError, Config>;
     readonly systemTwo?: Effect.Effect<SystemTwoParts, ConfigError, Config>;
@@ -657,6 +688,7 @@ config.systemTwo.webSearch: {"type":"boolean","description":"Let System Two sear
 config.systemTwo.progressMinutes: {"type":"integer","minimum":0,"description":"Minutes without a note to you (tell_user) before System Two is reminded to send one; 0: never reminded","default":5}
 config.systemTwo.scopeCheck: {"type":"boolean","description":"Tell System Two to ask you first when its changes reach another part of the project (another package) than where it started","default":true}
 config.systemTwo.style: {"type":"string","enum":["i-have-adhd","none"],"description":"How System Two shapes what it writes to you: i-have-adhd (the i-have-adhd skill by Ayoub Ghriss, MIT: lead with the next action, numbered steps, no preamble), or none","default":"i-have-adhd"}
+config.actionGuard.use: {"type":"array","items":{"type":"string"},"description":"Required action guard plugins, checked before shell execution","default":[]}
 config.channel.use: {"type":"string","description":"The conversation channel (terminal: built-in interactive routing)","default":"terminal"}
 config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
 config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}

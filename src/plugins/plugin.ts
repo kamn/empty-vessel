@@ -25,6 +25,8 @@ export type SystemTwoParts = {
 }
 
 export type Provides = {
+  // ActionGuard is a Context.Reference: its layer has no required output identifier.
+  readonly actionGuard?: Effect.Effect<Layer.Layer<never, PluginError, SystemOne>, ConfigError, Config>
   readonly channel?: Effect.Effect<Layer.Layer<Channel, PluginError>, ConfigError, Config>
   readonly systemOne?: Effect.Effect<Layer.Layer<SystemOne>, ConfigError, Config>
   readonly systemTwo?: Effect.Effect<SystemTwoParts, ConfigError, Config>

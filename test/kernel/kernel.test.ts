@@ -2,7 +2,8 @@ import { expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { Effect } from "effect"
-import { makeKernel, rewriteImports } from "../../src/kernel/kernel"
+import { rewriteImports } from "../../src/kernel/kernel"
+import { makeGuardedKernel as makeKernel } from "../../src/tools/kernel-service"
 import { kernelRules } from "./rules"
 
 const fresh = (extra: Record<string, unknown> = {}) => makeKernel({ dir: mkdtempSync(`${tmpdir()}/empty-vessel-kernel-`), timeoutMs: 5000, ...extra })

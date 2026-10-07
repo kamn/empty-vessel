@@ -62,6 +62,9 @@ const loadAt = (path: string) =>
     catch: (e) => `can't load it from ${path}: ${e instanceof Error ? e.message : e}`,
   }).pipe(Effect.flatMap((p) =>
     !p || typeof p !== "object" || !p.provides || !p.name ? Effect.fail(`${path} has no default export that is a plugin`)
+    : Object.entries(p.provides).some(([kind, provider]) =>
+      !["systemOne", "systemTwo", "store", "memory", "channel", "actionGuard"].includes(kind) || !Effect.isEffect(provider))
+      ? Effect.fail(`${p.name} has an unknown plugin kind or a provider that is not an Effect`)
     : !p.core ? Effect.fail(`${p.name} doesn't say which cores it works with (core: "${CORE_VERSION}", or a range)`)
     : !fitsCore(p.core) ? Effect.fail(`${p.name} works with core ${p.core}; this is ${CORE_VERSION}`)
     // Every setting says what it is (the types require it; a JavaScript plugin skips the types, so it's checked here).
@@ -98,7 +101,10 @@ export const removePlugin = (file: string, name: string) => {
   if (Object.keys(rest).length) plugins[name] = rest
   else delete plugins[name]
   writeConfigFile(file, { ...config, plugins })
-  return ["systemOne", "systemTwo", "store", "memory", "channel"].filter((kind) => config[kind]?.use?.split(":")[0] === name)
+  return [
+    ...["systemOne", "systemTwo", "store", "memory", "channel"].filter((kind) => config[kind]?.use?.split(":")[0] === name),
+    ...(Array.isArray(config.actionGuard?.use) && config.actionGuard.use.includes(name) ? ["actionGuard"] : []),
+  ]
 }
 
 // Every plugin with a path in the config (and not `enabled: false`), except one reusing a bundled plugin's name: the ones

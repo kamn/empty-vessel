@@ -5,7 +5,7 @@ import { Console, Effect, Exit, Fiber, LogLevel, Option } from "effect"
 import { Argument, Command, Flag } from "effect/unstable/cli"
 import { TerminalAskUser } from "./ui/ask"
 import { Background } from "./base/background"
-import { allPlugins, ChannelFromConfig, describeSystemTwo, PLUGINS, StoreAndMemoryFromConfig, SystemOneFromConfig } from "./plugins"
+import { ActionGuardFromConfig, allPlugins, ChannelFromConfig, describeSystemTwo, PLUGINS, StoreAndMemoryFromConfig, SystemOneFromConfig } from "./plugins"
 import { channelRoot } from "./channel-root"
 import { PluginError } from "./plugins/plugin"
 import { addPlugin, kindsOf, removePlugin } from "./plugins/outside"
@@ -17,6 +17,7 @@ import { memoryCommand, recentNotes } from "./learning/notes"
 import { latestSession, makeSession, openSession, SESSIONS, type SessionHandle } from "./base/session"
 import { cellsBeforeRules, loadConversation, useSystemTwo } from "./loop/resume"
 import { doctor } from "./doctor"
+import { guardPreview } from "./guard-preview"
 import { fakeWarnings, setup } from "./setup"
 import { tui } from "./tui"
 import { releaseAgent, reportState } from "./integrations/herdr"
@@ -229,6 +230,7 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
 
 // The systems and services a turn needs, connected from the config (for the main command and refine).
 const withSystems = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
+  Effect.provide(ActionGuardFromConfig),
   Effect.provide([SystemOneFromConfig, SystemTwoLayers, Background.layer, TerminalAskUser, Usage.layer, StoreAndMemoryFromConfig]),
   Effect.provide(Config.layer), // outside the others: SystemOneFromConfig and SystemTwoLayers need Config too
 )
@@ -261,6 +263,18 @@ const emptyVessel = Command.make(
   Command.withDescription("A System One-first coding agent harness"),
   Command.withSubcommands([
     Command.make("setup", {}, () => setup).pipe(Command.withDescription("Check what empty-vessel needs, add your Jev key, and write ~/.empty-vessel/config.json")),
+    Command.make("guard", {
+      command: Flag.String("command").pipe(Flag.withDescription("Shell command to evaluate as data; NEVER executed")),
+      policy: Flag.String("policy").pipe(Flag.withDescription("Preview just this policy instead of the configured list"), Flag.optional),
+      prompt: Flag.String("policy-prompt").pipe(Flag.withDescription("Temporary prompt override for jev-guard; not saved"), Flag.optional),
+      timeout: Flag.Int("timeout").pipe(Flag.withDescription("Proposed shell timeout in seconds (not a dry-run execution limit)"), Flag.withDefault(120)),
+    }, ({ command, policy, prompt, timeout }) => guardPreview({
+      command, policy: Option.getOrUndefined(policy), prompt: Option.getOrUndefined(prompt), timeoutSeconds: timeout,
+    }).pipe(
+      Effect.flatMap((result) => Console.log(JSON.stringify(result, null, 2))),
+      Effect.provide(Config.layer),
+      Effect.tapError(() => Effect.sync(() => { process.exitCode = 1 })),
+    )).pipe(Command.withDescription("Dry-run ActionGuard: show the verdict without executing the command or asking for approval")),
     Command.make("doctor", {}, () => doctor.pipe(Effect.provide(Config.layer), Effect.catch((e) => Console.error(`doctor: ${e.message}`)))).pipe(Command.withDescription("Check every plugin's settings (secrets shown as <redacted>), without starting a session")),
     Command.make("refine", { yes: Flag.Boolean("yes").pipe(Flag.withDefault(false), Flag.withDescription("Keep every proposed note and tool without asking")), args: Argument.String("what").pipe(Argument.withDescription("nothing (refine now), log, or undo <id>"), Argument.variadic()) }, ({ args, yes }) =>
       Effect.gen(function* () {
