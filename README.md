@@ -25,7 +25,7 @@ This is partial experimental and educational
 
 ## Install
 
-Needs [Bun](https://bun.com) 1.3+, git and bash (macOS or Linux), and the [Codex CLI](https://github.com/openai/codex) logged in (`codex login`): System Two runs on your ChatGPT plan through it.
+Needs [Bun](https://bun.com) 1.3+, git and bash (macOS or Linux), and a ChatGPT account with Codex access. System Two can log in independently; installing the Codex CLI is optional.
 
 ```sh
 git clone <this repo> empty-vessel && cd empty-vessel
@@ -48,11 +48,28 @@ If `empty-vessel` isn't found, add `~/.bun/bin` to your PATH (fish: `fish_add_pa
 Then connect the two systems:
 
 ```sh
-codex login                   # once: System Two runs on your ChatGPT plan through the Codex CLI
+empty-vessel login codex       # once: independent ChatGPT login for System Two
 empty-vessel setup                  # checks what's needed, asks for your Jev API key (https://typesafe.ai), tests it
 ```
 
 `empty-vessel setup` writes `~/.empty-vessel/config.json` (only you can read it: it holds the key) and keeps any other settings there. Until it's done, empty-vessel runs both systems as fakes and says so when it starts. Every setting and its default: `src/base/config.ts`.
+
+## Independent Codex login
+
+```sh
+empty-vessel login codex                 # browser login on this machine
+empty-vessel login codex --device-code   # device code for a remote/headless terminal
+empty-vessel login codex --status        # credential source and access-token expiry
+empty-vessel logout codex                # local logout, not account-wide revocation
+```
+
+Login works before setup and does not require the Codex CLI. Credentials are stored in `~/.empty-vessel/providers/codex.json` (or under `EMPTY_VESSEL_HOME`), with owner-only file permissions. They are not encrypted by the OS keychain. Access tokens refresh automatically, with file locking to coordinate multiple empty-vessel processes. No credentials are printed by status.
+
+Before your first native login, an existing `~/.codex/auth.json` remains a read-only fallback. empty-vessel never refreshes or writes that file. Native login takes precedence; broken or revoked native credentials require re-login rather than silently switching accounts. Logout writes a logged-out marker so the fallback cannot silently log you back in. It leaves Codex itself logged in.
+
+Browser login uses a loopback callback on port 1455. If another login occupies the port, finish or cancel it, or use `--device-code`. Ctrl+C cancels login. If refresh reports a busy/orphaned credential lock after a crash, stop other empty-vessel processes before following the lock-recovery instruction; never delete an active lock.
+
+`empty-vessel login <tool-source>` continues to handle remote tool-source OAuth; `codex` is reserved for the model login.
 
 ## Use
 

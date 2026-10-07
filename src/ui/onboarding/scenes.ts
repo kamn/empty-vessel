@@ -517,7 +517,7 @@ const end: Scene = {
     ...(t >= 900 ? [
       "Next, connect the two:",
       `  ${pad(S.accent("System One"), 13)}a Jev key, from typesafe.ai`,
-      `  ${pad(S.accent("System Two"), 13)}a Codex login (codex login), or Claude Code`,
+      `  ${pad(S.accent("System Two"), 13)}ChatGPT login, or Claude Code`,
       "",
       S.dim("empty-vessel onboarding shows this again."),
     ] : []),
