@@ -19,7 +19,9 @@ test("preserves source order, unknown roles, blank line positions and malformed 
 test("escapes untrusted content and clearly identifies missing inventory and coverage", () => {
   const payload = '<script>alert("x")</script>'
   const html = renderSession('/private/session/main.jsonl', parseSession(JSON.stringify({ role: payload, text: payload, ts: 1e30 })), ['child-1'])
-  expect(html).not.toContain('<script>')
+  expect(html).not.toContain(payload)
+  expect(html.match(/<script>/g)).toHaveLength(1)
+  expect(html).toContain("script-src 'sha256-")
   expect(html).toContain('&lt;script&gt;')
   expect(html).toContain('Time not recorded')
   expect(html).toContain('startup inventory not established')
@@ -82,9 +84,10 @@ test("compact timeline exposes timestamped context and cumulative usage on hover
     ],
   })
   expect(html).toContain('aria-label="Session timeline"')
-  expect(html).toContain('aria-describedby="tip-3"')
   expect(html).toContain('href="#event-3"')
-  expect(html).toContain(".marker:hover .tip,.marker:focus .tip")
+  expect(html).toContain('role="slider"')
+  expect(html).toContain('aria-describedby="minimap-tip"')
+  expect(html).toContain('data-entries="')
   expect(html).toContain("Last request context: 800 tokens (snapshot 1970-01-01T00:00:00.010Z)")
   expect(html).toContain("Recorded input so far: 1,700 tokens")
   expect(html).toContain("Recorded output so far: 50 tokens")
