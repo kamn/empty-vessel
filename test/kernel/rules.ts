@@ -71,6 +71,46 @@ export const kernelRules = (name: string, open: KernelService["open"]) => {
     expect((await run(k, `import { greet } from "kernel"\nexport default greet`)).value).toBe("v2")
   })
 
+  for (const failure of ["error", "timeout"] as const) {
+    test(`${name}: an action's ${failure} keeps previous definitions and results intact; later cells recover`, async () => {
+      const dir = mkdtempSync(`${tmpdir()}/empty-vessel-failed-action-`)
+      const k = open({ dir, timeoutMs: 1500 })
+      let started = 0
+      const host = { started: () => Effect.sync(() => ++started) }
+      const first = await run(k, `export const greet = () => "v1"\nexport default "saved before failure"`)
+      expect(first).toMatchObject({ status: "ok", value: "saved before failure" })
+
+      const failed = await run(k, `import { Effect, call } from "kernel"
+export const greet = () => "v2"
+export const failedOnly = "must not escape"
+export default Effect.gen(function* () {
+  yield* call("started")
+  ${failure === "error" ? 'throw new Error("action failed after starting")' : "return yield* Effect.never"}
+})`, host)
+
+      // Prove this is action failure, not refusal or failure while importing the cell.
+      expect(started).toBe(1)
+      expect(failed).toMatchObject({ n: first.n + 1, status: failure, defines: [] })
+      if (failure === "error") expect(failed.error).toContain("action failed after starting")
+      expect(existsSync(join(dir, "results", `${failed.n}.json`))).toBe(false)
+      expect(k.cells().find((cell) => cell.n === failed.n)).toMatchObject({ status: failure, defines: [] })
+
+      const after = await run(k, `import * as scope from "kernel"
+export default () => ({ greeting: scope.greet(), leaked: "failedOnly" in scope, earlier: scope.result(${first.n}) })`)
+      expect(after).toMatchObject({ status: "ok", value: { greeting: "v1", leaked: false, earlier: "saved before failure" } })
+
+      const recovered = await run(k, `export const greet = () => "v3"
+export const recoveredOnly = "available"
+export default { recovered: true }`)
+      expect(recovered).toMatchObject({ status: "ok", defines: expect.arrayContaining(["greet", "recoveredOnly"]), value: { recovered: true } })
+      expect(JSON.parse(readFileSync(join(dir, "results", `${recovered.n}.json`), "utf8"))).toEqual({ recovered: true })
+
+      const last = await run(k, `import { greet, recoveredOnly, result } from "kernel"
+export default () => ({ greeting: greet(), recoveredOnly, saved: result(${recovered.n}) })`)
+      expect(last).toMatchObject({ status: "ok", value: { greeting: "v3", recoveredOnly: "available", saved: { recovered: true } } })
+    }, 15_000)
+  }
+
   test(`${name}: cells reach the host through call; console output comes back as logs, not onto the terminal`, async () => {
     const k = fresh()
     const host = { double: (n: unknown) => Effect.succeed((n as number) * 2) }
