@@ -1,0 +1,28 @@
+{
+  "name": "empty-vessel",
+  "private": true,
+  "bin": {
+    "empty-vessel": "src/main.ts"
+  },
+  "exports": {
+    ".": "./src/core.ts"
+  },
+  "scripts": {
+    "start": "bun src/main.ts",
+    "local-start": "test -f .empty-vessel/config.json && EMPTY_VESSEL_HOME=\"$PWD/.empty-vessel\" EMPTY_VESSEL_CHANNEL=telegram bun src/main.ts",
+    "build": "bun scripts/build.ts",
+    "kernel:view": "bun local-eval/kernel-session.ts",
+    "prepare": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-rc.117",
+    "effect": "4.0.0-rc.117",
+    "foldkit": "0.163.0"
+  }
+}

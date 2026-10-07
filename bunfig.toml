@@ -1,0 +1,3 @@
+[test]
+# Only empty-vessel's own tests: benchmarks/ holds cloned repos with thousands of their own.
+root = "./test"

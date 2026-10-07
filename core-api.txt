@@ -1,0 +1,674 @@
+# empty-vessel core 0.0.1
+# Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
+
+## ActiveAgent (src/base/memory)
+export declare const ActiveAgent: Context.Reference<string>;
+
+## Ask (src/system-two/ask)
+declare const Ask_base: Context.ServiceClass<Ask, "empty-vessel/Ask", {
+    readonly ask: <S extends Schema.Top>(instructions: string, schema: S, input: string) => Effect.Effect<{
+        value: S["Type"];
+        tokens: Tokens;
+    }, AskError, S["DecodingServices"]>;
+}>;
+export declare class Ask extends Ask_base {
+}
+
+## AskError (src/system-two/ask)
+declare const AskError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "AskError";
+} & Readonly<A>;
+export declare class AskError extends AskError_base<{
+    message: string;
+    noModel?: boolean;
+}> {
+}
+
+## askFromModel (src/system-two/structured)
+export declare const askFromModel: (model: Model) => Layer.Layer<Ask, never, never>;
+
+## CallResult (src/system-two/dispatch)
+export type CallResult = {
+    readonly output: string;
+} | Ended;
+
+## CallState (src/system-two/dispatch)
+export type CallState = {
+    pruning: boolean;
+    readonly stash: Map<string, string>;
+    told: number;
+    readonly now: () => number;
+    readonly failed: Array<string>;
+    readonly lessons: Set<string>;
+};
+
+## callTool (src/system-two/dispatch)
+export declare const callTool: (name: string, parsed: unknown, hooks: Hooks, state: CallState) => Effect.Effect<CallResult>;
+
+## Channel (src/base/channel)
+declare const Channel_base: Context.ServiceClass<Channel, "empty-vessel/Channel", {
+    readonly hideUsageSummaries?: boolean;
+    readonly loadSession: Effect.Effect<string | undefined, Error>;
+    readonly saveSession: (id: string) => Effect.Effect<void, Error>;
+    readonly send: (text: string) => Effect.Effect<void, Error>;
+    readonly sendFile?: (path: string, caption?: string) => Effect.Effect<void, Error>;
+    readonly progress?: (summary: string) => Effect.Effect<void, Error>;
+    readonly listen: (onMessage: (text: string) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>;
+}>;
+export declare class Channel extends Channel_base {
+}
+
+## Choice (src/system-one/systemone)
+export type Choice = {
+    readonly question: string;
+    readonly options: Readonly<Record<string, string>>;
+};
+
+## CompactOptions (src/system-two/systemtwo)
+export type CompactOptions = {
+    readonly score: (labels: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<number>>;
+    readonly stash: Map<string, string>;
+    readonly size: number;
+    readonly target: number;
+};
+
+## Config (src/base/config)
+declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
+    readonly maxSteps: number;
+    readonly compactAt: number;
+    readonly testOptions: boolean;
+    readonly learnAfterTurn: boolean;
+    readonly ui: "plain" | "tui";
+    readonly theme: "blue" | "green" | "orange" | "teal";
+    readonly sources: {
+        readonly [x: string]: {
+            readonly url?: string | undefined;
+            readonly headers?: {
+                readonly [x: string]: string;
+            } | undefined;
+            readonly auth?: "oauth" | undefined;
+            readonly command?: string | undefined;
+            readonly args?: readonly string[] | undefined;
+            readonly env?: {
+                readonly [x: string]: string;
+            } | undefined;
+        };
+    };
+    readonly adoption: {
+        readonly offerSystemOne: number;
+        readonly offerSystemTwo: number;
+        readonly sampler: "all" | "thompson" | "uniform";
+        readonly reward: "ok" | "used" | "verdict";
+        readonly promoteTo: "library" | "pool";
+        readonly askAtEndOfTurn: "always" | "never" | "whenSomethingToJudge" | "whenSystemTwoRan";
+        readonly maxProposals: number;
+        readonly graduateAfter: number;
+        readonly dropAfter: number;
+        readonly dropBelowRate: number;
+        readonly proposals: "conservative" | "eager";
+    };
+    readonly maxDepth: number;
+    readonly systemOne: {
+        readonly use: string;
+    };
+    readonly systemTwo: {
+        readonly use: string;
+        readonly reasoning: "high" | "low" | "max" | "medium" | "xhigh";
+        readonly maxRounds: number;
+        readonly webSearch: boolean;
+        readonly progressMinutes: number;
+        readonly scopeCheck: boolean;
+        readonly style: "i-have-adhd" | "none";
+    };
+    readonly channel: {
+        readonly use: string;
+    };
+    readonly store: {
+        readonly use: string;
+    };
+    readonly memory: {
+        readonly use: string;
+        readonly projectChars: number;
+        readonly agentChars: number;
+    };
+    readonly kernel: {
+        readonly tools: {
+            readonly files: "none" | "read-only" | "read-write";
+            readonly shell: boolean;
+            readonly systemOne: boolean;
+            readonly agents: boolean;
+            readonly library: boolean;
+            readonly sources: boolean;
+        };
+    };
+    readonly plugins: {
+        readonly [x: string]: {
+            readonly enabled?: boolean | undefined;
+            readonly path?: string | undefined;
+            readonly from?: string | undefined;
+            readonly config?: unknown;
+        };
+    };
+}>;
+export declare class Config extends Config_base {
+    static readonly layer: Layer.Layer<Config, ConfigError, never>;
+}
+
+## ConfigError (src/base/config)
+declare const ConfigError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "ConfigError";
+} & Readonly<A>;
+export declare class ConfigError extends ConfigError_base<{
+    message: string;
+}> {
+}
+
+## CurrentSession (src/base/session)
+export declare const CurrentSession: Context.Reference<{
+    readonly id: string;
+    readonly key: string;
+    readonly dir: string;
+    readonly record: Recorder;
+} | undefined>;
+
+## described (src/base/setting)
+export declare const described: <F extends Readonly<Record<string, Setting>>>(fields: F) => Settings<F>;
+
+## emit (src/base/events)
+export declare const emit: (kind: Kind, depth: number, text: string, body?: string, summary?: string) => Effect.Effect<void, never, never>;
+
+## Ended (src/system-two/dispatch)
+export type Ended = {
+    readonly answer: string;
+    readonly done: boolean;
+    readonly waitingForUser?: boolean;
+};
+
+## Fill (src/system-two/fill)
+declare const Fill_base: Context.ServiceClass<Fill, "empty-vessel/Fill", {
+    readonly fill: <S extends Schema.Top & {
+        readonly DecodingServices: never;
+    }>(name: string, schema: S, goal: string) => Effect.Effect<{
+        args: S["Type"];
+        tokens: Tokens;
+    }, FillError>;
+}>;
+export declare class Fill extends Fill_base {
+}
+
+## FillError (src/system-two/fill)
+declare const FillError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "FillError";
+} & Readonly<A>;
+export declare class FillError extends FillError_base<{
+    message: string;
+}> {
+}
+
+## fillFromModel (src/system-two/structured)
+export declare const fillFromModel: (model: Model) => Layer.Layer<Fill, never, never>;
+
+## Grants (src/base/grants)
+export type Grants = {
+    readonly files: "read-write" | "read-only" | "none";
+    readonly shell: boolean;
+    readonly systemOne: boolean;
+    readonly agents: boolean;
+    readonly library: boolean;
+    readonly sources: boolean;
+};
+
+## Handoff (src/system-two/systemtwo)
+export type Handoff = {
+    readonly answer: string;
+    readonly done: boolean;
+} | {
+    readonly output: string;
+};
+
+## Hooks (src/system-two/systemtwo)
+export type Hooks = {
+    readonly askUser?: (args: typeof AskUserArgs.Type) => Effect.Effect<string>;
+    readonly handoff?: (args: typeof YieldArgs.Type) => Effect.Effect<Handoff>;
+    readonly onCommand?: (c: ToolCall) => Effect.Effect<void>;
+    readonly prune?: (command: string, output: string) => Effect.Effect<string>;
+    readonly kernel?: (args: typeof KernelArgs.Type) => Effect.Effect<string>;
+    readonly thread?: Array<unknown>;
+    readonly briefing?: string;
+    readonly images?: ReadonlyArray<{
+        readonly label: string;
+        readonly path: string;
+    }>;
+    readonly stash?: Map<string, string>;
+    readonly cacheKey?: string;
+    readonly depth?: number;
+    readonly pending?: () => ReadonlyArray<string>;
+    readonly inbox?: Effect.Effect<ReadonlyArray<string>>;
+    readonly progressEveryMs?: number;
+    readonly scope?: () => Effect.Effect<string | undefined>;
+    readonly remembered?: () => Effect.Effect<string>;
+    readonly grants?: Grants;
+};
+
+## jobsReminder (src/system-two/dispatch)
+export declare const jobsReminder: (pending: ReadonlyArray<string>) => string;
+
+## jsonSchemaFor (src/base/json-schema)
+export declare const jsonSchemaFor: (schema: Schema.Top) => Record<string, unknown>;
+
+## KERNEL_INSTRUCTIONS (src/system-two/instructions)
+export declare const KERNEL_INSTRUCTIONS: string;
+
+## kernelInstructions (src/system-two/instructions)
+export declare const kernelInstructions: (g?: Grants) => string;
+
+## Kind (src/base/events)
+export type Kind = "step" | "system-two" | "check" | "compact" | "review" | "spawn" | "error" | "activity" | "note";
+
+## loadImage (src/base/images)
+export declare const loadImage: (path: string) => {
+    mediaType: string;
+    data: string;
+};
+
+## Memory (src/base/memory)
+declare const Memory_base: Context.ServiceClass<Memory, "empty-vessel/Memory", {
+    readonly snapshot: Effect.Effect<string>;
+    readonly add: (scope: Scope, text: string) => Effect.Effect<void, MemoryError>;
+    readonly replace: (scope: Scope, old: string, text: string) => Effect.Effect<void, MemoryError>;
+    readonly remove: (scope: Scope, old: string) => Effect.Effect<void, MemoryError>;
+    readonly entries: (scope: Scope) => Effect.Effect<ReadonlyArray<string>>;
+    readonly file: (scope: Scope) => Effect.Effect<string>;
+}>;
+export declare class Memory extends Memory_base {
+}
+
+## MemoryError (src/base/memory)
+declare const MemoryError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "MemoryError";
+} & Readonly<A>;
+export declare class MemoryError extends MemoryError_base<{
+    message: string;
+}> {
+}
+
+## Model (src/system-two/loop)
+export type Model = {
+    readonly name: string;
+    readonly complete: (request: ModelRequest) => Effect.Effect<ModelReply, unknown>;
+};
+
+## ModelCall (src/system-two/loop)
+export type ModelCall = {
+    readonly id: string;
+    readonly name: string;
+    readonly arguments: string;
+};
+
+## modelParts (src/system-two/structured)
+export declare const modelParts: (main: Model, small: Model, maxRounds: number) => {
+    systemTwo: Layer.Layer<SystemTwo, never, never>;
+    ask: Layer.Layer<Ask, never, never>;
+    fill: Layer.Layer<Fill, never, never>;
+};
+
+## ModelReply (src/system-two/loop)
+export type ModelReply = {
+    readonly text: string;
+    readonly calls: ReadonlyArray<ModelCall>;
+    readonly keep: ReadonlyArray<unknown>;
+    readonly thinking: string;
+    readonly searches: ReadonlyArray<string>;
+    readonly usage: Required<Tokens>;
+};
+
+## ModelRequest (src/system-two/loop)
+export type ModelRequest = {
+    readonly instructions: string;
+    readonly thread: ReadonlyArray<unknown>;
+    readonly tools: ReadonlyArray<ModelTool>;
+    readonly cacheKey?: string;
+    readonly schema?: {
+        readonly name: string;
+        readonly schema: unknown;
+    };
+};
+
+## ModelTool (src/system-two/loop)
+export type ModelTool = {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: unknown;
+};
+
+## newCallState (src/system-two/dispatch)
+export declare const newCallState: (stash?: Map<string, string>, now?: () => number) => CallState;
+
+## Plugin (src/plugins/plugin)
+export type Plugin = {
+    readonly name: string;
+    readonly core?: string;
+    readonly settings?: Settings<any>;
+    readonly setup?: PluginSetup;
+    readonly provides: Provides;
+};
+
+## PluginError (src/plugins/plugin)
+declare const PluginError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "PluginError";
+} & Readonly<A>;
+export declare class PluginError extends PluginError_base<{
+    what: string;
+    message: string;
+}> {
+}
+
+## pluginSettings (src/plugins/plugin)
+export declare const pluginSettings: <S extends Schema.Struct<any>>(name: string, settings: S) => Effect.Effect<S["Type"], ConfigError, Config | S["DecodingServices"]>;
+
+## PluginSetup (src/base/plugin-setup)
+export type PluginSetup = {
+    readonly name: string;
+    readonly kind: "systemOne" | "systemTwo" | "channel";
+    readonly title: string;
+    readonly about?: string;
+    readonly checks?: ReadonlyArray<SetupCheck>;
+    readonly asks?: ReadonlyArray<SetupAsk>;
+    readonly defaults?: Readonly<Record<string, unknown>>;
+};
+
+## Provides (src/plugins/plugin)
+export type Provides = {
+    readonly channel?: Effect.Effect<Layer.Layer<Channel, PluginError>, ConfigError, Config>;
+    readonly systemOne?: Effect.Effect<Layer.Layer<SystemOne>, ConfigError, Config>;
+    readonly systemTwo?: Effect.Effect<SystemTwoParts, ConfigError, Config>;
+    readonly store?: Effect.Effect<Layer.Layer<Store>, ConfigError, Config>;
+    readonly memory?: Effect.Effect<Layer.Layer<Memory, never, Store>, ConfigError, Config>;
+};
+
+## retryIfTemporary (src/base/retry)
+export declare const retryIfTemporary: <A, E, R>(call: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+
+## Scope (src/base/memory)
+export type Scope = "agent" | "project";
+
+## serveTools (src/system-two/relay)
+export declare const serveTools: (hooks: Hooks) => Effect.Effect<{
+    server: string;
+    mcpConfig: {
+        mcpServers: {
+            kernel: {
+                env: {
+                    EMPTY_VESSEL_GRANTS: string;
+                };
+                command: string;
+                args: string[];
+            } | {
+                env?: undefined;
+                command: string;
+                args: string[];
+            };
+        };
+    };
+    ended: () => Ended | undefined;
+    busy: () => boolean;
+}, never, Scope>;
+
+## SessionEntry (src/base/session)
+export type SessionEntry = {
+    readonly key: string;
+    readonly role: string;
+    readonly text: string;
+    readonly ts: number;
+    readonly extra: Readonly<Record<string, unknown>>;
+};
+
+## SessionMirrorFn (src/base/session)
+export type SessionMirrorFn = (entry: SessionEntry) => Effect.Effect<void>;
+
+## setting (src/base/setting)
+export declare function setting<S extends Schema.Top>(schema: S, description: string): Setting<S>;
+export declare function setting<S extends Schema.Top>(schema: S, description: string, options: {
+    readonly default: S["Encoded"];
+}): Setting<Schema.withDecodingDefaultKey<S>>;
+export declare function setting<S extends Schema.Top>(schema: S, description: string, options: {
+    readonly optional: true;
+}): Setting<Schema.optionalKey<S>>;
+
+## Setting (src/base/setting)
+export type Setting<S extends Schema.Top = Schema.Top> = S & {
+    readonly [isSetting]: true;
+};
+
+## Settings (src/base/setting)
+export type Settings<F extends Readonly<Record<string, Setting>> = Readonly<Record<string, Setting>>> = Schema.Struct<F> & {
+    readonly [isSettings]: true;
+};
+
+## SetupAsk (src/base/plugin-setup)
+export type SetupAsk = {
+    readonly setting: string;
+    readonly prompt: string;
+    readonly secret?: boolean;
+    readonly optional?: boolean;
+    readonly test?: (value: string, settings: Readonly<Record<string, unknown>>) => Effect.Effect<boolean>;
+    readonly failed?: string;
+    readonly choices?: (settings: Readonly<Record<string, unknown>>) => Effect.Effect<ReadonlyArray<string>>;
+};
+
+## SetupCheck (src/base/plugin-setup)
+export type SetupCheck = {
+    readonly what: string;
+    readonly ok: Effect.Effect<boolean>;
+    readonly fix: string;
+};
+
+## StepState (src/system-one/systemone)
+export interface StepState {
+    readonly did?: readonly string[];
+    readonly earlier?: readonly string[];
+    readonly goal: string;
+    readonly steps: readonly string[];
+}
+
+## Store (src/base/store)
+declare const Store_base: Context.ServiceClass<Store, "empty-vessel/Store", {
+    readonly get: (key: string) => Effect.Effect<string | undefined>;
+    readonly put: (key: string, text: string) => Effect.Effect<void>;
+    readonly append: (key: string, text: string) => Effect.Effect<void>;
+    readonly list: (prefix: string) => Effect.Effect<ReadonlyArray<string>>;
+    readonly folder: (key: string) => string;
+}>;
+export declare class Store extends Store_base {
+}
+
+## SYSTEM_TWO_TOOLS (src/system-two/dispatch)
+export declare const SYSTEM_TWO_TOOLS: readonly [{
+    readonly name: "kernel";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "yield_to_system_one";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "more_output";
+    readonly description: "Show the full output of an earlier command whose output System One shortened (it says so, with an id)";
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "ask_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "wait_for_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "tell_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}];
+
+## SystemOne (src/system-one/systemone)
+declare const SystemOne_base: Context.ServiceClass<SystemOne, "empty-vessel/SystemOne", {
+    readonly choose: (state: StepState, options: Readonly<Record<string, string>>) => Effect.Effect<{
+        choice: string;
+        confidence: number;
+        done: number;
+        tokens: Tokens;
+    }>;
+    readonly judge: (state: object, questions: Readonly<Record<string, Question>>) => Effect.Effect<{
+        answers: Readonly<Record<string, number>>;
+        tokens: Tokens;
+    }>;
+    readonly relevant: (goal: string, items: ReadonlyArray<string>) => Effect.Effect<{
+        scores: ReadonlyArray<number>;
+        tokens: Tokens;
+    }>;
+    readonly decide: (state: object, questions: Readonly<Record<string, Choice>>) => Effect.Effect<{
+        answers: Readonly<Record<string, {
+            choice: string;
+            confidence: number;
+        }>>;
+        tokens: Tokens;
+    }>;
+}>;
+export declare class SystemOne extends SystemOne_base {
+}
+
+## SystemTwo (src/system-two/systemtwo)
+declare const SystemTwo_base: Context.ServiceClass<SystemTwo, "empty-vessel/SystemTwo", {
+    readonly sessionMirror?: SessionMirrorFn;
+    readonly ask: (prompt: string, hooks?: Hooks) => Effect.Effect<{
+        text: string;
+        tokens: Tokens;
+        done?: boolean;
+        waitingForUser?: boolean;
+        size?: number;
+    }>;
+    readonly compact: (thread: Array<unknown>, options: CompactOptions) => Effect.Effect<Compacted>;
+}>;
+export declare class SystemTwo extends SystemTwo_base {
+}
+
+## systemTwoFromModel (src/system-two/loop)
+export declare const systemTwoFromModel: (model: Model, maxRounds: number) => Layer.Layer<SystemTwo, never, never>;
+
+## SystemTwoParts (src/plugins/plugin)
+export type SystemTwoParts = {
+    readonly systemTwo: Layer.Layer<SystemTwo, PluginError>;
+    readonly fill: Layer.Layer<Fill>;
+    readonly ask: Layer.Layer<Ask>;
+    readonly describe: {
+        readonly long: string;
+        readonly short: string;
+    };
+};
+
+## systemTwoTools (src/system-two/dispatch)
+export declare const systemTwoTools: (g?: Grants) => readonly [{
+    readonly name: "kernel";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "yield_to_system_one";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "more_output";
+    readonly description: "Show the full output of an earlier command whose output System One shortened (it says so, with an id)";
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "ask_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "wait_for_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}, {
+    readonly name: "tell_user";
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+}];
+
+## Tokens (src/base/usage)
+export interface Tokens {
+    readonly input: number;
+    readonly output: number;
+    readonly cached?: number;
+    readonly thinking?: number;
+}
+
+## ToolCall (src/system-two/systemtwo)
+export type ToolCall = {
+    readonly tool: string;
+    readonly args: unknown;
+    readonly output: string;
+};
+
+## ToolRelay (src/system-two/relay)
+export type ToolRelay = {
+    readonly server: string;
+    readonly mcpConfig: {
+        readonly mcpServers: Record<string, {
+            readonly command: string;
+            readonly args: ReadonlyArray<string>;
+            readonly env?: Record<string, string>;
+        }>;
+    };
+    readonly ended: () => Ended | undefined;
+    readonly busy: () => boolean;
+};
+
+## withLock (src/base/files)
+export declare const withLock: <A, E, R>(path: string, use: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+
+## config
+config.maxSteps: {"type":"integer","exclusiveMinimum":0,"description":"System One's steps in one turn before it gives up","default":20}
+config.compactAt: {"type":"integer","exclusiveMinimum":0,"description":"Compact System Two's thread at the start of a turn once its last request was bigger than this many tokens","default":150000}
+config.testOptions: {"type":"boolean","description":"Offer System One the early toy options (countdown, echo), for testing the loop and sub-agents","default":false}
+config.learnAfterTurn: {"type":"boolean","description":"Learn after every turn (tool proposals, the notes and checks reviewer); off, empty-vessel refine does it when asked","default":false}
+config.ui: {"type":"string","enum":["plain","tui"],"description":"The interactive screen: plain lines, or tui (a live input box, the current step and a status line); -p and piped input are always plain","default":"plain"}
+config.theme: {"type":"string","enum":["orange","blue","green","teal"],"description":"Terminal colour palette (restart to apply)","default":"teal"}
+config.sources.*.url: {"type":"string","description":"A remote MCP server's address"}
+config.sources.*.headers.*: {"type":"string"}
+config.sources.*.auth: {"anyOf":[{"type":"string","enum":["oauth"]}],"description":"Log in to a remote server in your browser (empty-vessel login <name>)"}
+config.sources.*.command: {"type":"string","description":"The command that starts a local MCP server"}
+config.sources.*.args: {"type":"array","items":{"type":"string"},"description":"A local server's arguments"}
+config.sources.*.env.*: {"type":"string"}
+config.adoption.offerSystemOne: {"type":"integer","minimum":0,"description":"Tools on trial offered to System One each turn","default":5}
+config.adoption.offerSystemTwo: {"type":"integer","minimum":0,"description":"Tools on trial offered to System Two each turn","default":5}
+config.adoption.sampler: {"type":"string","enum":["thompson","uniform","all"],"description":"How the offered tools are chosen: thompson offers those that help more, and untried ones, more often","default":"thompson"}
+config.adoption.reward: {"type":"string","enum":["used","ok","verdict"],"description":"What counts as a tool helping: used, ok (used and gave an answer), or verdict (System Two said it helped)","default":"ok"}
+config.adoption.promoteTo: {"type":"string","enum":["pool","library"],"description":"Where promote puts a new tool: the pool, to prove itself, or straight into the library","default":"pool"}
+config.adoption.askAtEndOfTurn: {"type":"string","enum":["never","whenSomethingToJudge","whenSystemTwoRan","always"],"description":"When to ask System Two after a turn whether the tools on trial helped and what could become a tool","default":"never"}
+config.adoption.maxProposals: {"type":"integer","minimum":0,"description":"New tools of each kind System Two may propose per turn","default":1}
+config.adoption.graduateAfter: {"type":"integer","exclusiveMinimum":0,"description":"Successes after which a tool on trial moves into the library","default":3}
+config.adoption.dropAfter: {"type":"integer","exclusiveMinimum":0,"description":"Offers after which a tool that rarely helps leaves the pool","default":100}
+config.adoption.dropBelowRate: {"anyOf":[{"type":"number"},{"type":"string","enum":["Infinity","-Infinity","NaN"]}]}
+config.adoption.proposals: {"type":"string","enum":["eager","conservative"],"description":"How readily System Two proposes tools: eager (whenever a general version could be used again) or conservative (only for work that will clearly come up again)","default":"eager"}
+config.maxDepth: {"type":"integer","minimum":0,"description":"How deep sub-agents may go: 0 none, 1 children, 2 grandchildren","default":2}
+config.systemOne.use: {"type":"string","description":"The plugin that is System One (empty-vessel plugins list shows them; fake: fixed rules)","default":"fake"}
+config.systemTwo.use: {"type":"string","description":"The plugin that is System Two, or plugin:model for another of its models (claude:opus; empty-vessel plugins list shows them; fake: a stand-in reply)","default":"fake"}
+config.systemTwo.reasoning: {"type":"string","enum":["low","medium","high","xhigh","max"],"description":"How hard System Two thinks before answering (Fill never reasons)","default":"medium"}
+config.systemTwo.maxRounds: {"type":"integer","exclusiveMinimum":1,"description":"Tool rounds in one System Two run; the last has no tools, so it must answer","default":30}
+config.systemTwo.webSearch: {"type":"boolean","description":"Let System Two search the web with its backend's own search (Codex's web_search; Claude Code's WebSearch and WebFetch)","default":true}
+config.systemTwo.progressMinutes: {"type":"integer","minimum":0,"description":"Minutes without a note to you (tell_user) before System Two is reminded to send one; 0: never reminded","default":5}
+config.systemTwo.scopeCheck: {"type":"boolean","description":"Tell System Two to ask you first when its changes reach another part of the project (another package) than where it started","default":true}
+config.systemTwo.style: {"type":"string","enum":["i-have-adhd","none"],"description":"How System Two shapes what it writes to you: i-have-adhd (the i-have-adhd skill by Ayoub Ghriss, MIT: lead with the next action, numbered steps, no preamble), or none","default":"i-have-adhd"}
+config.channel.use: {"type":"string","description":"The conversation channel (terminal: built-in interactive routing)","default":"terminal"}
+config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
+config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}
+config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
+config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (how it works with you, this machine)","default":2400}
+config.kernel.tools.files: {"type":"string","enum":["read-write","read-only","none"],"description":"Cells' access to the project's files (read, readText, write, edit), and Gather's","default":"read-write"}
+config.kernel.tools.shell: {"type":"boolean","description":"bash in cells, and System One's checks (a check is a command)","default":true}
+config.kernel.tools.systemOne: {"type":"boolean","description":"systemOne and judge in cells","default":true}
+config.kernel.tools.agents: {"type":"boolean","description":"Sub-agents from cells: spawn, wait, cancel, jobs","default":true}
+config.kernel.tools.library: {"type":"boolean","description":"The library in cells: promote, tools, handTools, and the learned tools","default":true}
+config.kernel.tools.sources: {"type":"boolean","description":"The tool sources (MCP servers) in cells","default":true}
+config.plugins.*.enabled: {"type":"boolean","description":"Off: an outside plugin isn't loaded"}
+config.plugins.*.path: {"type":"string","description":"Where an outside plugin is (empty-vessel plugins add)"}
+config.plugins.*.from: {"type":"string","description":"Another copy of this plugin, under this section's name and with its config (\"openai\")"}
+config.plugins.*.config: {}

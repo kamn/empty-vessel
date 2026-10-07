@@ -1,0 +1,58 @@
+# dependencies (bun install)
+node_modules
+
+# output
+out
+dist
+build
+*.bun-build
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+
+# personal quiz log
+tutor/
+
+# agent session logs
+sessions/
+
+# local debugging and eval material (may contain real session data)
+local-eval/
+
+# third-party benchmark data (cloned, not ours)
+benchmarks/
+
+
+.fallow/
+.claude/
+ai-research/
+cloudflare/
+evals/
+
+# local config for `bun run local-start` (holds tokens)
+.empty-vessel/

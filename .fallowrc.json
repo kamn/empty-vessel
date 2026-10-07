@@ -1,0 +1,7 @@
+{
+  // empty-vessel's code is src/ (entry: main.ts) and test/.
+  // Not empty-vessel's code: benchmarks/ (cloned repos).
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": ["src/main.ts", "test/**/*.test.ts"],
+  "ignorePatterns": ["benchmarks/**", "local-eval/**"]
+}

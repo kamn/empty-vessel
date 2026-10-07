@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refuse a commit whose staged changes contain a secret (an API key, a token, a private key), found by gitleaks.
+# Turned on by `bun install` (package.json's prepare: git config core.hooksPath .githooks).
+# A false positive: add the line's fingerprint (gitleaks prints it) to .gitleaksignore.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks isn't installed, so this commit can't be checked for secrets (brew install gitleaks)" >&2
+  exit 1
+fi
+
+exec gitleaks git --pre-commit --staged --redact --no-banner --verbose
