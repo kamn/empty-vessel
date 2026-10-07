@@ -67,9 +67,9 @@ export const YIELD_DESCRIPTION =
   "Fail: your failure message goes to the user, or, if you gave none, you get the output back to keep working."
 // The kernel: System Two's one tool for doing work. Each call runs a TypeScript cell.
 // Optional for old callers; new LLM calls should supply a concise intent for every cell.
-export const CellSummary = Schema.String.pipe(Schema.check(Schema.isPattern(/^(?![\s\S]*[\r\n])\S+(?: \S+){0,5}$/), Schema.isMaxLength(96)))
+export const CellSummary = Schema.String
 export const KernelArgs = Schema.Struct({
-  summary: Schema.optionalKey(CellSummary.annotate({ description: "Summarize this cell’s intent in 1–6 words (at most 96 characters), e.g. Read TUI renderer or Check notebook click targets. Supply for every code and text cell. Used as its display title and saved for future context/compaction; do not claim a result before execution." })),
+  summary: Schema.optionalKey(CellSummary.annotate({ description: "Summarize this cell’s intent concisely. Aim for 1–6 words, e.g. Read TUI renderer or Check notebook click targets. Supply for every code and text cell. Used as its display title and saved for future context/compaction; do not claim a result before execution." })),
   code: Schema.optionalKey(Schema.String.annotate({ description: "A code cell: a TypeScript module. Import what you need from \"kernel\". Its top level only defines things (no work, no await); named exports are definitions kept for later cells; the default export is the action, run once (an Effect, a function or a value), and its value comes back as $N" })),
   name: Schema.optionalKey(Schema.String.annotate({ description: "A text cell's name (letters, digits, _), e.g. reportPy: later code cells import it from \"kernel\" as a string" })),
   text: Schema.optionalKey(Schema.String.annotate({ description: "A text cell: any text kept exactly as given (Python, Markdown, a prompt, a rubric, a template), never escaped into TypeScript. Give name too" })),
@@ -92,9 +92,9 @@ export const kernelDescription = (g: Grants = ALL, missing: ReadonlyArray<string
   const others = DESCRIBED_OTHERS.filter(([n]) => !n || has(g, n)).map(([, t]) => t)
   return `Run a TypeScript cell in the kernel. From "kernel" import Effect (and the rest of effect) and the built-ins: ${[...(files.length ? [`${files.join(", ")} (each an Effect returning text)`] : []), ...others].join(", ")}. ` +
     (missing.length ? `Not in this kernel: ${missing.join("; ")}. ` : "") +
-    "Include summary with every cell: 1–6 words describing its intent, not its outcome. " +
+    "Include summary with every cell. Aim for 1–6 words describing its intent, not its outcome. " +
     "The top level only defines things; side effects only through the built-ins (no Bun, node:, fetch, process, timers, Date.now, Math.random). " +
-    "Include summary with every cell: 1–6 words describing its intent, not its outcome. " +
+    "Include summary with every cell. Aim for 1–6 words describing its intent, not its outcome. " +
     "Named exports stay defined for later cells; the default export is run once and its value comes back shortened as $N. console.log output comes back too. Rule breaks and type errors come back before it runs. " +
     `Or a text cell: { name, text } defines name as that text, exactly (for Python, Markdown, prompts, rubrics: anything that isn't TypeScript); use it from a later code cell${has(g, "write") ? ", e.g. write(\"work/report.py\", reportPy)" : ""}.`
 }

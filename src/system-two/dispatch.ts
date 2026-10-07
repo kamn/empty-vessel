@@ -60,7 +60,7 @@ const cellSummary = (name: string, parsed: any) => {
 
 // How a tool call is shown: a kernel cell by its title (a text cell by its name); any other tool by name.
 export const shownAs = (name: string, parsed: any) =>
-  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellSummary(name, parsed) ?? codeTitle(String(parsed?.code ?? ""))}`)
+  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellSummary(name, parsed)?.replace(/\s+/g, " ").trim() || codeTitle(String(parsed?.code ?? ""))}`)
   : name
 
 // What can be unfolded under it: a cell's code (or text) and its result.

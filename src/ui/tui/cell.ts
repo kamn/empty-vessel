@@ -90,9 +90,11 @@ export const renderCell = (line: { text: string; body?: string; summary?: string
     const shown = open ? content : longLine !== undefined
       ? [cellWrap(longLine, Math.max(1, Math.min(LONG_RESULT_LINE, inner - 1)))[0]! + (inner > 1 ? "…" : "")]
       : content.slice(0, CELL_PREVIEW)
-    const name = section === "source" ? (textCell ? `kernel · TEXT · ${title.replace(/^text /, "")}` : "kernel · TypeScript") + (line.summary ? ` · ${line.summary}` : "") : "RESULT"
+    const name = section === "source" ? (textCell ? `kernel · TEXT · ${title.replace(/^text /, "")}` : "kernel · TypeScript") + (line.summary?.trim() ? ` · ${line.summary.replace(/\s+/g, " ").trim()}` : "") : "RESULT"
     if (section === "result") rows.push({ text: edge("├", "┤"), section })
-    put(`${open ? "▾" : "▸"} ${name}`, section, style.accent)
+    const heading = `${open ? "▾" : "▸"} ${name}`
+    const clipped = !open && widthOf(heading) > inner
+    put(clipped ? cellWrap(heading, Math.max(1, inner - 1))[0]! + (inner > 1 ? "…" : "") : heading, section, style.accent)
 
     for (const text of shown) {
       put(text, section, section === "source" && textCell ? (s) => s : highlight)
