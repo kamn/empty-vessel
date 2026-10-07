@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test"
+import { afterAll, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import fc from "fast-check"
 import { makeKernel, type Cell, type KernelOptions } from "../../src/kernel/kernel"
+import { closeChecker } from "../../src/kernel/checker"
 
 // Integration properties use real Workers, but only a fake, append-only host log.
 // Replay: FC_SEED=<seed> FC_PATH=<path> bun test test/kernel/properties.test.ts -t '<test name>'
@@ -15,18 +16,21 @@ const parameters = (numRuns: number) => ({
   ...(process.env.FC_PATH === undefined ? {} : { path: process.env.FC_PATH }),
 })
 const tsc = new URL("../../node_modules/.bin/tsc", import.meta.url).pathname
+const suiteDir = mkdtempSync(join(tmpdir(), "empty-vessel-properties-"))
+afterAll(async () => {
+  await closeChecker(tsc)
+  rmSync(suiteDir, { recursive: true, force: true })
+})
+
 const withKernel = async (
   check: (k: ReturnType<typeof makeKernel>, calls: unknown[], reopen: () => ReturnType<typeof makeKernel>) => Promise<void>,
   options: Partial<KernelOptions> = {},
 ) => {
-  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-properties-"))
-  try {
-    // No parked Worker or cached checker process to retain this temporary directory.
-    const reopen = () => makeKernel({ ...options, dir, spareWorker: false, languageServer: false, timeoutMs: 5000 })
-    await check(reopen(), [], reopen)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  const dir = mkdtempSync(join(suiteDir, "case-"))
+  // Share the checker, not session state. Keep its working directory until afterAll stops it.
+  // Fresh Workers still run every cell; plain-compiler coverage lives in kernel.test.ts.
+  const reopen = () => makeKernel({ ...options, dir, spareWorker: false, timeoutMs: 5000 })
+  await check(reopen(), [], reopen)
 }
 const run = (k: ReturnType<typeof makeKernel>, code: string, calls: unknown[]) =>
   Effect.runPromise(k.run(code, {
