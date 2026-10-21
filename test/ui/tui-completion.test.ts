@@ -111,3 +111,19 @@ test("idle hint is discoverable; menu rows fit narrow widths and keep cursor in 
     expect(menu.every(row => widthOf(row) <= width)).toBe(true)
   }
 })
+
+test("@ completes the project's files at the cursor: matches containing the word, those starting with it first; Tab replaces only the @word", () => {
+  const files = [{ command: "@src/tools/bash.ts", description: "" }, { command: "@test/bash.test.ts", description: "" }, { command: "@bash.md", description: "" }, { command: "@README.md", description: "" }]
+  let m = init("status", [], "banner", [...items, ...files])
+  for (const k of "fix @bash") m = key(m, k)
+
+  expect(suggestions(m).map((i) => i.command)).toEqual(["@bash.md", "@src/tools/bash.ts", "@test/bash.test.ts"]) // same length: listed order
+  m = key(m, "\x1b[B")
+  m = key(m, "\t")
+  expect(m.input).toBe("fix @src/tools/bash.ts")
+
+  m = key(m, " ")
+  expect(suggestions(m)).toEqual([]) // the word is finished
+  for (const k of "/he") m = key(m, k)
+  expect(suggestions(m)).toEqual([]) // a slash mid-message isn't a command
+})
