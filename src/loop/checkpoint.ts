@@ -30,10 +30,25 @@ cp -p "$(git rev-parse --path-format=absolute --git-path index)" "$idx" 2>/dev/n
 export GIT_INDEX_FILE="$idx"`
 
 // git as the snapshots and restores run it, with nothing the repo's own config can make run: no fsmonitor, no hooks,
-// and every configured filter's clean/smudge/process emptied. A turn can write .git/config (a filter whose clean is any
-// command, with a .gitattributes line), and the snapshot runs on the host every turn, unasked. Both sides run unfiltered,
-// so a restore writes back exactly what the snapshot stored (a Git LFS file's content, not its pointer).
-const SAFE_GIT = `g() { git -c core.fsmonitor= -c core.hooksPath=/dev/null $(git config --get-regexp '^filter\\..*\\.(clean|smudge|process)$' | awk '{print "-c " $1 "="}') "$@"; }`
+// every configured filter's clean/smudge/process emptied and none required (Git LFS marks its filter required: left
+// so, every snapshot failed). A turn can write .git/config (a filter whose clean is any command, with a .gitattributes
+// line), and the snapshot runs on the host every turn, unasked. The overrides go through GIT_CONFIG_KEY_n/VALUE_n, the
+// keys read NUL-separated, so no name is parsed again (a filter named "x=y" slipped through -c filter.x=y.clean=).
+// Both sides run unfiltered, so a restore writes back exactly what the snapshot stored.
+const SAFE_GIT = `safe_git() {
+  local i=0 key
+  while IFS= read -r -d "" key; do
+    case "$key" in
+      *.clean|*.smudge|*.process) export "GIT_CONFIG_KEY_$i=$key" "GIT_CONFIG_VALUE_$i="; i=$((i+1)) ;;
+      *.required) export "GIT_CONFIG_KEY_$i=$key" "GIT_CONFIG_VALUE_$i=false"; i=$((i+1)) ;;
+    esac
+  done < <(git config -z --name-only --get-regexp '^filter\\.')
+  export "GIT_CONFIG_KEY_$i=core.fsmonitor" "GIT_CONFIG_VALUE_$i="; i=$((i+1))
+  export "GIT_CONFIG_KEY_$i=core.hooksPath" "GIT_CONFIG_VALUE_$i=/dev/null"; i=$((i+1))
+  export GIT_CONFIG_COUNT=$i
+}
+safe_git
+g() { git "$@"; }`
 
 // The output of a kernel command that exited 0, its lines; else undefined.
 const ok = (out: string) => {

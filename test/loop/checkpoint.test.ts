@@ -216,3 +216,20 @@ test("snapshots and /undo never run what the repo's config names: no filters, no
   expect(existsSync(ran)).toBe(false)
   expect(read(dir, "a.txt")).toBe("one\n")
 })
+
+test("snapshots work in a repo with a required filter (Git LFS), and a filter named with = can't run either", async () => {
+  const { dir, run, turn } = repo()
+  const ran = join(mkdtempSync(join(tmpdir(), "empty-vessel-filter-")), "ran")
+  execSync(`git config filter.lfs.clean false && git config filter.lfs.required true && git config "filter.x=y.clean" "touch '${ran}'; cat"`, { cwd: dir })
+  writeFileSync(join(dir, ".gitattributes"), "*.bin filter=lfs\n*.txt filter=x=y\n")
+  writeFileSync(join(dir, "big.bin"), "data\n")
+  const conversation = newConversation()
+
+  const checkpoint = await turn("edit", () => { writeFileSync(join(dir, "a.txt"), "two\n") })
+  expect(checkpoint).toBeDefined() // the required filter didn't stop the snapshot
+  conversation.checkpoints = [checkpoint!]
+  await run(undoCommand(session, conversation))
+
+  expect(existsSync(ran)).toBe(false)
+  expect(read(dir, "a.txt")).toBe("one\n")
+})
