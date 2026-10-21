@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { emit } from "../base/events"
 import { join } from "node:path"
 import { projectDir } from "../base/project"
-import { type SaveAs, saveCheck, vetCheck } from "./checks"
+import { fillTemplate, type SaveAs, saveCheck, vetCheck } from "./checks"
 import { Memory, type Scope } from "../base/memory"
 import { appendHistory } from "../base/files"
 import { EMPTY_VESSEL_HOME } from "../base/home"
@@ -79,7 +79,9 @@ export const ReviewerLive = Layer.effect(
 // Apply what the reviewer proposed. A check is saved only if vetCheck accepts it and its from_command passes (the
 // reviewer proposes, code verifies); open items and repeated failures go in the project's notes. `passed` holds only
 // the checks System Two yielded to System One: a command it ran itself, with bash() in a kernel cell, runs in the
-// cell's worker where the host never sees it, so it's run once more here (vetted first: it can't change files).
+// cell's worker where the host never sees it, so it's run once more here: vetted first (it can't change files), and run
+// as the template filled with its values shell-quoted, never as the proposal's own text (a value like "a.js; rm -rf x"
+// stays one argument).
 export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<string>, root: string, source: string, home = EMPTY_VESSEL_HOME) =>
   Effect.gen(function* () {
     const results: Array<string> = []
@@ -89,7 +91,9 @@ export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<strin
     for (const p of proposals.checks) {
       const args = Object.fromEntries(p.slots.map((s) => [s.name, s.values.length === 1 ? s.values[0]! : s.values]))
       const save: SaveAs = { name: p.name, description: p.description, template: p.template, args, scope: p.scope, ...(p.requires.length ? { requires: p.requires } : {}) }
-      const refused = vetCheck(save, p.from_command, root) ?? ((yield* passes(p.from_command)) ? undefined : "its command doesn't pass")
+      const filled = fillTemplate(save.template, args)
+      const refused = vetCheck(save, p.from_command, root) ?? (filled.command === undefined ? `no value for ${filled.missing!.join(", ")}`
+        : passed.includes(p.from_command) || (yield* passes(filled.command)) ? undefined : "its command doesn't pass")
       if (!refused) yield* saveCheck(root, save, source, home)
       results.push(`${refused ? `not saved (${refused})` : `saved (${p.scope})`}: ${p.name}: ${p.template}`)
     }
