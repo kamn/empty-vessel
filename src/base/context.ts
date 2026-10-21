@@ -31,6 +31,21 @@ export const loadContextFiles = (cwd: string) =>
       }),
   )
 
+// The AGENTS.md / CLAUDE.md of folders below `cwd` that hold any of `paths` (relative to cwd): a package's own rules in a
+// monorepo, which loadContextFiles (cwd and above) never sees. Most general first; the first name found wins per folder.
+export const nestedContextFiles = (cwd: string, paths: ReadonlyArray<string>) => {
+  const dirs = new Set<string>()
+
+  for (const path of paths) {
+    for (let dir = dirname(path); dir !== "." && dir !== "/" && !dir.startsWith(".."); dir = dirname(dir)) dirs.add(dir)
+  }
+
+  return [...dirs].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)).flatMap((dir) => {
+    const name = NAMES.find((n) => existsSync(join(cwd, dir, n)))
+    return name ? [join(dir, name)] : []
+  })
+}
+
 // The project's instructions as System Two is given them (Pi's format), one block per file, most general first. The
 // loop puts them in the briefing it hands to System Two, whichever backend it is (Codex, or claude -p, which doesn't
 // load CLAUDE.md itself when started with --setting-sources "").

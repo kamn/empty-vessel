@@ -1,3 +1,4 @@
+import { nestedContextFiles } from "../base/context"
 import { mkdirSync } from "node:fs"
 import { Effect } from "effect"
 import { AskUser } from "../ui/ask"
@@ -165,7 +166,8 @@ const gather: Step = (ctx, state) =>
     const given = ctx.conversation.files
     const { result: found, ms } = yield* timed(ctx, "systemOne", explore(process.cwd(), ctx.input))
 
-    const fresh = found.picked.filter((p) => !given.has(p))
+    // With them, the instructions of the folders they're in (packages/api/AGENTS.md), so a package's rules come along.
+    const fresh = [...nestedContextFiles(process.cwd(), found.picked), ...found.picked].filter((p, i, all) => !given.has(p) && all.indexOf(p) === i)
     fresh.forEach((p) => given.add(p))
     for (const p of fresh) yield* ctx.session.record("given", p).pipe(Effect.ignore)
     state.gathered = [state.gathered, yield* packFiles(process.cwd(), fresh)].filter(Boolean).join("\n\n") // after any @mentioned files
