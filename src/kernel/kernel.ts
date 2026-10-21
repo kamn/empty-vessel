@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { Effect, Fiber } from "effect"
+import { Cause, Effect, Fiber } from "effect"
 import { checkWithServer, warmChecker } from "./checker"
 import { cellProblems, kernelImports } from "./rules"
 import { effectExports } from "./effect-exports"
@@ -182,7 +182,12 @@ const runInWorker = (options: KernelOptions, file: string, host: HostFunctions, 
       else if (m.type === "call") {
         const fn = host[m.fn]
         const reply = fn
-          ? fn(m.arg).pipe(Effect.match({ onSuccess: (value) => ({ id: m.id, value }), onFailure: (err) => ({ id: m.id, error: String(err) }) }))
+          // Any failure is the cell's error, a crash or a throw while making the call too: unanswered, the cell would wait
+          // out its whole time limit (and a throw here would escape onmessage).
+          ? Effect.suspend(() => fn(m.arg)).pipe(Effect.matchCause({
+            onSuccess: (value) => ({ id: m.id, value }),
+            onFailure: (cause) => ({ id: m.id, error: Cause.hasFails(cause) ? String(Cause.squash(cause)) : Cause.pretty(cause) }),
+          }))
           : Effect.succeed({ id: m.id, error: `no host function "${m.fn}" (there are: ${Object.keys(host).join(", ") || "none"})` })
         const call: Fiber.Fiber<unknown, unknown> = Effect.runFork(reply.pipe(
           Effect.tap((r) => Effect.sync(() => { if (!finished) worker.postMessage({ type: "reply", ...r }) })),

@@ -65,3 +65,18 @@ test("a tsc without a language server still checks every cell (the fallback)", a
   // A closed server must fall back without waiting out even one 20-second initialization timeout.
   expect(performance.now() - started).toBeLessThan(10_000)
 }, 15_000)
+
+test("a host function that crashes or throws answers the cell with an error at once, not after the time limit", async () => {
+  const k = fresh({ languageServer: false, spareWorker: false })
+  const host = {
+    crash: () => Effect.sync(() => { throw new Error("host bug") }),
+    throws: (arg: unknown) => { const { a } = arg as { a: number }; return Effect.succeed(a) }, // throws before an Effect exists
+  }
+
+  for (const fn of ["crash", "throws"]) {
+    const started = Date.now()
+    const r = await Effect.runPromise(k.run(`import { call, Effect } from "kernel"\nexport default call("${fn}").pipe(Effect.catch((e) => Effect.succeed("caught: " + e)))`, host))
+    expect(r.summary).toContain("caught:")
+    expect(Date.now() - started).toBeLessThan(4000)
+  }
+}, 20000)
