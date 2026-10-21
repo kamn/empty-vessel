@@ -40,6 +40,11 @@ test("truncateTail: keeps the end (the verdict), saves the full output, and hand
 
   const huge = "y".repeat(60 * 1024)
   expect(truncateTail(huge)).toContain("[Showing the end of line 1 of 1.")
+
+  // Multi-byte characters: the limit is bytes, and no broken character is shown
+  const wide = truncateTail("界".repeat(30 * 1024)).split("\n\n[Showing")[0]!
+  expect(Buffer.byteLength(wide)).toBeLessThanOrEqual(50 * 1024)
+  expect(wide).toMatch(/^界+$/)
 })
 
 test("runBash: a timeout kills the whole command, children included", async () => {
