@@ -74,7 +74,7 @@ Browser login uses a loopback callback on port 1455. If another login occupies t
 ## Use
 
 Resume the latest session with `empty-vessel --continue`, or choose one with
-`empty-vessel --resume <session-id>`. Add `--fork-session` to go on in a copy instead, leaving the original
+`empty-vessel --resume <session-id>` (`empty-vessel sessions` lists this folder's newest, `--all` every folder's). Add `--fork-session` to go on in a copy instead, leaving the original
 session as it was (to try another direction from the same point). In the TUI, resuming restores the saved conversation
 view: comments, cells and their results, expanded sections, scroll position, input history,
 and unfinished drafts. The view is saved locally inside that session as you work.
