@@ -10,6 +10,15 @@ export type CompletionState = Draft & {
 }
 
 const MAX_FILES = 50
+const MAX_LISTED = 20_000
+
+// The project's files for @ completion: git's list (tracked, and new files it doesn't ignore), up to 20,000. Outside a
+// git repo, none: walking an unknown folder (a home directory) at start could take minutes.
+export const fileCompletions = (cwd: string): ReadonlyArray<Completion> => {
+  const git = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd, stdout: "pipe", stderr: "ignore" })
+  if (git.exitCode !== 0) return []
+  return [...new Set(git.stdout.toString().split("\0").filter(Boolean))].slice(0, MAX_LISTED).map((p) => ({ command: `@${p}`, description: "" }))
+}
 
 // The @path being typed at the cursor (the word before it, starting with @), if any.
 const mentionAt = (prefix: string) => prefix.match(/(?:^|\s)(@\S*)$/)?.[1]

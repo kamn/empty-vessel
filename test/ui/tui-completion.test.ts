@@ -127,3 +127,21 @@ test("@ completes the project's files at the cursor: matches containing the word
   for (const k of "/he") m = key(m, k)
   expect(suggestions(m)).toEqual([]) // a slash mid-message isn't a command
 })
+
+test("fileCompletions: git's tracked and new unignored files as @paths; none outside a repo", async () => {
+  const { execSync } = await import("node:child_process")
+  const { mkdtempSync, writeFileSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const { fileCompletions } = await import("../../src/ui/tui/completion")
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-files-"))
+  execSync("git init -q", { cwd: dir })
+  writeFileSync(join(dir, ".gitignore"), "build/\n")
+  writeFileSync(join(dir, "a.ts"), "")
+  execSync("git add a.ts", { cwd: dir })
+  writeFileSync(join(dir, "new.ts"), "")
+
+  expect(fileCompletions(dir).map((c) => c.command).sort()).toEqual(["@.gitignore", "@a.ts", "@new.ts"])
+  process.env.GIT_CEILING_DIRECTORIES = tmpdir()
+  try { expect(fileCompletions(mkdtempSync(join(tmpdir(), "empty-vessel-nogit-")))).toEqual([]) } finally { delete process.env.GIT_CEILING_DIRECTORIES }
+})

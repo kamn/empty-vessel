@@ -8,12 +8,12 @@ import { init, Message, TurnRunner } from "./ui/tui/app"
 import { setTheme } from "./ui/tui/style"
 import { turnNotice } from "./ui/tui/notify"
 import { copyText } from "./ui/tui/copy"
+import { fileCompletions } from "./ui/tui/completion"
 import { runTui } from "./ui/tui/runtime"
 import { loadView, saveView } from "./ui/tui/session"
 import { clipboardImage, imagesIn } from "./base/images"
 import { discoverSkills } from "./base/skills"
 import { skillCompletions } from "./skill-completions"
-import { Kernel } from "./tools/kernel-service"
 
 // The TUI (config `ui: "tui"`): the same turns as the plain prompt, drawn by src/ui/tui. Keys are read raw, so
 // Ctrl+C reaches the TUI as a key (it stops the turn) rather than as a signal. While it runs, the loop's events and
@@ -30,7 +30,7 @@ export const tui = (session: SessionHandle, conversation: Conversation, status: 
       conversation.skillCatalogPending = true
     }
     // The project's files, once, for @path completion (src/loop/mentions.ts). ponytail: a file added later isn't offered.
-    const files = (yield* (yield* Kernel).files.list(process.cwd())).slice(0, 20_000).map((p) => ({ command: `@${p}`, description: "" }))
+    const files = fileCompletions(process.cwd())
     const completions = () => [...skillCompletions(conversation.skills!), ...files]
     const refreshCompletions = Effect.sync(() => {
       if (!closed) dispatch(Message.UpdatedCompletions({ items: [...completions()] }))
