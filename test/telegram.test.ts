@@ -156,6 +156,7 @@ test("chunks preserve emoji at UTF16 boundaries and sending uses plain authorize
   expect(chunks.join("")).toBe(text)
   expect(chunks.every((chunk) => chunk.length <= 4096 && chunk.isWellFormed())).toBe(true)
   expect(splitText("")).toEqual([])
+  expect(splitText(`${"a".repeat(4096)}\n\n`)).toEqual(["a".repeat(4096)]) // no whitespace-only piece after it
   const sent: any[] = []
   const channel = yield* makeTelegramChannel(options, { ...fixture(), http: fake(() => fail(401), (body) => {
     sent.push(body); return ok({})

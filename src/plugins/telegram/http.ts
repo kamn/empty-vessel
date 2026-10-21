@@ -56,5 +56,7 @@ export const splitText = (text: string): string[] => {
     start = end
   }
 
-  return chunks
+  // A piece that's only whitespace (a long reply's trailing newline) is dropped: Telegram refuses an empty message,
+  // and a refused send ends the channel.
+  return chunks.filter((chunk) => chunk.trim())
 }
