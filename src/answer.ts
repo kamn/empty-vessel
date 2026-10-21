@@ -11,6 +11,7 @@ import { turn } from "./loop/turn"
 import { childConfig, type Conversation } from "./loop/turnkit"
 import { noteStop } from "./system-two/thread"
 import { saveConversation, useSystemTwo } from "./loop/resume"
+import { snapshot } from "./loop/checkpoint"
 import { ActiveAgent } from "./base/memory"
 
 // Shared by the plain prompt (main.ts) and the TUI (tui.ts).
@@ -20,6 +21,8 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
+    const checkpoint = yield* snapshot(input) // for /undo
+    if (checkpoint) (conversation.checkpoints ??= []).push(checkpoint)
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
