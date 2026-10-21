@@ -19,14 +19,26 @@ const base64url = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64").r
 
 // The login server's endpoints, from the MCP server's URL: its protected-resource metadata (for the path, then the
 // root), then the authorization server's metadata (OAuth's, or OpenID's).
+// Where tokens go must be HTTPS (a loopback address may be plain HTTP: a local server, a test): the metadata comes from
+// the server, and an http:// token endpoint would send the code and tokens in the clear.
+const secure = (url: string, what: string) => {
+  const u = new URL(url)
+  if (u.protocol === "https:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname))) return url
+  throw new Error(`the login server's ${what} isn't HTTPS: ${url}`)
+}
+
 export const discover = async (resource: string) => {
   const u = new URL(resource)
   const meta = (await getJson(`${u.origin}/.well-known/oauth-protected-resource${u.pathname}`)) ?? (await getJson(`${u.origin}/.well-known/oauth-protected-resource`))
   const issuer: string | undefined = meta?.authorization_servers?.[0]
   if (!issuer) throw new Error(`${resource} doesn't say where to log in (no protected-resource metadata)`)
+  secure(issuer, "address")
   const as = (await getJson(`${issuer}/.well-known/oauth-authorization-server`)) ?? (await getJson(`${issuer}/.well-known/openid-configuration`))
   if (!as?.authorization_endpoint || !as?.token_endpoint) throw new Error(`${issuer} has no login metadata`)
-  return { authorize: as.authorization_endpoint as string, token: as.token_endpoint as string, register: as.registration_endpoint as string | undefined }
+  return {
+    authorize: secure(as.authorization_endpoint, "login page"), token: secure(as.token_endpoint, "token endpoint"),
+    register: as.registration_endpoint === undefined ? undefined : secure(as.registration_endpoint, "registration endpoint") as string,
+  }
 }
 
 const tokens = async (tokenEndpoint: string, form: Record<string, string>) => {

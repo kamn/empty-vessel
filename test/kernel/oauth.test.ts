@@ -78,3 +78,15 @@ test("saveLogin: the token file ends up private even over one that was readable,
   expect(statSync(join(home, "auth")).mode & 0o777).toBe(0o700)
   expect(JSON.parse(readFileSync(join(home, "auth", "src.json"), "utf8")).accessToken).toBe("secret")
 })
+
+test("login refuses a login server whose endpoints aren't HTTPS (loopback may be plain HTTP)", async () => {
+  const server = Bun.serve({ port: 0, fetch: (req) => {
+    const url = new URL(req.url), base = url.origin
+    if (url.pathname === "/.well-known/oauth-protected-resource/mcp") return Response.json({ resource: `${base}/mcp`, authorization_servers: [base] })
+    if (url.pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: base, authorization_endpoint: `${base}/authorize`, token_endpoint: "http://tokens.example.com/token", registration_endpoint: `${base}/register` })
+    return new Response("not found", { status: 404 })
+  } })
+  try {
+    await expect(login(`http://localhost:${server.port}/mcp`, () => {})).rejects.toThrow("token endpoint isn't HTTPS")
+  } finally { server.stop(true) }
+})
