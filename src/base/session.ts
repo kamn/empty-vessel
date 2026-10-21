@@ -70,6 +70,35 @@ export const openSession = (key: string) =>
     return { id: key.split("/").at(-1)!, key, dir: store.folder(key), record } as const
   })
 
+// The newest sessions started in `cwd` (every folder's, if undefined), up to `limit`: for choosing one to --resume.
+// Each with when it started, how many messages you sent, and the first of them.
+export type SessionSummary = { readonly id: string; readonly started: number; readonly folder: string; readonly messages: number; readonly first?: string }
+export const listSessions = (cwd: string | undefined, limit = 20) =>
+  Effect.gen(function* () {
+    const store = yield* Store
+    const found: Array<SessionSummary> = []
+
+    for (const id of [...(yield* store.list(SESSIONS))].reverse()) {
+      const entries = ((yield* store.get(`${SESSIONS}/${id}/main.jsonl`)) ?? "").split("\n").flatMap((l) => { try { return [JSON.parse(l) as { role: string; text: string; ts: number }] } catch { return [] } })
+      const head = entries[0]
+      if (head?.role !== "project" || (cwd !== undefined && head.text !== cwd)) continue
+
+      const said = entries.filter((e) => e.role === "user")
+      found.push({ id, started: head.ts, folder: head.text, messages: said.length, ...(said[0] ? { first: said[0].text } : {}) })
+      if (found.length >= limit) break
+    }
+
+    return found
+  })
+
+// One line per session, for the terminal.
+export const sessionLines = (sessions: ReadonlyArray<SessionSummary>, withFolder: boolean) =>
+  sessions.map((s) => {
+    const when = new Date(s.started).toLocaleString("sv").slice(0, 16) // 2026-10-20 23:21
+    const first = s.first ? ` "${s.first.replace(/\s+/g, " ").slice(0, 60)}${s.first.length > 60 ? "…" : ""}"` : ""
+    return `${s.id}  ${when}  ${String(s.messages).padStart(3)} message${s.messages === 1 ? " " : "s"}${withFolder ? `  ${s.folder}` : ""}${first}`
+  })
+
 // The newest session started in this folder (session ids are time-ordered), like Claude Code's --continue.
 export const latestSession = (cwd: string) =>
   Effect.gen(function* () {
