@@ -101,3 +101,31 @@ test("an @mentioned file counts as given only once System Two's prompt carries i
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("a goal finished by the last allowed step isn't marked '(step limit)'", async () => {
+  const root = mkdtempSync(join(tmpdir(), "limit-turn-")), cwd = process.cwd()
+  const config = Schema.decodeUnknownSync(ConfigSchema)({ testOptions: true, learnAfterTurn: false, maxSteps: 1, systemTwo: { scopeCheck: false } })
+  process.chdir(root)
+
+  try {
+    await Effect.runPromise(Effect.gen(function* () {
+      const session = yield* makeSession("sessions")
+      const conversation = newConversation()
+      conversation.briefing = "test project instructions"
+      conversation.skills = { skills: [], diagnostics: [] }
+
+      expect(yield* turn(session, "hello", 0, conversation)).toBe("echo: hello") // echo answers it in its one step
+    }).pipe(
+      Effect.provideService(Config, config),
+      Effect.provideService(Events, { emit: () => Effect.void }),
+      Effect.provideService(AskUser, { ask: () => Effect.succeed([]) }),
+      Effect.provideService(Memory, { snapshot: Effect.succeed(""), add: () => Effect.void, replace: () => Effect.void, remove: () => Effect.void, entries: () => Effect.succeed([]), file: () => Effect.succeed("") }),
+      Effect.provide(FakeSystemOne), Effect.provide(FakeSystemTwo),
+      Effect.provide(Usage.layer), Effect.provide(diskStore(root)),
+      Effect.provideContext(Context.empty() as Context.Context<Needs>),
+    ))
+  } finally {
+    process.chdir(cwd)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
