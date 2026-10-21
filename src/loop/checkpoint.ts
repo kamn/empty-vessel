@@ -22,9 +22,11 @@ export const isTree = (s: unknown): s is string => typeof s === "string" && /^[0
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
 
-// A private copy of the repo's index (so `git add -A` only reads files that changed), removed on exit.
+// A private copy of the repo's index (so `git add -A` only reads files that changed), removed on exit. Copied with its
+// time (cp -p): git trusts a file's cached stat only if the file is older than the index, and a fresh copy's newer time
+// would make a same-size edit right after the index was written look unchanged ("racy git").
 const PRIVATE_INDEX = `idx=$(mktemp) && rm -f "$idx" && trap 'rm -f "$idx"' EXIT
-cp "$(git rev-parse --path-format=absolute --git-path index)" "$idx" 2>/dev/null
+cp -p "$(git rev-parse --path-format=absolute --git-path index)" "$idx" 2>/dev/null
 export GIT_INDEX_FILE="$idx"`
 
 // The output of a kernel command that exited 0, its lines; else undefined.
@@ -42,7 +44,7 @@ const ok = (out: string) => {
 const allowed = () => Effect.succeed({ decision: "allow" as const })
 export const snapshot = (cwd = process.cwd(), index?: string) =>
   Effect.gen(function* () {
-    const kept = index ? `[ -f ${quote(index)} ] || cp "$(git rev-parse --path-format=absolute --git-path index)" ${quote(index)} 2>/dev/null
+    const kept = index ? `[ -f ${quote(index)} ] || cp -p "$(git rev-parse --path-format=absolute --git-path index)" ${quote(index)} 2>/dev/null
 export GIT_INDEX_FILE=${quote(index)}` : PRIVATE_INDEX
     const out = yield* runBash(`cd ${quote(cwd)} || exit 3
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
