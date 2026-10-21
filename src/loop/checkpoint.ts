@@ -31,12 +31,16 @@ const ok = (out: string) => {
 // action the agent proposed (an "ask" policy would otherwise ask the user to approve it each turn). /undo's restore,
 // which changes files, still goes through the guard.
 const allowed = () => Effect.succeed({ decision: "allow" as const })
-export const snapshot = (input: string, cwd = process.cwd()) =>
+// `index`: a private index kept between turns (in the session's folder), so git's cache of file times holds for new
+// files too and only what changed is read again; a fresh copy each turn re-read every untracked file every turn.
+export const snapshot = (input: string, cwd = process.cwd(), index?: string) =>
   Effect.gen(function* () {
+    const kept = index ? `[ -f ${quote(index)} ] || cp "$(git rev-parse --path-format=absolute --git-path index)" ${quote(index)} 2>/dev/null
+export GIT_INDEX_FILE=${quote(index)}` : PRIVATE_INDEX
     const out = yield* runBash(`cd ${quote(cwd)} || exit 3
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
 cd "$root" || exit 3
-${PRIVATE_INDEX}
+${kept}
 git add -A . && echo "$root" && git write-tree`, 60_000, allowed)
     const [root, tree] = ok(out) ?? []
     return root && tree && /^[0-9a-f]{40,64}$/.test(tree) ? { root, tree, input } satisfies Checkpoint : undefined

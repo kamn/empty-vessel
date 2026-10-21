@@ -21,7 +21,7 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
-    const checkpoint = yield* snapshot(input) // for /undo, also after a resume (src/loop/resume.ts)
+    const checkpoint = yield* snapshot(input, process.cwd(), `${session.dir}/undo.index`) // for /undo, also after a resume (src/loop/resume.ts)
     if (checkpoint) {
       (conversation.checkpoints ??= []).push(checkpoint)
       yield* session.record("checkpoint", checkpoint.tree, { root: checkpoint.root, input: checkpoint.input }).pipe(Effect.ignore)

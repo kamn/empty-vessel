@@ -34,6 +34,21 @@ test("the per-turn snapshot doesn't ask ActionGuard (an 'ask' policy would promp
   expect(asked).toEqual([])
 })
 
+test("a kept index persists between snapshots and gives the same tree as a fresh one", async () => {
+  const { dir } = repo()
+  const index = join(mkdtempSync(join(tmpdir(), "empty-vessel-undo-index-")), "undo.index")
+
+  const first = await Effect.runPromise(snapshot("one", dir, index))
+  expect(existsSync(index)).toBe(true)
+  const fresh = await Effect.runPromise(snapshot("two", dir))
+  writeFileSync(join(dir, "later.txt"), "new\n")
+  const kept = await Effect.runPromise(snapshot("three", dir, index))
+
+  expect(first?.tree).toBe(fresh?.tree)
+  expect(kept?.tree).not.toBe(first?.tree)
+  expect(kept?.tree).toBe((await Effect.runPromise(snapshot("four", dir)))?.tree)
+})
+
 test("/undo puts back what the last file-changing turn changed, removes what it created, and leaves the index alone", async () => {
   const { dir, run } = repo()
   const conversation = newConversation()
