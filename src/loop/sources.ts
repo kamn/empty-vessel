@@ -18,10 +18,15 @@ const authFile = (name: string, home = EMPTY_VESSEL_HOME) => join(home, "auth", 
 export const loadLogin = (name: string, home = EMPTY_VESSEL_HOME): Login | undefined => {
   try { return JSON.parse(readFileSync(authFile(name, home), "utf8")) } catch { return undefined }
 }
+// Private from the first byte, and whole: a 0600 temp file renamed over the old one (writing the old file in place
+// left the new token readable for a moment if that file had looser permissions). The folder is made private too.
 export const saveLogin = (name: string, l: Login, home = EMPTY_VESSEL_HOME) => {
   mkdirSync(join(home, "auth"), { recursive: true, mode: 0o700 })
-  writeFileSync(authFile(name, home), JSON.stringify(l), { mode: 0o600 })
-  chmodSync(authFile(name, home), 0o600)
+  chmodSync(join(home, "auth"), 0o700)
+  const temp = `${authFile(name, home)}.${crypto.randomUUID()}.tmp`
+  writeFileSync(temp, JSON.stringify(l), { mode: 0o600, flag: "wx" })
+  chmodSync(temp, 0o600)
+  renameSync(temp, authFile(name, home))
 }
 
 // The sources from the config. A remote one with "auth": "oauth" sends its saved login's token and refreshes it after a

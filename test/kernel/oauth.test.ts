@@ -49,3 +49,32 @@ test("login fails clearly when the server doesn't say where to log in", async ()
     await expect(login(`http://localhost:${server.port}/mcp`, () => {})).rejects.toThrow("doesn't say where to log in")
   } finally { server.stop(true) }
 })
+
+test("login: a stray /callback with another state is refused and doesn't end the login", async () => {
+  const { server, resource } = fakeLogin()
+  try {
+    const browser = async (url: string) => {
+      const redirect = new URL(new URL(url).searchParams.get("redirect_uri")!)
+      const stray = await fetch(`${redirect.origin}/callback?code=evil&state=wrong`) // another local program
+      expect(stray.status).toBe(400)
+      await fetch(url) // then the real redirect
+    }
+    expect(await login(resource, browser)).toMatchObject({ accessToken: "access-1" })
+  } finally { server.stop(true) }
+})
+
+test("saveLogin: the token file ends up private even over one that was readable, and the auth folder too", async () => {
+  const { mkdtempSync, mkdirSync, statSync, writeFileSync, readFileSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const { saveLogin } = await import("../../src/loop/sources")
+  const home = mkdtempSync(join(tmpdir(), "empty-vessel-auth-"))
+  mkdirSync(join(home, "auth"), { mode: 0o755 })
+  writeFileSync(join(home, "auth", "src.json"), "{}", { mode: 0o644 })
+
+  saveLogin("src", { resource: "r", clientId: "c", accessToken: "secret", tokenEndpoint: "t" } as never, home)
+
+  expect(statSync(join(home, "auth", "src.json")).mode & 0o777).toBe(0o600)
+  expect(statSync(join(home, "auth")).mode & 0o777).toBe(0o700)
+  expect(JSON.parse(readFileSync(join(home, "auth", "src.json"), "utf8")).accessToken).toBe("secret")
+})
