@@ -5,6 +5,7 @@ import { noAbsoluteRm, noAbsoluteRmPolicy } from "../../src/plugins/no-absolute-
 
 // All shell snippets are data only. No child processes or filesystem deletion.
 const allowed = [
+  "docker exec box ls", "git commit -m 'fix the bash script'",
   "rm -rf folder", "rm ./folder -rf", "rm ../folder", "rm -f a b -r c", "rm -- -folder",
   "rm './two words'", 'rm "relative path"', "rm relative\\ path",
   "rm '$DIR'", "rm '~folder'", "rm '{one,two}'", "rm \\$DIR", "rm \\~folder",
@@ -18,6 +19,7 @@ const allowed = [
 ]
 
 const denied = [
+  "RM -rf /x", "Rm -rf /x", "/BIN/RM -rf /x", "sudo RM -rf /x",
   "rm -rf /tmp/folder", "rm -f /tmp/file", "rm /tmp/file", "rm /", "rm //tmp/file",
   "rm relative /tmp/file relative2", "rm /tmp/file -rf", "rm -r relative -f /tmp/file",
   "rm -- /tmp/file", "rm -- -f /tmp/file", "rm -rf '/tmp/two words'", 'rm -f "/tmp/file"',
@@ -34,6 +36,7 @@ const denied = [
 ]
 
 const revised = [
+  "nice sh -c 'rm -rf /x'", "timeout 5 bash -c 'rm -rf /x'", "su root -c 'rm -rf /x'", "nohup ksh -c 'rm -rf /x'", "find . -exec sh -c 'rm -rf /x' \\;",
   "rm $DIR", 'rm "$DIR"', "rm ${DIR}/file", "rm $(pwd)/file", "rm `pwd`/file",
   "rm ~", "rm ~/file", "rm {a,b}", "rm *.txt", "rm file?", "rm [ab]",
   "rm $'\\x2ftmp/file'", 'rm $"/tmp/file"', "rm --unknown relative", "rm -xyz relative",

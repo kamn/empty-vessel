@@ -68,7 +68,12 @@ const tokenize = (source: string): { commands: Word[][]; unsupported: boolean } 
 }
 
 const assignment = (word: Word) => /^[A-Za-z_][A-Za-z_0-9]*=/.test(word.text) && !word.dynamic
-const base = (text: string) => text.slice(text.lastIndexOf("/") + 1)
+// A command's name, without its folder and in lower case: macOS's disk usually ignores case, so RM and /BIN/RM run rm.
+const base = (text: string) => text.slice(text.lastIndexOf("/") + 1).toLowerCase()
+// Shells and launchers that run a command given as a string: wherever one appears (nice sh -c, timeout 5 bash -c,
+// su root -c, find -exec sh -c), its rm isn't a word this policy can see.
+// (exec, source and . only count first: later, `docker exec` or a "." argument are ordinary.)
+const SHELLS = ["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh", "su", "eval", "xargs"]
 
 const checkCommand = (words: Word[]): GuardVerdict => {
   let i = 0
@@ -97,11 +102,12 @@ const checkCommand = (words: Word[]): GuardVerdict => {
   if (!executable) return allow
   if (executable.dynamic) return revise()
 
-  if (executable.text !== "rm" && executable.text !== "/bin/rm" && executable.text !== "/usr/bin/rm") {
+  const path = executable.text.toLowerCase()
+  if (path !== "rm" && path !== "/bin/rm" && path !== "/usr/bin/rm") {
     // Known interpreters/control syntax and rm passed through unknown launchers.
     // Literal echo/printf arguments aren't commands.
     if (["echo", "printf", "cat"].includes(base(executable.text))) return allow
-    if (base(executable.text) === "rm" || ["sh", "bash", "zsh", "dash", "fish", "eval", "exec", "source", ".", "xargs", "if", "then", "else", "for", "while", "until", "do", "case", "function", "!"].includes(base(executable.text)) || words.slice(i).some((w) => base(w.text) === "rm")) return revise()
+    if (base(executable.text) === "rm" || [...SHELLS, "exec", "source", ".", "if", "then", "else", "for", "while", "until", "do", "case", "function", "!"].includes(base(executable.text)) || words.slice(i).some((w) => base(w.text) === "rm" || SHELLS.includes(base(w.text)))) return revise()
     return allow
   }
 
