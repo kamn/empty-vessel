@@ -29,6 +29,12 @@ const PRIVATE_INDEX = `idx=$(mktemp) && rm -f "$idx" && trap 'rm -f "$idx"' EXIT
 cp -p "$(git rev-parse --path-format=absolute --git-path index)" "$idx" 2>/dev/null
 export GIT_INDEX_FILE="$idx"`
 
+// git as the snapshots and restores run it, with nothing the repo's own config can make run: no fsmonitor, no hooks,
+// and every configured filter's clean/smudge/process emptied. A turn can write .git/config (a filter whose clean is any
+// command, with a .gitattributes line), and the snapshot runs on the host every turn, unasked. Both sides run unfiltered,
+// so a restore writes back exactly what the snapshot stored (a Git LFS file's content, not its pointer).
+const SAFE_GIT = `g() { git -c core.fsmonitor= -c core.hooksPath=/dev/null $(git config --get-regexp '^filter\\..*\\.(clean|smudge|process)$' | awk '{print "-c " $1 "="}') "$@"; }`
+
 // The output of a kernel command that exited 0, its lines; else undefined.
 const ok = (out: string) => {
   const [status, ...lines] = out.split("\n")
@@ -49,8 +55,9 @@ export GIT_INDEX_FILE=${quote(index)}` : PRIVATE_INDEX
     const out = yield* runBash(`cd ${quote(cwd)} || exit 3
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
 cd "$root" || exit 3
+${SAFE_GIT}
 ${kept}
-git add -A . && echo "$root" && git write-tree`, 60_000, allowed)
+g add -A . && echo "$root" && g write-tree`, 60_000, allowed)
     const [root, tree] = ok(out) ?? []
     return root && isTree(tree) ? { root, tree } : undefined
   }).pipe(Effect.orElseSucceed(() => undefined))
@@ -76,10 +83,11 @@ const move = (root: string, target: string, expected: string) => {
 
     // What differs (target → expected), and what changed since (expected → now).
     const looked = yield* kernel.exec(`cd ${quote(root)} || exit 3
+${SAFE_GIT}
 ${PRIVATE_INDEX}
-git add -A . && now=$(git write-tree) || exit 4
-git diff -z --name-status --no-renames ${target} ${expected} > ${file("turn")} || exit 5
-git diff -z --name-only --no-renames ${expected} "$now" > ${file("since")} || exit 5`, 60_000)
+g add -A . && now=$(g write-tree) || exit 4
+g diff -z --name-status --no-renames ${target} ${expected} > ${file("turn")} || exit 5
+g diff -z --name-only --no-renames ${expected} "$now" > ${file("since")} || exit 5`, 60_000)
     if (!ok(looked)) return { restored: [], removed: [], yours: [], ignored: [], failed: "git couldn't compare the files (nothing was changed)" } satisfies Undone
 
     const pairs = nul(readFileSync(join(work, "turn"), "utf8"))
@@ -93,10 +101,11 @@ git diff -z --name-only --no-renames ${expected} "$now" > ${file("since")} || ex
 
     // Restore first; then, under the restored ignore rules, which of the created files they cover.
     const put = yield* kernel.exec(`cd ${quote(root)} || exit 3
+${SAFE_GIT}
 ${PRIVATE_INDEX}
-git read-tree ${target} || exit 5
-git checkout-index -f -z --stdin < ${file("restore")} || exit 6
-git check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}; [ $? -le 1 ] || exit 7`, 60_000)
+g read-tree ${target} || exit 5
+g checkout-index -f -z --stdin < ${file("restore")} || exit 6
+g check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}; [ $? -le 1 ] || exit 7`, 60_000)
     if (!ok(put)) {
       const what = put.startsWith("exit 5") ? "git couldn't read the checkpoint (nothing was changed)" : "git failed while restoring: some files may be restored already, check git status"
       return { restored: [], removed: [], yours, ignored: [], failed: what } satisfies Undone

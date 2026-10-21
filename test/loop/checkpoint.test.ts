@@ -202,3 +202,17 @@ test("/undo of a turn that swapped a folder and a file puts both back without fa
   expect(read(dir, "f")).toBe("a file\n")
   expect(conversation.redo).toHaveLength(1) // it worked: redoable, not lost
 })
+
+test("snapshots and /undo never run what the repo's config names: no filters, no fsmonitor", async () => {
+  const { dir, run, turn } = repo()
+  const ran = join(mkdtempSync(join(tmpdir(), "empty-vessel-filter-")), "ran")
+  execSync(`git config filter.x.clean "touch '${ran}'; cat" && git config filter.x.smudge "touch '${ran}'; cat" && git config core.fsmonitor "touch '${ran}'; false"`, { cwd: dir })
+  writeFileSync(join(dir, ".gitattributes"), "* filter=x\n")
+  const conversation = newConversation()
+
+  conversation.checkpoints = [(await turn("edit", () => { writeFileSync(join(dir, "a.txt"), "two\n") }))!]
+  await run(undoCommand(session, conversation))
+
+  expect(existsSync(ran)).toBe(false)
+  expect(read(dir, "a.txt")).toBe("one\n")
+})
