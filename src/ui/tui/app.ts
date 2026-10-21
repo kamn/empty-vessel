@@ -361,7 +361,8 @@ export const update = (model: Model, message: Message): Return =>
 
       return { model: { ...model, ...insert(model, shown), pastes, completionDismissed: false, completionSelected: 0 } }
     },
-    AttachedImages: ({ images }) => ({ model: { ...model, attached: [...model.attached, ...images] } }),
+    // A label can be used again (its image was deleted from the input, then another pasted): the new one is what it means.
+    AttachedImages: ({ images }) => ({ model: { ...model, attached: [...model.attached.filter((a) => !images.some((i) => i.label === a.label)), ...images] } }),
     GotEvent: (event) => ({ model: got(model, event) }),
     AskedUser: ({ question, options }) => ({ model: { ...model, asking: { question, options }, selectedOption: 0, questionDraft: model.asking ? model.questionDraft : model.input, input: "", after: 0 } }),
     Ticked: () => ({ model: model.running ? { ...model, frame: model.frame + 1 } : model }),

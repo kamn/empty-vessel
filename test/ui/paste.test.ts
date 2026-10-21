@@ -80,3 +80,14 @@ test("image labels inside a folded paste still become file paths", () => {
   const sent = update(model, Message.PressedKey({ key: "\r" }))
   expect(sent.commands).toMatchObject([{ name: "RunTurn", args: { input: text.replace("[Image #1]", "/tmp/photo.png") } }])
 })
+
+test("an image label used again (the first image deleted from the input) sends the new image, not the old one", () => {
+  let model = update(init("s"), Message.AttachedImages({ images: [{ label: "[Image #1]", path: "/tmp/a.png" }] })).model
+  model = update(model, Message.PastedText({ text: "[Image #1]" })).model
+  model = update(model, Message.PressedKey({ key: "\x15" })).model // Ctrl+U: the label (and image A) gone from the input
+  model = update(model, Message.AttachedImages({ images: [{ label: "[Image #1]", path: "/tmp/b.png" }] })).model // numbered from the input again
+  model = update(model, Message.PastedText({ text: "look at [Image #1]" })).model
+
+  const sent = update(model, Message.PressedKey({ key: "\r" }))
+  expect(sent.commands).toMatchObject([{ name: "RunTurn", args: { input: "look at /tmp/b.png" } }])
+})
