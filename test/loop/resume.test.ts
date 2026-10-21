@@ -228,3 +228,15 @@ test("loadConversation: the agent the conversation works as comes back from its 
   writeFileSync(join(dir, "main.jsonl"), [line({ role: "agent", text: "reviewer" }), line({ role: "user", text: "hi" }), ""].join("\n"))
   expect(loadConversation(dir).agent).toBe("reviewer")
 })
+
+test("a turn stopped before it wrote its message: the stop writes it, so resume pairs \"(stopped)\" with it", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "empty-vessel-sessions-"))
+  const session = await Effect.runPromise(makeSession("sessions").pipe(Effect.provide(diskStore(parent))))
+  const conversation = newConversation()
+  await Effect.runPromise(Effect.all([session.record("user", "first"), session.record("assistant", "done")]))
+
+  conversation.inputRecorded = false // stopped while the agent was being picked: the turn never wrote "second"
+  await Effect.runPromise(stopped(session, "second", conversation).pipe(Effect.provide(Usage.layer)))
+
+  expect(loadConversation(session.dir).history).toEqual([{ user: "first", answer: "done" }, { user: "second", answer: "(stopped)" }])
+})

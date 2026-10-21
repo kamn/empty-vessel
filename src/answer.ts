@@ -20,6 +20,7 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
+    conversation.inputRecorded = false
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
@@ -79,6 +80,9 @@ export const stopped = (session: SessionHandle, input: string, conversation: Con
     yield* conversation.jobs.cancelAll // its sub-agents stop too
     noteStop(conversation.thread, input)
     yield* saveConversation(session, conversation)
+    // Stopped before the turn wrote its message (while picking the agent or taking the checkpoint): written now, so
+    // "(stopped)" isn't paired with the message before it on resume.
+    if (conversation.inputRecorded === false) yield* session.record("user", input).pipe(Effect.ignore)
 
     conversation.actions.push("stopped by the user")
     yield* session.record("actions", "stopped by the user").pipe(Effect.ignore)
