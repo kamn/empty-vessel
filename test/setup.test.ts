@@ -100,3 +100,15 @@ test("a config that's a symlink is written where it points: the link stays a lin
   expect(JSON.parse(readFileSync(target, "utf8"))).toMatchObject({ theme: "teal", systemTwo: { use: "alpha" } })
   expect(statSync(target).mode & 0o777).toBe(0o600)
 })
+
+test("a config that's a dangling symlink (its target not there yet) is written at the target, the link kept", async () => {
+  const { lstatSync, symlinkSync } = await import("node:fs")
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-setup-"))
+  const target = join(dir, "dotfiles", "config.json"), file = join(dir, "config.json")
+  symlinkSync(target, file) // dotfiles/ doesn't exist yet
+
+  await Effect.runPromise(runSetup(file, [judge, alpha(true)], { ask: () => "good-key", say: () => Effect.void }))
+
+  expect(lstatSync(file).isSymbolicLink()).toBe(true)
+  expect(JSON.parse(readFileSync(target, "utf8"))).toMatchObject({ systemTwo: { use: "alpha" } })
+})

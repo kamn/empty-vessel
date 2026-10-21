@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 import { Console, Effect } from "effect"
 import { CONFIG_FILE, movedIntoPlugins } from "./base/config"
 import { EMPTY_VESSEL_HOME } from "./base/home"
@@ -95,7 +95,10 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
     // Private from the first byte (it can hold keys), and whole: a temp file beside it, then renamed over it. A config
     // that's a symlink (into a dotfiles repo) is written where it points, so the link stays.
     mkdirSync(dirname(file), { recursive: true })
-    const real = existsSync(file) ? realpathSync(file) : file
+    // (A link whose target is gone or not checked out yet too: written where it points, its folder made.)
+    const link = (() => { try { return lstatSync(file).isSymbolicLink() } catch { return false } })()
+    const real = existsSync(file) ? realpathSync(file) : link ? resolve(dirname(file), readlinkSync(file)) : file
+    mkdirSync(dirname(real), { recursive: true })
     const temp = `${real}.${crypto.randomUUID()}.tmp`
     writeFileSync(temp, JSON.stringify({ ...current, systemOne, systemTwo, ...channel, ...(Object.keys(plugins).length ? { plugins } : {}) }, null, 2) + "\n", { mode: 0o600, flag: "wx" })
     chmodSync(temp, 0o600) // whatever the umask
