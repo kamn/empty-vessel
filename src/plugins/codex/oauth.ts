@@ -5,7 +5,9 @@ import { CodexAuthError, type CodexCredentials } from "./auth-store"
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const ISSUER = "https://auth.openai.com"
-const fail = (message: string) => new CodexAuthError({ message })
+const fail = (message: string, unsent = false) => new CodexAuthError({ message, ...(unsent ? { unsent } : {}) })
+// Errors that mean the request never left this machine or reached a server (no consumed refresh token).
+const NEVER_SENT = new Set(["ENOTFOUND", "EAI_AGAIN", "ConnectionRefused", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "FailedToOpenSocket"])
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 const bounded = (value: number | undefined, fallback: number, max: number) =>
@@ -54,11 +56,11 @@ export function makeCodexOAuth(options: CodexOAuthOptions = {}) {
         body: body instanceof URLSearchParams ? body.toString() : JSON.stringify(body),
         signal: controller.signal,
       }),
-      catch: () => fail("Codex authentication request failed"),
+      catch: (e) => fail("Codex authentication request failed", NEVER_SENT.has((e as { code?: string })?.code ?? "")),
     })
 
     if (pending && (response.status === 403 || response.status === 404)) return undefined
-    if (!response.ok) return yield* Effect.fail(fail("Codex authentication request rejected"))
+    if (!response.ok) return yield* Effect.fail(fail("Codex authentication request rejected", response.status === 429)) // 429: refused before being handled
     const value = yield* Effect.tryPromise({ try: () => response.json() as Promise<unknown>, catch: () => fail("Invalid Codex authentication response") })
     if (!record(value)) return yield* Effect.fail(fail("Invalid Codex authentication response"))
     return value
