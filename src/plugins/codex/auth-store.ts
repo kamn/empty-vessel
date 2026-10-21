@@ -2,7 +2,7 @@ import { closeSync, chmodSync, fsyncSync, lstatSync, mkdirSync, openSync, readFi
 import { hostname } from "node:os"
 import { dirname } from "node:path"
 import { randomUUID } from "node:crypto"
-import { Data, Effect, Redacted } from "effect"
+import { Cause, Data, Effect, Redacted } from "effect"
 
 /** Expiry is Unix time in milliseconds. Native refresh tokens belong only to this store. */
 export interface CodexCredentials {
@@ -12,7 +12,9 @@ export interface CodexCredentials {
   accountId: string
 }
 
-export class CodexAuthError extends Data.TaggedError("CodexAuthError")<{ message: string }> {}
+// `unsent`: the request provably never reached Codex (no connection, or refused before being handled), so nothing was
+// consumed remotely and the old credentials still hold.
+export class CodexAuthError extends Data.TaggedError("CodexAuthError")<{ message: string; unsent?: boolean }> {}
 
 interface Options {
   file: string
@@ -188,8 +190,11 @@ export function makeCodexAuthStore(options: Options) {
           if (value.expires <= now() + 60_000) throw new Error("Refresh expiry too soon")
           return value
         })
-      }).pipe(Effect.catchCause(() => Effect.gen(function* () {
-        // Even a network failure may have consumed the old refresh token remotely.
+      }).pipe(Effect.catchCause((cause) => Effect.gen(function* () {
+        // Never sent (offline, DNS, refused, 429): the old refresh token wasn't used; keep the login and say to retry.
+        const failed = Cause.squash(cause)
+        if (failed instanceof CodexAuthError && failed.unsent) return yield* Effect.fail(fail("Couldn't reach Codex to refresh the login (offline?). Your login is kept: try again when you're connected."))
+        // Anything else may have consumed the old refresh token remotely (a timeout, a connection lost after sending).
         // Unlock only after a durable tombstone prevents retry and legacy fallback.
         yield* persist(null).pipe(Effect.tapError(() => Effect.sync(retain)))
         return yield* Effect.fail(fail("Codex refresh failed or timed out, or returned invalid credentials. Run `empty-vessel login codex`; no automatic retry was attempted."))

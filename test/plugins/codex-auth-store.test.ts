@@ -322,3 +322,29 @@ test("by default a second reader waits out a slow refresh (6 s) instead of faili
   expect([Redacted.value(a.token), Redacted.value(b.token)]).toEqual(["rotated", "rotated"])
   expect(refreshes).toBe(1)
 }, 20_000)
+
+test("a refresh that never reached Codex (offline, refused, 429) keeps the login; one that may have keeps logging out", async () => {
+  const unsent = fixture(() => Effect.fail(new CodexAuthError({ message: "offline", unsent: true })))
+  await run(unsent.store.save(expired))
+  await expect(run(unsent.store.read)).rejects.toThrow("Your login is kept")
+  expect(JSON.parse(readFileSync(unsent.options.file, "utf8")).credentials).toMatchObject({ refresh: "fake-refresh" })
+
+  const maybe = fixture(() => Effect.fail(new CodexAuthError({ message: "timed out" })))
+  await run(maybe.store.save(expired))
+  await expect(run(maybe.store.read)).rejects.toThrow("refresh failed or timed out")
+  expect(JSON.parse(readFileSync(maybe.options.file, "utf8"))).toEqual({ version: 1, credentials: null })
+})
+
+test("the Codex OAuth client marks offline and 429 failures as never sent, and others as possibly sent", async () => {
+  const { makeCodexOAuth } = await import("../../src/plugins/codex/oauth")
+  const real = globalThis.fetch
+  globalThis.fetch = (() => { throw new Error("real HTTP is forbidden in this test") }) as never // only the fakes below may answer
+  try {
+    const failWith = async (http: unknown) => Effect.runPromise(Effect.flip(makeCodexOAuth({ fetch: http } as never).refreshCodexCredentials(expired)))
+    const offline = await failWith(() => Promise.reject(Object.assign(new TypeError("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" })))
+    const limited = await failWith(() => Promise.resolve(new Response("slow down", { status: 429 })))
+    const broken = await failWith(() => Promise.resolve(new Response("oops", { status: 500 })))
+
+    expect([offline.unsent, limited.unsent, broken.unsent ?? false]).toEqual([true, true, false])
+  } finally { globalThis.fetch = real }
+})
