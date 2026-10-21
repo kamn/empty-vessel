@@ -64,9 +64,9 @@ const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, str
     const recent = actions.slice(-20).map((a, i, all) => `turn ${actions.length - all.length + i + 1}: ${a}`)
     const view = { ...(recent.length ? { did: recent } : {}), ...(earlier.length ? { earlier } : {}), goal: ctx.input, steps: state.steps.slice(-3) }
 
-    yield* emit("activity", ctx.depth, `System One is choosing step ${state.steps.length + 1}`)
+    yield* emit("activity", ctx.depth, last ? "System One is checking whether the goal is done" : `System One is choosing step ${state.steps.length + 1}`)
     const { result: { choice: picked, confidence, done, tokens }, ms } = yield* timed(ctx, "systemOne", ctx.systemOne.choose(view, options))
-    const doubtful = library.has(picked) && confidence >= SURE_AT && confidence < LIBRARY_SURE_AT
+    const doubtful = !last && library.has(picked) && confidence >= SURE_AT && confidence < LIBRARY_SURE_AT // at the limit no pick runs: nothing to confirm
     const confirmed = doubtful ? yield* confirmPick(ctx, options[picked]!) : undefined
     const choice = confidence < SURE_AT || (library.has(picked) && confidence < LIBRARY_SURE_AT && !confirmed?.fits) ? "escalate" : picked
 
@@ -75,7 +75,7 @@ const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, str
     yield* ctx.session.record("decision", choice, { confidence, done, ...(choice !== picked ? { systemOnePicked: picked } : {}), ...(confirmed ? { confirmed } : {}) })
 
     const { vetoed, finished } = isFinished(state.answerText !== undefined || state.escalated > 0 ? state.steps.length : 0, done, state.systemTwoAnswered, state.answerText?.trim().endsWith("?") ?? false)
-    if (vetoed) yield* emit("step", ctx.depth, `System One: not done yet (${done.toFixed(2)}), System Two continues`)
+    if (vetoed && !last) yield* emit("step", ctx.depth, `System One: not done yet (${done.toFixed(2)}), System Two continues`)
     state.systemTwoAnswered = false
 
     if (last) {
