@@ -6,6 +6,7 @@ import { CodexAuthError, type CodexCredentials } from "./auth-store"
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const ISSUER = "https://auth.openai.com"
 const fail = (message: string, unsent = false) => new CodexAuthError({ message, ...(unsent ? { unsent } : {}) })
+const SLOW_DOWN: Record<string, unknown> = {}
 // Errors that mean the request never left this machine or reached a server (no consumed refresh token).
 const NEVER_SENT = new Set(["ENOTFOUND", "EAI_AGAIN", "ConnectionRefused", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "FailedToOpenSocket"])
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
@@ -60,6 +61,7 @@ export function makeCodexOAuth(options: CodexOAuthOptions = {}) {
     })
 
     if (pending && (response.status === 403 || response.status === 404)) return undefined
+    if (pending && response.status === 429) return SLOW_DOWN // polled too often: wait longer, don't give up
     if (!response.ok) return yield* Effect.fail(fail("Codex authentication request rejected", response.status === 429)) // 429: refused before being handled
     const value = yield* Effect.tryPromise({ try: () => response.json() as Promise<unknown>, catch: () => fail("Invalid Codex authentication response") })
     if (!record(value)) return yield* Effect.fail(fail("Invalid Codex authentication response"))
@@ -157,11 +159,13 @@ export function makeCodexOAuth(options: CodexOAuthOptions = {}) {
     return yield* timeout(Effect.gen(function* () {
       yield* onCode({ url: `${ISSUER}/codex/device`, code: device.user_code as string })
 
+      let wait = pollMs
       while (true) {
-        yield* sleep(pollMs)
+        yield* sleep(wait)
         if (!Number.isFinite(now()) || now() >= deadline) return yield* Effect.fail(fail("Codex device code expired"))
         const result = yield* request("/api/accounts/deviceauth/token", { device_auth_id: device.device_auth_id as string, user_code: device.user_code as string }, true)
         if (!result) continue
+        if (result === SLOW_DOWN) { wait = Math.min(wait * 2, 60_000); continue }
         if (!text(result.authorization_code) || !text(result.code_verifier)) return yield* Effect.fail(fail("Invalid Codex device authorization response"))
         return yield* exchange(result.authorization_code, result.code_verifier, `${ISSUER}/deviceauth/callback`)
       }
