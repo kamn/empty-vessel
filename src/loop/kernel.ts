@@ -19,6 +19,11 @@ import { type Ctx, type Needs, timed } from "./turnkit"
 // has its own kernel in its folder; cells get empty-vessel's built-ins (src/tools/kernel-builtins.ts) and reach System One and
 // sub-agents through the host functions below.
 
+// Sub-agents one turn may start, all its kernels together (each sub-agent's own turn has its own): a loop that spawns
+// per item stops here instead of fanning out without end. ponytail: fixed; a config setting if real work needs more.
+export const MAX_SPAWNS_PER_TURN = 16
+const spawned = new WeakMap<Ctx, number>() // per turn: a turn has one Ctx
+
 // What cells reach through `call`: System One, the re-check, sub-agents as jobs, and promotion into the library. Shared by
 // System Two's kernel and System One's. `services`: empty-vessel's systems, since a hook runs inside System Two's own Effect.
 export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFunctions => {
@@ -59,9 +64,12 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
     spawn: (arg: unknown) => {
       const { task, tools, agent } = typeof arg === "object" && arg !== null ? (arg as { task: string; tools?: Partial<Grants>; agent?: string }) : { task: String(arg), tools: undefined, agent: undefined }
       if (ctx.depth >= ctx.config.maxDepth) return Effect.fail(`too deep for another sub-agent (depth ${ctx.depth} of ${ctx.config.maxDepth})`)
+      const count = spawned.get(ctx) ?? 0
+      if (count >= MAX_SPAWNS_PER_TURN) return Effect.fail(`no more sub-agents this turn (${MAX_SPAWNS_PER_TURN} started): collect the ones running with wait, and do the rest in this kernel or give several items to one sub-agent`)
 
       return Effect.gen(function* () {
         const as = agent === undefined ? undefined : yield* loadAgent(agent).pipe(Effect.flatMap((a) => applyAgent(ctx.config, a).pipe(Effect.map((config) => ({ ...a, config })))))
+        spawned.set(ctx, (spawned.get(ctx) ?? 0) + 1) // counted once it starts: a refused agent name costs nothing
         return yield* ctx.conversation.jobs.spawn(String(task), ctx.spawn(String(task), { tools, agent: as }).pipe(Effect.provideContext(services)))
       }).pipe(Effect.mapError((e) => (typeof e === "object" && e !== null && "message" in e ? String(e.message) : e)))
     },

@@ -75,3 +75,21 @@ test("the kernel's spawn with an agent that exists: one job, given the agent wit
   const r = Bun.spawnSync(["bun", "-e", script], { cwd: join(import.meta.dir, "../.."), env: { ...process.env, EMPTY_VESSEL_HOME: home }, stdout: "pipe", stderr: "pipe" })
   expect((r.stdout.toString() + r.stderr.toString()).trim()).toBe("1 | reviewer | Review. | high | read-only | false")
 })
+
+test("the kernel's spawn stops at MAX_SPAWNS_PER_TURN in one turn, saying what to do instead; the next turn starts afresh", async () => {
+  const { Context, Effect } = await import("effect")
+  const { makeHost, MAX_SPAWNS_PER_TURN } = await import("../../src/loop/kernel")
+  const { newConversation } = await import("../../src/loop/turnkit")
+  const conversation = newConversation()
+  const turn = () => ({ depth: 0, config: config({}), conversation, spawn: (task: string) => Effect.succeed(task) })
+  const ctx = turn()
+  const host = makeHost(ctx as never, Context.empty() as never)
+
+  for (let i = 0; i < MAX_SPAWNS_PER_TURN; i++) await Effect.runPromise(host.spawn!({ task: `item ${i}` }) as never)
+  const refused = await Effect.runPromise(Effect.flip(makeHost(ctx as never, Context.empty() as never).spawn!({ task: "one more" }) as never)) // another kernel, same turn
+
+  expect(String(refused)).toContain(`no more sub-agents this turn (${MAX_SPAWNS_PER_TURN} started)`)
+  expect(Object.keys(conversation.jobs.list())).toHaveLength(MAX_SPAWNS_PER_TURN)
+  await Effect.runPromise(makeHost(turn() as never, Context.empty() as never).spawn!({ task: "next turn" }) as never)
+  expect(Object.keys(conversation.jobs.list())).toHaveLength(MAX_SPAWNS_PER_TURN + 1)
+})

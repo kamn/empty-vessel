@@ -8,7 +8,7 @@ export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled"
 type Job = { readonly id: string; readonly task: string; status: JobStatus; answer?: string; collected: boolean; fiber?: Fiber.Fiber<void, never> }
 export type JobView = { readonly status: JobStatus; readonly answer?: string }
 
-const AT_ONCE = 4 // sub-agents running at the same time; ponytail: fixed; a total budget per turn is still open
+const AT_ONCE = 4 // sub-agents running at the same time; ponytail: fixed. The total per turn: MAX_SPAWNS_PER_TURN (src/loop/kernel.ts)
 
 export const makeJobs = () => {
   const all = new Map<string, Job>()
