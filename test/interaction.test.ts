@@ -176,3 +176,30 @@ test("model services persist for subsequent turns without changing another sessi
   expect((yield* a.run("one")).reply).toBe("changed")
   expect((yield* b.run("two")).reply).toBe("initial")
 })))
+
+test("two questions asked at once are shown one at a time, and each answer goes to its own question", () => Effect.runPromise(Effect.gen(function* () {
+  const shown: string[] = []
+  let got: ReadonlyArray<unknown> = []
+  const runner = yield* makeSessionRunner({} as SessionHandle, newConversation(), { events: { emit: () => Effect.void }, presentQuestion: (q) => Effect.sync(() => { shown.push(q.question) }) }, {
+    ...interactionOperations,
+    firstAgent: (_s, _c, _i, services) => Effect.succeed({ services, line: undefined }) as never,
+    skillCommand: () => Effect.succeed(undefined) as never,
+    answer: () => Effect.gen(function* () {
+      const ask = yield* AskUser
+      const one = (question: string) => ask.ask([{ question, options: ["Allow once", "Deny"] }]).pipe(Effect.map((r) => `${question}=${r[0]!.answer}`))
+      got = yield* Effect.all([one("rm a"), one("rm b")], { concurrency: "unbounded" })
+      return { reply: "ok", remembered: [], usage: [], brief: { turn: "turn", session: "total" } }
+    }) as never,
+  })
+
+  const turn = yield* Effect.forkChild(runner.run("go"))
+  yield* Effect.sleep("20 millis")
+  expect(shown).toEqual(["rm a"]) // the second waits
+  yield* runner.answer({ answer: "Allow once" })
+  yield* Effect.sleep("20 millis")
+  expect(shown).toEqual(["rm a", "rm b"])
+  yield* runner.answer({ answer: "Deny" })
+  yield* Fiber.join(turn)
+
+  expect(got).toEqual(["rm a=Allow once", "rm b=Deny"])
+}).pipe(Effect.scoped, Effect.provideContext(Context.empty() as never)) as never))
