@@ -61,6 +61,7 @@ test("answer reports idle after success, failure, and interruption, preserving j
       if (!cleaned) throw new Error("jobs not cleaned up");
     `)
 
-    expect(calls.map((c) => c.slice(10))).toEqual([["--state", "working"], ["--state", "idle"]])
+    const herdr = calls.filter((c) => c[0] === "/fake/herdr") // not the turn's own commands (its /undo checkpoint)
+    expect(herdr.map((c) => c.slice(10))).toEqual([["--state", "working"], ["--state", "idle"]])
   }
 })

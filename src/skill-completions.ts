@@ -12,6 +12,7 @@ export const builtinCompletions: ReadonlyArray<Completion> = [
   { command: "/agent", description: "Show or change the agent" },
   { command: "/refine", description: "Review sessions for reusable improvements" },
   { command: "/review", description: "Review project sessions" },
+  { command: "/undo", description: "Put back the files the last turn changed" },
   { command: "/flag", description: "Mark this moment with a note" },
   { command: "/exit", description: "Exit the TUI" },
 ]

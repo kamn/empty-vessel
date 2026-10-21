@@ -7,6 +7,7 @@ import { Inbox, makeInbox } from "./base/inbox"
 import type { SessionHandle } from "./base/session"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
+import { undoCommand } from "./loop/checkpoint"
 import { skillCommand } from "./loop/skill-commands"
 import type { Conversation } from "./loop/turnkit"
 import type { SystemOne } from "./system-one/systemone"
@@ -31,7 +32,7 @@ export interface InteractionAdapters {
 }
 
 // Injection keeps lifecycle tests independent of providers, kernels and credentials.
-export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand }
+export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand, undoCommand }
 export const makeSessionRunner = (session: SessionHandle, conversation: Conversation, adapters: InteractionAdapters, operations = interactionOperations) =>
   Effect.gen(function* () {
     let services = yield* Effect.context<Effect.Services<ReturnType<typeof answer>> | Config | SystemOne>() // an agent or /model replaces System Two's
@@ -87,6 +88,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     const run = (input: string): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
       const refine = /^\/refine(?=\s|$)/.test(input)
       const review = /^\/review(?=\s|$)/.test(input)
+      const undo = /^\/undo\s*$/.test(input)
       const model = input.match(/^\/model(?=\s|$)\s*(\S*)/)
       const named = input.match(/^\/agent(?=\s|$)\s*(\S*)/)
       let turnInput = input
@@ -95,6 +97,9 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         if (refine) return { reply: yield* provide(operations.refineCommand(input.slice("/refine".length))), usage: [] }
         // /review (save [n…]): look back over this project's sessions (src/loop/review.ts).
         if (review) return { reply: yield* provide(operations.reviewCommand(input.slice("/review".length))), usage: [] }
+
+        // /undo: the files back to before the last turn that changed them (src/loop/checkpoint.ts).
+        if (undo) return { reply: yield* provide(operations.undoCommand(session, conversation)), usage: [] }
 
         if (model) {
           const switched = yield* operations.modelCommand(session, conversation, model[1]!, services, owner)
@@ -127,7 +132,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
-        if (refine || review || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
+        if (refine || review || undo || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
         const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
         conversation.history.push({ user: input, answer: reply })
         return { reply, usage: [] }
