@@ -1,15 +1,26 @@
 import { Effect } from "effect"
 import { toSaved } from "../base/images"
 import { emit } from "../base/events"
-import { type Ctx, timed } from "./turnkit"
+import { type Conversation, type Ctx, timed } from "./turnkit"
 
 // At the start of a turn, if System Two's thread has grown past `compactAt`: compact it (see the SystemTwo compact).
 // System One judges which old tool outputs are still needed, against the new message and the last few exchanges.
-// Aims for half of compactAt, so it isn't triggered again on the very next turn.
+// Aims for half of compactAt, so it isn't triggered again on the very next turn. After /compact (compactNext), whatever
+// the size, aiming for half of what it is if that's less: at a turn's start, so System One judges against the new message.
+// /compact: what the user is told; the compaction itself waits for their next message (see compactIfNeeded).
+export const compactCommand = (conversation: Conversation) =>
+  Effect.sync(() => {
+    if (!conversation.size) return "Nothing to compact yet: System Two's conversation is still empty."
+    conversation.compactNext = true
+    return `System Two's conversation (~${Math.round(conversation.size / 1000)}k tokens) will be compacted when you send your next message: old outputs it no longer needs are hidden and older messages summarized.`
+  })
+
 export const compactIfNeeded = (ctx: Ctx) =>
   Effect.gen(function* () {
     const { conversation, config } = ctx
-    if (!conversation.size || conversation.size <= config.compactAt) return
+    const asked = conversation.compactNext === true
+    delete conversation.compactNext
+    if (!conversation.size || (conversation.size <= config.compactAt && !asked)) return
 
     const score = (labels: ReadonlyArray<string>) =>
       Effect.gen(function* () {
@@ -23,7 +34,7 @@ export const compactIfNeeded = (ctx: Ctx) =>
       })
 
     const before = conversation.size, stashFrom = conversation.stash.size
-    const done = yield* ctx.systemTwo.compact(conversation.thread, { score, stash: conversation.stash, size: before, target: Math.round(config.compactAt / 2) })
+    const done = yield* ctx.systemTwo.compact(conversation.thread, { score, stash: conversation.stash, size: before, target: Math.round(Math.min(config.compactAt, before) / 2) })
     yield* ctx.usage.add("systemTwo", 0, done.tokens)
     conversation.size = done.after
     // Skill instructions are not ordinary expendable output. Replay their saved envelopes after compaction.

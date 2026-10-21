@@ -8,6 +8,7 @@ import type { SessionHandle } from "./base/session"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
 import { undoCommand } from "./loop/checkpoint"
+import { compactCommand } from "./loop/compact"
 import { skillCommand } from "./loop/skill-commands"
 import type { Conversation } from "./loop/turnkit"
 import type { SystemOne } from "./system-one/systemone"
@@ -89,6 +90,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       const refine = /^\/refine(?=\s|$)/.test(input)
       const review = /^\/review(?=\s|$)/.test(input)
       const undo = /^\/undo\s*$/.test(input)
+      const compact = /^\/compact\s*$/.test(input)
       const model = input.match(/^\/model(?=\s|$)\s*(\S*)/)
       const named = input.match(/^\/agent(?=\s|$)\s*(\S*)/)
       let turnInput = input
@@ -100,6 +102,9 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
 
         // /undo: the files back to before the last turn that changed them (src/loop/checkpoint.ts).
         if (undo) return { reply: yield* provide(operations.undoCommand(session, conversation)), usage: [] }
+
+        // /compact: System Two's conversation is compacted at the start of the next message (src/loop/compact.ts).
+        if (compact) return { reply: yield* compactCommand(conversation), usage: [] }
 
         if (model) {
           const switched = yield* operations.modelCommand(session, conversation, model[1]!, services, owner)
@@ -132,7 +137,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
-        if (refine || review || undo || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
+        if (refine || review || undo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
         const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
         conversation.history.push({ user: input, answer: reply })
         return { reply, usage: [] }

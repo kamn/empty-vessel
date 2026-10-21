@@ -7,7 +7,7 @@ import type { Conversation } from "./turnkit"
 
 // Reserve host commands too: a skill cannot change a command's meaning between UIs.
 export const skillReservedCommands = new Set([
-  "skills", "skill", "model", "agent", "refine", "review", "memory", "flag", "undo",
+  "skills", "skill", "model", "agent", "refine", "review", "memory", "flag", "undo", "compact",
   "help", "start", "status", "stop", "exit",
 ])
 export type SkillRoute =
