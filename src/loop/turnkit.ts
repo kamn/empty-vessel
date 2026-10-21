@@ -66,6 +66,7 @@ export type TurnState = {
   readonly work: Array<string> // System Two's commands and checks and how they went: the review gate's digest
   readonly passed: Array<string> // commands that passed (exit 0, or a check System One passed): the reviewer's evidence
   gathered: string // files System One loaded this turn, for System Two's first prompt
+  gatheredPaths: Array<string> // their paths: given (conversation.files) once that prompt is sent, not before
   escalated: number // System Two runs this turn
   told: number // how many steps System Two has already been told about
   answerText: string | undefined // the latest *answer* (System Two's reply, an ask): other steps can't replace it
@@ -74,7 +75,7 @@ export type TurnState = {
   cellsBefore: number // System Two's kernel cells before this turn: the ones after are this turn's (src/loop/adopt.ts)
   turn: number // this turn's number in the session (1 = the first): the record's events for a turn share it
 }
-export const newTurnState = (): TurnState => ({ steps: [], did: [], work: [], passed: [], gathered: "", escalated: 0, told: 0, answerText: undefined, systemTwoAnswered: false, offered: { systemOne: [], systemTwo: [] }, cellsBefore: 0, turn: 0 })
+export const newTurnState = (): TurnState => ({ steps: [], did: [], work: [], passed: [], gathered: "", gatheredPaths: [], escalated: 0, told: 0, answerText: undefined, systemTwoAnswered: false, offered: { systemOne: [], systemTwo: [] }, cellsBefore: 0, turn: 0 })
 
 // What a step did. `answer`: its reply is an answer for the user (other steps can't replace it).
 export type StepResult = {

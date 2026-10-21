@@ -96,6 +96,13 @@ const escalate: Step = (ctx, state) =>
     const agents = state.escalated === 0 ? agentsLine(ctx) : undefined
     const skills = state.escalated === 0 ? skillNotes(ctx.conversation, ctx.config.kernel.tools.files !== "none") : []
     const handed = yield* handOver(unseen, makePrune(ctx), ctx.conversation.stash)
+    // The gathered files go with this prompt: from now on System Two has them (recorded, so a resumed session knows).
+    if (state.escalated === 0 && state.gathered) {
+      for (const p of state.gatheredPaths) {
+        ctx.conversation.files.add(p)
+        yield* ctx.session.record("given", p).pipe(Effect.ignore)
+      }
+    }
     const prompt = [
       ...(handed ? [handed] : []),
       ...once,
@@ -167,9 +174,8 @@ const gather: Step = (ctx, state) =>
     const { result: found, ms } = yield* timed(ctx, "systemOne", explore(process.cwd(), ctx.input))
 
     // With them, the instructions of the folders they're in (packages/api/AGENTS.md), so a package's rules come along.
-    const fresh = [...nestedContextFiles(process.cwd(), found.picked), ...found.picked].filter((p, i, all) => !given.has(p) && all.indexOf(p) === i)
-    fresh.forEach((p) => given.add(p))
-    for (const p of fresh) yield* ctx.session.record("given", p).pipe(Effect.ignore)
+    const fresh = [...nestedContextFiles(process.cwd(), found.picked), ...found.picked].filter((p, i, all) => !given.has(p) && !state.gatheredPaths.includes(p) && all.indexOf(p) === i)
+    state.gatheredPaths.push(...fresh) // given once escalate sends them: a turn System One finishes alone never shows them
     state.gathered = [state.gathered, yield* packFiles(process.cwd(), fresh)].filter(Boolean).join("\n\n") // after any @mentioned files
 
     yield* Effect.logDebug(`system one gather (${Math.round(ms)} ms) ${JSON.stringify({ calls: found.calls, picked: found.picked })}`)

@@ -146,10 +146,10 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     const state = newTurnState()
     state.cellsBefore = kernelCells(session.dir).length
 
-    // Files the user pointed at with @path: for System Two's first prompt, recorded like gathered ones (resume knows them).
-    const mentioned = yield* packMentioned(input, process.cwd(), conversation.files)
+    // Files the user pointed at with @path: for System Two's first prompt, like gathered ones (given once it's sent).
+    const mentioned = yield* packMentioned(input, process.cwd(), new Set(conversation.files))
     state.gathered = mentioned.packed
-    for (const p of mentioned.paths) yield* session.record("given", p).pipe(Effect.ignore)
+    state.gatheredPaths.push(...mentioned.paths)
     if (mentioned.paths.length) state.did.push(`mentioned (${mentioned.paths.map((p) => p.split("/").at(-1)).join(", ")})`)
     state.turn = conversation.history.length + 1
     const pool = loadPool(dir).filter(usable)

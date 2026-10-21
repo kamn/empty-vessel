@@ -60,3 +60,44 @@ test("an explicit skill forces escalation and restores saved skill instructions 
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// A file is given to System Two when a prompt carrying it is sent, not when it's packed: a turn System One finishes
+// alone (echo) never shows it, so a later turn that escalates must still send it.
+test("an @mentioned file counts as given only once System Two's prompt carries it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mention-turn-")), cwd = process.cwd()
+  const config = Schema.decodeUnknownSync(ConfigSchema)({ testOptions: true, learnAfterTurn: false, systemTwo: { scopeCheck: false } })
+  require("node:fs").writeFileSync(join(root, "a.ts"), "export const a = 1\n")
+  process.chdir(root)
+
+  try {
+    await Effect.runPromise(Effect.gen(function* () {
+      const session = yield* makeSession("sessions")
+      const fake = yield* SystemTwo
+      const conversation = newConversation()
+      conversation.briefing = "test project instructions"
+      conversation.skills = { skills: [], diagnostics: [] }
+      const prompts: string[] = []
+      const provider: SystemTwo["Service"] = { ...fake, ask: (prompt) => Effect.sync(() => { prompts.push(prompt); return { text: "answered", done: true, tokens: { input: 0, output: 0 } } }) }
+      const run = (input: string) => turn(session, input, 0, conversation).pipe(Effect.provideService(SystemTwo, provider))
+
+      yield* run("look at @a.ts") // the fake System One echoes it: no System Two
+      expect(prompts).toEqual([])
+      expect(conversation.files.has("a.ts")).toBe(false)
+
+      yield* run("what does @a.ts export?") // a question: escalates
+      expect(prompts[0]).toContain('<file path="a.ts">\nexport const a = 1')
+      expect(conversation.files.has("a.ts")).toBe(true)
+    }).pipe(
+      Effect.provideService(Config, config),
+      Effect.provideService(Events, { emit: () => Effect.void }),
+      Effect.provideService(AskUser, { ask: () => Effect.succeed([]) }),
+      Effect.provideService(Memory, { snapshot: Effect.succeed(""), add: () => Effect.void, replace: () => Effect.void, remove: () => Effect.void, entries: () => Effect.succeed([]), file: () => Effect.succeed("") }),
+      Effect.provide(FakeSystemOne), Effect.provide(FakeSystemTwo),
+      Effect.provide(Usage.layer), Effect.provide(diskStore(root)),
+      Effect.provideContext(Context.empty() as Context.Context<Needs>),
+    ))
+  } finally {
+    process.chdir(cwd)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
