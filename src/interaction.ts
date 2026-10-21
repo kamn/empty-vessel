@@ -1,4 +1,4 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Scope, Semaphore } from "effect"
 import { agentCommand, answer, firstAgent, modelCommand, stopped, userCommand, type ModelOwner } from "./answer"
 import type { Config } from "./base/config"
 import { Events } from "./base/events"
@@ -46,15 +46,18 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     const owner: ModelOwner = {}
     yield* Effect.addFinalizer(() => owner.current ? Scope.close(owner.current, Exit.void) : Effect.void)
 
+    // One question at a time: sub-agents (or a guard's approval and ask_user) can ask together, and with one pending
+    // answer a reply to the first ("1": allow) would go to the second. The others wait their turn, shown one by one.
+    const asking = Semaphore.makeUnsafe(1)
     const ask = adapters.ask ?? AskUser.of({
-      ask: (questions) => Effect.forEach(questions, (question) => Effect.gen(function* () {
+      ask: (questions) => Effect.forEach(questions, (question) => asking.withPermit(Effect.gen(function* () {
         const waiting = yield* Deferred.make<InteractionAnswer>()
         pending = waiting
         return yield* Effect.gen(function* () {
           yield* adapters.presentQuestion?.(question) ?? Effect.void
           return { question: question.question, ...yield* Deferred.await(waiting) }
         }).pipe(Effect.ensuring(Effect.sync(() => { if (pending === waiting) pending = undefined })))
-      })),
+      }))),
     })
     const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
       Effect.provideService(Events, adapters.events), Effect.provideService(AskUser, ask),
