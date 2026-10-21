@@ -102,7 +102,7 @@ export const postCodex = (client: HttpClient.HttpClient, body: Record<string, un
   }).pipe(
     // A stalled connection can wait forever (one run hung 12 minutes: SWE pass 1, dayjs-857): the idle limit above
     // catches a silent stream; this catches one that trickles forever. A stall, a timeout, a dropped connection or a
-    // 5xx/429 gets one more try.
+    // 5xx/429 is tried again (src/base/retry.ts: a slow call once, others up to three times with backoff).
     Effect.timeout("15 minutes"),
     retryIfTemporary,
   )

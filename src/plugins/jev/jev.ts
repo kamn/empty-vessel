@@ -40,7 +40,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
           // Jev answers in ~0.1–0.5s; a request silent for 10s is stuck. A temporary failure gets one more try, then the
           // caller's fallback applies.
           Effect.timeout("10 seconds"),
-          retryIfTemporary,
+          (call) => retryIfTemporary(call, 2, 2000), // one quick retry: on failure the turn escalates anyway
         )
 
       return SystemOne.of({
@@ -105,7 +105,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             }),
             client.execute,
             Effect.timeout("10 seconds"),
-            retryIfTemporary,
+            (call) => retryIfTemporary(call, 2, 2000),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevResponse)),
             Effect.tap(recordJevUsage),
             Effect.map(({ answers, usage }) => ({
@@ -113,7 +113,7 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
               done: answers.done.noul,
               tokens: { input: usage.input_tokens, output: usage.output_tokens },
             })),
-            // ponytail: any failure (network, 401, 429, bad reply) escalates to System Two; add backoff for 429/529 once real traffic shows them
+            // Any failure left after retryIfTemporary's backoff (network, 401, 429, bad reply) escalates to System Two.
             Effect.catch((e) => emit("error", 0, `jev failed, escalating: ${e}`).pipe(Effect.as({ choice: "escalate", confidence: 0, done: 0, tokens: { input: 0, output: 0 } }))),
           ),
       })

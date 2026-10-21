@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.3
+# empty-vessel core 0.0.4
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -432,7 +432,7 @@ export declare const recordUsage: (request: {
 }) => Effect.Effect<string | undefined>;
 
 ## retryIfTemporary (src/base/retry)
-export declare const retryIfTemporary: <A, E, R>(call: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+export declare const retryIfTemporary: <A, E, R>(call: Effect.Effect<A, E, R>, tries?: number, maxWaitMs?: number) => Effect.Effect<A, E, R>;
 
 ## Scope (src/base/memory)
 export type Scope = "agent" | "project";
