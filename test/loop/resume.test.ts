@@ -228,3 +228,23 @@ test("loadConversation: the agent the conversation works as comes back from its 
   writeFileSync(join(dir, "main.jsonl"), [line({ role: "agent", text: "reviewer" }), line({ role: "user", text: "hi" }), ""].join("\n"))
   expect(loadConversation(dir).agent).toBe("reviewer")
 })
+
+test("resume: a stopped System Two run counts as handed what it hadn't seen; a torn line is skipped, not fatal", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const { loadConversation } = await import("../../src/loop/resume")
+  const dir = mkdtempSync(join(tmpdir(), "resume-stopped-"))
+  const lines = [
+    { role: "project", text: "/x" },
+    { role: "user", text: "what is 2+2" }, { role: "step", text: "calc → ok: 4" }, { role: "assistant", text: "4" }, // System One alone
+    { role: "user", text: "refactor foo" }, { role: "thread", text: "", item: { role: "user", content: [{ type: "input_text", text: "Goal: refactor foo" }] } },
+    { role: "actions", text: "stopped by the user" }, { role: "assistant", text: "(stopped)" }, // Ctrl+C during System Two
+  ].map((l, i) => JSON.stringify({ ...l, ts: i }))
+  writeFileSync(join(dir, "main.jsonl"), [...lines.slice(0, 4), '{"role":"thread","text":"","item":{"role":"us', ...lines.slice(4)].join("\n") + "\n")
+
+  const c = loadConversation(dir)
+
+  expect(c.unseen).toEqual([])
+  expect(c.history.map((h) => h.answer)).toEqual(["4", "(stopped)"])
+})

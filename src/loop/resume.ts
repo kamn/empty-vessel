@@ -15,7 +15,9 @@ export const loadConversation = (dir: string): Conversation => {
 
   for (const line of readFileSync(`${dir}/main.jsonl`, "utf8").split("\n")) {
     if (!line) continue
-    const e = JSON.parse(line)
+    // A line cut short (the process killed mid-append) is skipped: one torn line mustn't make every resume fail.
+    let e
+    try { e = JSON.parse(line) } catch { continue }
     if (e.role === "user") {
       user = e.text
       lastStep = undefined
@@ -26,12 +28,18 @@ export const loadConversation = (dir: string): Conversation => {
     }
     else if (e.role === "assistant") {
       c.history.push({ user, answer: e.text })
-      if (unseenBySystemTwo(lastStep)) c.unseen.push({ user, answer: e.text })
+      if (unseenBySystemTwo(lastStep) && e.text !== "(stopped)") c.unseen.push({ user, answer: e.text }) // as live: a stop isn't news
     }
     else if (e.role === "actions") c.actions.push(e.text)
     else if (e.role === "given") c.files.add(e.text)
     else if (e.role === "stash") c.stash.set(e.text, e.output)
-    else if (e.role === "thread") c.thread.push(fromSaved(e.item))
+    else if (e.role === "thread") {
+      c.thread.push(fromSaved(e.item))
+      // System Two ran, so it was handed what it hadn't seen (as live, steps.ts), even if the run was stopped before
+      // its step line was written.
+      c.unseen.length = 0
+      lastStep = "escalate →"
+    }
     else if (e.role === "compact" && e.thread) c.thread.splice(0, c.thread.length, ...e.thread.map(fromSaved))
     else if (e.role === "size") c.size = Number(e.text)
     else if (e.role === "tools") c.tools.add(e.text)
