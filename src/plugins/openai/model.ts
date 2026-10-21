@@ -1,5 +1,5 @@
 import { Data, Effect, Redacted } from "effect"
-import type { Model, ModelRequest } from "empty-vessel"
+import { type Model, type ModelRequest, recordUsage } from "empty-vessel"
 
 // Any model behind an OpenAI-compatible Chat Completions API (OpenAI itself, a local server, a router), as empty-vessel's
 // System Two: the core runs the loop (src/system-two/loop.ts); this sends one request and reads its reply. Written
@@ -53,14 +53,17 @@ export const openAIModel = (baseUrl: string, model: string, apiKey?: Redacted.Re
       catch: (e) => (e instanceof OpenAIError ? e : new OpenAIError({ message: String(e) })),
     }).pipe(
       Effect.retry({ times: 1, while: (e) => e.status === undefined || e.status === 429 || e.status >= 500 }),
-      Effect.map((reply) => {
+      Effect.flatMap((reply) => Effect.gen(function* () {
         const message = reply.choices?.[0]?.message ?? {}
         const u = reply.usage ?? {}
+        const usage = { input: u.prompt_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? 0, output: u.completion_tokens ?? 0, thinking: u.completion_tokens_details?.reasoning_tokens ?? 0 }
+        yield* recordUsage({ system: "systemTwo", model, tokens: usage, provider: "openai" }) // in the session file, as Codex's and Claude's are
+
         return {
           text: message.content ?? "", keep: [], thinking: "", searches: [],
           calls: (message.tool_calls ?? []).map((c) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments })),
-          usage: { input: u.prompt_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? 0, output: u.completion_tokens ?? 0, thinking: u.completion_tokens_details?.reasoning_tokens ?? 0 },
+          usage,
         }
-      }),
+      })),
     ),
 })
