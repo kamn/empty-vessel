@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { Duration, Effect, Layer, Option, Schema } from "effect"
 import { Ask, AskError, emit, Fill, FillError, type Hooks, jobsReminder, jsonSchemaFor, kernelInstructions, loadImage, recordUsage, serveTools, SystemTwo, SYSTEM_TWO_TOOLS, type ToolRelay } from "empty-vessel"
 
@@ -188,7 +189,10 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
 
     const notes = unsent(thread).length > 0
     // Images the user attached, with the first prompt, as Claude's image blocks (shrunk, base64).
-    const images: Array<Content> = (hooks.images ?? []).map((i) => ((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } }))(loadImage(i.path)))
+    // One gone since the message was sent becomes a note, as on resume (src/base/images.ts fromSaved), not a failed turn.
+    const images: Array<Content> = (hooks.images ?? []).map((i) => existsSync(i.path)
+      ? ((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } }))(loadImage(i.path))
+      : { type: "text" as const, text: `[an image that's no longer there: ${i.path}]` })
     let text = withUnsent(thread, prompt)
     for (let reminders = 0; ; reminders++) {
       const last = thread.findLast((t) => (t as { claudeSession?: string }).claudeSession) as { claudeSession: string } | undefined
