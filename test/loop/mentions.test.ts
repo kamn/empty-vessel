@@ -27,6 +27,8 @@ test("packMentioned: packs new files for System Two, skips ones it already has a
   const { paths, packed } = await Effect.runPromise(packMentioned("look at @src/a.ts @notes.md @blob.bin", root, given))
 
   expect(paths).toEqual(["src/a.ts"])
+  writeFileSync(join(root, "src", "AGENTS.md"), "src rules\n")
+  expect((await Effect.runPromise(packMentioned("again @src/a.ts @src/b.ts", root, new Set()))).paths).toEqual(["src/AGENTS.md", "src/a.ts"]) // its folder's rules first
   expect(packed).toBe('<file path="src/a.ts">\nexport const a = 1\n\n</file>')
   expect([...given]).toEqual(["notes.md", "src/a.ts"])
 })

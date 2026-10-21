@@ -1,6 +1,7 @@
 import { statSync } from "node:fs"
 import { isAbsolute, relative, resolve } from "node:path"
 import { Effect } from "effect"
+import { nestedContextFiles } from "../base/context"
 import { Kernel } from "../tools/kernel-service"
 
 // @path in a message: the user points at a file, as in OpenCode, Pi and Claude Code. Each one that is a file goes into
@@ -26,11 +27,14 @@ export const mentionedFiles = (input: string, root: string) => {
   return [...found]
 }
 
-// The mentioned files not yet given to System Two, packed as gather packs its files; `given` is updated.
+// The mentioned files (and their folders' AGENTS.md) not yet given to System Two, packed as gather packs its files;
+// `given` is updated.
 export const packMentioned = (input: string, root: string, given: Set<string>) =>
   Effect.gen(function* () {
     const { files } = yield* Kernel
-    const fresh = mentionedFiles(input, root).filter((p) => !given.has(p))
+    // With them, the instructions of the folders below root they're in (as gather does: src/base/context.ts).
+    const mentioned = mentionedFiles(input, root)
+    const fresh = [...nestedContextFiles(root, mentioned.filter((p) => !isAbsolute(p))), ...mentioned].filter((p, i, all) => !given.has(p) && all.indexOf(p) === i)
     const packed: Array<string> = []
 
     for (const path of fresh) {
