@@ -86,12 +86,14 @@ export const remoteSource = (o: RemoteOptions) => {
   }
 
   // One request and its reply. The reply is JSON, or an event stream whose data lines hold it.
-  const request = async (method: string, params: Json, signal?: AbortSignal, retried = false): Promise<any> => {
+  // `retried`: a 401 was answered by logging in again; `renewed`: a 404 by a new session. Each once, so a server that
+  // keeps refusing fails instead of being asked forever.
+  const request = async (method: string, params: Json, signal?: AbortSignal, retried = false, renewed = false): Promise<any> => {
     const id = ++next
     const res = await post({ jsonrpc: "2.0", id, method, params }, signal)
-    if (res.status === 401 && !retried && o.unauthorized) { await o.unauthorized(); return request(method, params, signal, true) }
+    if (res.status === 401 && !retried && o.unauthorized) { await o.unauthorized(); return request(method, params, signal, true, renewed) }
     if (res.status === 401 || res.status === 403) throw new Error(`${o.name}: not authorized (HTTP ${res.status}); log in again`)
-    if (res.status === 404 && session && method !== "initialize") { session = undefined; opened = undefined; await open(); return request(method, params, signal, retried) } // the server forgot the session
+    if (res.status === 404 && session && method !== "initialize" && !renewed) { session = undefined; opened = undefined; await open(); return request(method, params, signal, retried, true) } // the server forgot the session
     if (!res.ok) throw new Error(`${o.name}: HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
 
     session = res.headers.get("mcp-session-id") ?? session
@@ -114,6 +116,7 @@ export const remoteSource = (o: RemoteOptions) => {
 }
 
 // Local: stdio. The server is started the first time it's needed and stopped with `close`.
+const MAX_LINE = 64 * 1024 * 1024 // characters
 export type LocalOptions = { readonly name: string; readonly command: string; readonly args?: ReadonlyArray<string>; readonly env?: Readonly<Record<string, string>> }
 
 export const localSource = (o: LocalOptions) => {
@@ -123,9 +126,13 @@ export const localSource = (o: LocalOptions) => {
   const start = () => {
     const p = Bun.spawn([o.command, ...(o.args ?? [])], { env: { ...process.env, ...o.env }, stdin: "pipe", stdout: "pipe", stderr: "ignore" })
     ;(async () => {
+      // One decoder for the whole stream: a character split between two chunks stays one character. A line longer
+      // than MAX_LINE (a server that never ends one) stops the server rather than growing without end.
       let buffer = ""
+      const decoder = new TextDecoder()
       for await (const chunk of p.stdout as ReadableStream<Uint8Array>) {
-        buffer += new TextDecoder().decode(chunk)
+        buffer += decoder.decode(chunk, { stream: true })
+        if (buffer.length > MAX_LINE) { p.kill(); break }
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
         for (const line of lines) {

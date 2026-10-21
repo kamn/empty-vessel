@@ -133,3 +133,44 @@ test("when a cell stops (here: its time limit), its MCP request in flight is abo
     expect(aborted).toBe(true)
   } finally { server.stop(true) }
 })
+
+test("stdio: a character split between two chunks comes through whole", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-mcp-"))
+  const script = join(dir, "server.ts")
+  writeFileSync(script, `
+let buffer = ""
+for await (const chunk of Bun.stdin.stream()) {
+  buffer += new TextDecoder().decode(chunk)
+  const lines = buffer.split("\\n"); buffer = lines.pop() ?? ""
+  for (const line of lines) {
+    const m = JSON.parse(line)
+    if (m.id === undefined) continue
+    const result = m.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: {} } : { content: [{ type: "text", text: "café" }] }
+    const bytes = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: m.id, result }) + "\\n")
+    const cut = bytes.indexOf(0xc3) + 1 // inside é (0xc3 0xa9)
+    if (cut > 0 && m.method !== "initialize") { process.stdout.write(bytes.subarray(0, cut)); await Bun.sleep(50); process.stdout.write(bytes.subarray(cut)) }
+    else process.stdout.write(bytes)
+  }
+}`)
+  const local = localSource({ name: "local", command: process.execPath, args: [script] })
+  try {
+    expect(await Effect.runPromise(local.call("anything", {}))).toBe("café")
+  } finally { local.close() }
+})
+
+test("remote: a server that keeps answering 404 fails the call after one new session, not forever", async () => {
+  let calls = 0
+  const server = Bun.serve({ port: 0, fetch: async (request) => {
+    const m = await request.json() as { id?: number; method: string }
+    if (m.method === "initialize") return Response.json({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-06-18", capabilities: {} } }, { headers: { "mcp-session-id": "s" } })
+    if (m.id === undefined) return new Response(null, { status: 202 })
+    calls++
+    return new Response("gone", { status: 404 })
+  } })
+  try {
+    const source = remoteSource({ name: "remote", url: `http://localhost:${server.port}/mcp` })
+    const failed = await Effect.runPromise(Effect.flip(source.call("anything", {}).pipe(Effect.timeout("5 seconds"))))
+    expect(String(failed)).toContain("HTTP 404")
+    expect(calls).toBe(2)
+  } finally { server.stop(true) }
+})
