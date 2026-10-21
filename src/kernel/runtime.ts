@@ -7,14 +7,14 @@ import * as Effect from "effect/Effect"
 
 declare const self: Worker
 
-let next = 0
-const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+// Ids are random, not a count: a reply is matched by its id, so a guessable one could be answered by someone else.
+const waiting = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 
 // A host function by name (the host decides which exist, e.g. "systemOne" or "spawn"); waits for its answer.
 export const call = (fn: string, arg?: unknown): Effect.Effect<unknown, Error> =>
   Effect.tryPromise({
     try: () => new Promise((resolve, reject) => {
-      const id = ++next
+      const id = crypto.randomUUID()
       waiting.set(id, { resolve, reject })
       self.postMessage({ type: "call", id, fn, arg })
     }),
@@ -22,7 +22,7 @@ export const call = (fn: string, arg?: unknown): Effect.Effect<unknown, Error> =
   })
 
 // The worker passes the host's replies here.
-export const answer = (reply: { id: number; value?: unknown; error?: string }) => {
+export const answer = (reply: { id: string; value?: unknown; error?: string }) => {
   const w = waiting.get(reply.id)
   if (!w) return
   waiting.delete(reply.id)

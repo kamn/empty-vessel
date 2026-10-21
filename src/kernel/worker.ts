@@ -64,6 +64,8 @@ const perform = async (action: unknown, layer: unknown) => {
 }
 
 self.onmessage = async (e: MessageEvent) => {
+  // Only the host's own messages: a cell can dispatch a MessageEvent on self (a forged "allow" for its own command).
+  if (!e.isTrusted) return
   const message = e.data
   if (message.type === "reply") return answer(message)
   if (message.type === "stop") {
