@@ -101,9 +101,10 @@ export const serveChannel = <R>(channel: Channel["Service"], sessionId: string,
 
       if (asking) {
         asking = false
-        yield* runner.answer({ answer: /^[1-3]$/.test(text) ? options[Number(text) - 1] ?? input.text : input.text })
+        yield* runner.answer({ answer: /^\d+$/.test(text) ? options[Number(text) - 1] ?? input.text : input.text }) // a number picks that option
       } else if (active) {
-        if (/^\/(model|refine)\b/.test(text) || /^!/.test(text)) waiting.push(input.text)
+        // A command (/word, not a path like /Users/x) or a !command waits for the turn to end; anything else steers it.
+        if (/^\/[a-z][\w-]*(\s|$)/i.test(text) || /^!/.test(text)) waiting.push(input.text)
         else yield* runner.steer(input.text)
       } else yield* start(input.text)
     }

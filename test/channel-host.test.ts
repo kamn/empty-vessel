@@ -44,11 +44,11 @@ const harness = (overrides: Partial<typeof interactionOperations> = {}, failSend
   return { send, until, barrier, exit, fiber, sent, progress, conversation, listenerClosed: () => listenerClosed }
 })
 
-for (const [input, answer] of [["2", "blue"], ["my own answer", "my own answer"], ["3", "3"]]) {
+for (const [input, answer] of [["2", "blue"], ["my own answer", "my own answer"], ["3", "3"], ["4", "four"]]) {
   test(`question routes ${input} to ${answer}`, () => run(Effect.gen(function* () {
     const h = yield* harness({ answer: () => Effect.gen(function* () {
       const ask = yield* AskUser
-      const replies = yield* ask.ask([{ question: "Colour?", options: ["red", "blue"] }])
+      const replies = yield* ask.ask([{ question: "Colour?", options: input === "4" ? ["red", "blue", "green", "four"] : ["red", "blue"] }])
       expect(replies[0]?.answer).toBe(answer)
       return result
     }) })
@@ -216,5 +216,33 @@ test("cell summaries update progress while notes, questions and replies stay per
   expect(h.progress).toEqual(["Working…", "Inspect project", "Inspect project", "Apply change"])
   expect(h.sent).toEqual(["User update", expect.stringContaining("Continue?"), "ok", "usage", "total"])
   expect([...h.sent, ...h.progress].join("\n")).not.toContain("SECRET")
+  yield* h.exit
+})))
+
+test("any /command sent during a turn waits for it (never steers); a /path still steers", () => run(Effect.gen(function* () {
+  const read = yield* Deferred.make<void>()
+  const calls: string[] = []
+  let steered: ReadonlyArray<string> = []
+  const h = yield* harness({
+    answer: (_, text) => Effect.gen(function* () {
+      calls.push(`turn:${text}`)
+      if (text === "first") {
+        yield* Deferred.await(read)
+        steered = (yield* Inbox).take() // what System Two would be told mid-run
+      }
+      return result
+    }),
+    reviewCommand: (text) => Effect.sync(() => { calls.push(`review:${text.trim()}`); return "reviewed" }),
+  })
+  yield* h.send("first")
+  yield* h.until("Working")
+  yield* h.send("/review save")
+  yield* h.send("/Users/me/file.ts is the one")
+  yield* h.barrier
+  yield* Deferred.succeed(read, undefined)
+  yield* h.until("reviewed")
+
+  expect(steered).toEqual(["/Users/me/file.ts is the one"])
+  expect(calls).toEqual(["turn:first", "review:save"])
   yield* h.exit
 })))
