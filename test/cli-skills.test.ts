@@ -107,6 +107,14 @@ test("interactive built-in prefixes do not swallow hyphenated skills and explici
   expect(result.output).toContain("echo: ordinary followup")
 })
 
+test("interactive /undo and /compact stay local (no model turn)", () => {
+  const result = fixture().run("/undo\n/compact", true)
+  expect(result.exitCode).toBe(0)
+  expect(result.output).toContain("Nothing to undo")
+  expect(result.output).toContain("Nothing to compact yet")
+  expect(result.entries.filter(e => e.role === "step")).toEqual([])
+})
+
 test("interactive /flag remains local with whitespace or end", () => {
   const result = fixture().run("/flag\n/flag note", true)
   expect(result.exitCode).toBe(0)
