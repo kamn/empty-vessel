@@ -192,3 +192,18 @@ test("Claude retains the last progress message if its stream ends early", () => 
   stream.finish()
   expect(said).toEqual(["Still investigating."])
 })
+
+// Calls arriving together (one chunk) are all made before the first runs, as serve does: one that ends the run must
+// stop the ones queued behind it, or a cell could change files after the user was told the task is done.
+test("relay: a call queued behind one that ends the run isn't run", async () => {
+  const run = newRun()
+  let ran = 0
+  const hooks = { handoff: () => Effect.succeed({ answer: "ok", done: true }), kernel: () => Effect.sync(() => { ran++; return "x" }) } as never
+  const ending = run.lock.withPermit(answer("wait_for_user", { message: "hi" }, hooks, run))
+  const queued = run.lock.withPermit(answer("kernel", { code: "export default 1" }, hooks, run))
+
+  const [, second] = await Effect.runPromise(Effect.all([ending, queued], { concurrency: "unbounded" }))
+
+  expect(ran).toBe(0)
+  expect(second).toContain("already ended")
+})

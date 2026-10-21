@@ -26,17 +26,18 @@ export const stopCalls = (run: Run) => Effect.forEach([...run.calls], (f) => Fib
 
 // One call's answer, as text for the CLI. A call that already ended the run stops the rest: a CLI can send several calls
 // together, and a cell run after "done" would change files after the user was told.
-export const answer = (tool: string, args: unknown, hooks: Hooks, run: Run): Effect.Effect<string> => {
-  if (run.ended) return Effect.succeed(`The run has already ended, so this call wasn't run. ${STOP}`)
+// Checked when the call runs (it waits for the run's lock), not when it's made: calls arriving together are all made
+// before the first runs, and that one may end the run.
+export const answer = (tool: string, args: unknown, hooks: Hooks, run: Run): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    if (run.ended) return `The run has already ended, so this call wasn't run. ${STOP}`
 
-  return Effect.gen(function* () {
     const result = yield* callTool(tool, args, hooks, run)
     if (!("answer" in result)) return result.output
 
     run.ended = result
     return result.waitingForUser ? `Waiting for user input; the task is not marked complete. ${STOP}` : `System One ran it: ${result.done ? "passed, and the task is finished" : "failed"}. ${STOP}`
   })
-}
 
 // Answer the relay's calls: one JSON line in ({ id, tool, args }), one out ({ id, text }). Each call runs with
 // `context` (empty-vessel's, from the run: its Events, logger and services; without it, events printed over the TUI and logs
