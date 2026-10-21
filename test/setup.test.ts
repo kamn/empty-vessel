@@ -86,3 +86,17 @@ test("a config that doesn't parse stops setup and is left exactly as it was", as
   expect(readFileSync(file, "utf8")).toBe(broken)
   expect(said.join("\n")).toContain("setup stopped without changing it")
 })
+
+test("a config that's a symlink is written where it points: the link stays a link", async () => {
+  const { lstatSync, symlinkSync } = await import("node:fs")
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-setup-"))
+  const target = join(dir, "dotfiles-config.json"), file = join(dir, "config.json")
+  writeFileSync(target, JSON.stringify({ theme: "teal" }))
+  symlinkSync(target, file)
+
+  await Effect.runPromise(runSetup(file, [judge, alpha(true)], { ask: () => "good-key", say: () => Effect.void }))
+
+  expect(lstatSync(file).isSymbolicLink()).toBe(true)
+  expect(JSON.parse(readFileSync(target, "utf8"))).toMatchObject({ theme: "teal", systemTwo: { use: "alpha" } })
+  expect(statSync(target).mode & 0o777).toBe(0o600)
+})

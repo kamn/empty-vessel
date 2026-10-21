@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { Console, Effect } from "effect"
 import { CONFIG_FILE, movedIntoPlugins } from "./base/config"
@@ -92,12 +92,14 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
     const systemOne = { ...current.systemOne, use: chosen.systemOne }
     const systemTwo = chosen.systemTwo === "fake" ? { ...current.systemTwo, use: "fake" } : { reasoning: "medium", ...current.systemTwo, use: chosen.systemTwo }
     const channel = current.channel || chosen.channel !== "terminal" ? { channel: { ...current.channel, use: chosen.channel } } : {}
-    // Private from the first byte (it can hold keys), and whole: a temp file beside it, then renamed over it.
+    // Private from the first byte (it can hold keys), and whole: a temp file beside it, then renamed over it. A config
+    // that's a symlink (into a dotfiles repo) is written where it points, so the link stays.
     mkdirSync(dirname(file), { recursive: true })
-    const temp = `${file}.${crypto.randomUUID()}.tmp`
+    const real = existsSync(file) ? realpathSync(file) : file
+    const temp = `${real}.${crypto.randomUUID()}.tmp`
     writeFileSync(temp, JSON.stringify({ ...current, systemOne, systemTwo, ...channel, ...(Object.keys(plugins).length ? { plugins } : {}) }, null, 2) + "\n", { mode: 0o600, flag: "wx" })
     chmodSync(temp, 0o600) // whatever the umask
-    renameSync(temp, file)
+    renameSync(temp, real)
 
     yield* io.say(`\nWrote ${file} (only you can read it).`)
     for (const kind of ["systemOne", "systemTwo"] as const) {
