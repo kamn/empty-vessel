@@ -32,7 +32,7 @@ const append = (key: string, rows: ReadonlyArray<Row>): Effect.Effect<void> => E
   const ancestry = parent ? { empty_vessel_parent_session_id: parent } : {}
 
   return withLock(path, Effect.promise(async () => {
-    await mkdir(dirname(path), { recursive: true })
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 }) // only you: its file names say when you worked
     const size = await stat(path).then((s) => s.size, (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return 0
       throw error

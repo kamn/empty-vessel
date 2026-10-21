@@ -267,3 +267,14 @@ test("device polling respects issuer intervals longer than thirty seconds", () =
     expect(requests).toBe(3)
   })
 })
+
+test("device polling slows down on 429 (doubling the wait) instead of giving up", () => {
+  let poll = 0
+  const sleeps: number[] = []
+  const oauth = makeCodexOAuth({ sleep: (ms) => Effect.sync(() => { sleeps.push(ms) }), fetch: (url) => {
+    if (url.endsWith("/usercode")) return Promise.resolve(json({ device_auth_id: "device", user_code: "USER", interval: "5" }))
+    if (url.endsWith("/deviceauth/token")) return Promise.resolve(++poll < 3 ? json({}, 429) : json({ authorization_code: "code", code_verifier: "verifier" }))
+    return Promise.resolve(json(payload()))
+  } })
+  return run(oauth.loginCodexDevice(() => Effect.void)).then((c) => { expect(c.accountId).toBe("account-1"); expect(sleeps).toEqual([5000, 10000, 20000]) })
+})
