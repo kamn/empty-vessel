@@ -9,6 +9,7 @@ import { Kernel } from "../tools/kernel-service"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { Memory, type Scope, SCOPES } from "../base/memory"
+import { pastSessions } from "./past"
 import { fillParameters, helpers, systemOneTools, kernelImports, libraryDir, loadLibrary, loadPool, promote, TSC, usableWith, writeBuiltins } from "./library"
 import { record } from "./pool"
 import { kernelSources, sourceTools } from "./sources"
@@ -112,6 +113,13 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
       yield* ctx.session.record("memory", line).pipe(Effect.ignore)
       return `done: ${line}`
     }).pipe(Effect.provideContext(services)),
+    // Earlier sessions of this project, searched (src/loop/past.ts); this conversation's own session is left out.
+    pastSessions: (arg: unknown) => {
+      const { query, limit } = arg as { query: unknown; limit?: unknown }
+      if (typeof query !== "string" || !query.trim()) return Effect.fail(new Error("pastSessions expects a query of words"))
+      const max = typeof limit === "number" && limit > 0 ? Math.min(limit, 100) : 20
+      return pastSessions(query, { cwd: process.cwd(), exclude: ctx.session.key.split("/")[1], limit: max }).pipe(Effect.provideContext(services))
+    },
   }
   return host
 }
