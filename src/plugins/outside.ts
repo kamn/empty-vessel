@@ -46,7 +46,11 @@ const nestedCopies = (modules: string) =>
 
 // Which cores a plugin works with, as a semver range: one version ("0.0.8"), a range (">=0.0.5 <=0.0.9"), or several
 // ("0.0.5 || 0.0.7"). While the core is 0.0.x every change may break a plugin, so a plugin lists what it was tried on.
-export const fitsCore = (wanted: string, core = CORE_VERSION) => Bun.semver.satisfies(core, wanted)
+// Each alternative must name a version: semver also accepts "*", "latest", "" and nonsense as matching every core, which
+// says nothing about what the plugin was tried on.
+// (A plugin's version is in its module, so its top-level code has already run when this is checked.)
+export const fitsCore = (wanted: string, core = CORE_VERSION) =>
+  typeof wanted === "string" && wanted.split("||").every((part) => /\d+\.\d+\.\d+/.test(part)) && Bun.semver.satisfies(core, wanted)
 
 // A plugin at `path`: imported, then checked (a Plugin, written for this core).
 const loadAt = (path: string) =>

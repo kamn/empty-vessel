@@ -60,6 +60,7 @@ test("which cores a plugin fits: a semver range, one version, a range or several
   expect([fitsCore("0.0.8", "0.0.8"), fitsCore("0.0.8", "0.0.9"), fitsCore("^0.0.8", "0.0.9")]).toEqual([true, false, false])
   expect([fitsCore(">=0.0.5 <=0.0.9", "0.0.7"), fitsCore(">=0.0.5 <=0.0.9", "0.0.10")]).toEqual([true, false])
   expect([fitsCore("0.0.5 || 0.0.7", "0.0.7"), fitsCore("0.0.5 || 0.0.7", "0.0.6")]).toEqual([true, false])
+  expect(["latest", "*", "", "garbage", "abc def", "0.0.7 || *"].map((w) => fitsCore(w, "0.0.7"))).toEqual([false, false, false, false, false, false]) // no version: no match
 })
 
 // The commands, as a user runs them, in a home of their own: add, list, doctor, setup, remove. The plugin has settings
