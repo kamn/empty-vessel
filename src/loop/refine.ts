@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { Effect, Schema } from "effect"
 import { Config } from "../base/config"
@@ -13,7 +13,7 @@ import { SystemTwo } from "../system-two/systemtwo"
 import { AskUser } from "../ui/ask"
 import { Answer, instructions as adoptionInstructions, proposeTools } from "./adopt"
 import { makeHost } from "./kernel"
-import { libraryDir, loadLibrary, loadPool, updateTools } from "./library"
+import { libraryDir, loadLibrary, loadPool, type PoolEntry, updateTools } from "./library"
 import { type Line, report, sessionsSince, short, signalsOf } from "./signals"
 import { type Ctx, type Needs, newConversation, timed } from "./turnkit"
 
@@ -56,7 +56,9 @@ const digestOf = (turns: ReadonlyArray<Turn>) => {
 }
 
 // The log: one JSON line per event. A refine (what it found), each edit it proposed (applied or not), each undo.
-export type Edit = Readonly<{ id: string; kind: "note" | "check" | "tool"; what: string; outcome: string; applied: boolean; trigger: string; file?: string; name?: string; text?: string; scope?: Scope; at: number }>
+// A tool edit also keeps who added it (`from`: "refine <round>") and the pool tool it replaced with its code, so undo
+// can put that back and leaves alone a newer same-name tool someone else added since.
+export type Edit = Readonly<{ id: string; kind: "note" | "check" | "tool"; what: string; outcome: string; applied: boolean; trigger: string; file?: string; name?: string; text?: string; scope?: Scope; from?: string; replaced?: { entry: PoolEntry; code: string }; at: number }>
 type Refined = Readonly<{ kind: "refine"; at: number; turns: number; sessions: ReadonlyArray<string>; cost: string; summary?: string; fixes?: ReadonlyArray<string>; flags?: number; signals?: number }>
 type LogLine = Edit | Refined | Readonly<{ kind: "undo"; id: string; at: number }>
 const logFile = (root: string) => join(projectDir(root), "refine.jsonl")
@@ -141,13 +143,14 @@ export const refine = (root = process.cwd(), yes = false) =>
 
     // Tools onto the trial pool, each checked by promote.
     const before = new Set([...loadLibrary(dir), ...loadPool(dir)].map((e) => e.name))
+    const replaceable = new Map(loadPool(dir).flatMap((e) => existsSync(e.file) ? [[e.name, { entry: e, code: readFileSync(e.file, "utf8") }] as const] : []))
     const kept = tools.filter((_, i) => chosen.includes(notes.length + i + 1))
     const results = kept.length ? yield* proposeTools(dir, `refine ${round}`, makeHost(ctx, yield* Effect.context<Needs>()), kept) : []
     for (const t of tools) {
       const k = kept.indexOf(t)
       const said = k < 0 ? "not chosen" : results[k]!.slice(`${t.name} (${t.for}): `.length)
       const added = /^(added|promoted) /.test(said)
-      edit("tool", `${t.name} (for ${t.for === "systemOne" ? "System One" : "System Two"})`, added ? (before.has(t.name) ? "on trial in the pool again (replacing the earlier one)" : "on trial in the pool") : said.slice(0, 300), added, { name: t.name })
+      edit("tool", `${t.name} (for ${t.for === "systemOne" ? "System One" : "System Two"})`, added ? (before.has(t.name) ? "on trial in the pool again (replacing the earlier one)" : "on trial in the pool") : said.slice(0, 300), added, { name: t.name, from: `refine ${round}`, ...(added && replaceable.has(t.name) ? { replaced: replaceable.get(t.name)! } : {}) })
     }
 
     // The log, then what it cost (paid now, not on every turn).
@@ -196,7 +199,19 @@ export const undo = (root: string, id: string) =>
       if (failed) return `couldn't undo ${id}: ${failed}`
     }
     if (e.kind === "check" && e.file && e.name) yield* removeCheck(e.file, e.name)
-    if (e.kind === "tool" && e.name) yield* updateTools(libraryDir(root), (library, pool) => ({ library: library.filter((t) => t.name !== e.name), pool: pool.filter((t) => t.name !== e.name), result: undefined }))
+    if (e.kind === "tool" && e.name) {
+      const other = yield* updateTools(libraryDir(root), (library, pool) => {
+        const now = [...library, ...pool].find((t) => t.name === e.name)
+        if (now && e.from && now.from !== e.from) return { result: now.from } // replaced since, by someone else: theirs stays
+        if (e.replaced) writeFileSync(e.replaced.entry.file, e.replaced.code)
+        return {
+          library: library.filter((t) => t.name !== e.name),
+          pool: [...pool.filter((t) => t.name !== e.name), ...(e.replaced ? [e.replaced.entry] : [])],
+          result: undefined,
+        }
+      })
+      if (other) return `couldn't undo ${id}: ${e.name} has been replaced since (by ${other}); remove that one by hand if you want it gone`
+    }
 
     append(root, { kind: "undo", id, at: Date.now() })
     return `undid ${id}: ${e.kind} ${e.what.slice(0, 120)}`

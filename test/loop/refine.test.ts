@@ -15,3 +15,13 @@ test("refine: flags and signals first, three kinds of proposal kept only with th
     expect(code).toBe(0)
   } finally { rmSync(home, { recursive: true, force: true }) }
 }, 60_000)
+
+test("refine undo restores a replaced tool and spares a newer one (in a child with its own home)", async () => {
+  const home = mkdtempSync(join(tmpdir(), "empty-vessel-refine-undo-home-"))
+  try {
+    const proc = Bun.spawn([process.execPath, "test", "./test/fixtures/refine-undo.case.ts"], { cwd: process.cwd(), env: { ...process.env, EMPTY_VESSEL_HOME: home }, stdout: "pipe", stderr: "pipe" })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    expect(out + err).toContain("1 pass")
+    expect(code).toBe(0)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+}, 60_000)
