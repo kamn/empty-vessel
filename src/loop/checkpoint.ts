@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import type { SessionHandle } from "../base/session"
+import { runBash } from "../tools/bash"
 import { Kernel } from "../tools/kernel-service"
 import type { Conversation } from "./turnkit"
 
@@ -25,13 +26,18 @@ const ok = (out: string) => {
   return status === "exit 0" ? lines : undefined
 }
 
-// The project as it is now, or undefined outside git (or if git fails: a turn must never fail over its checkpoint).
-export const snapshot = (input: string) =>
+// The project at `cwd` as it is now, or undefined outside git (or if git fails: a turn must never fail over its
+// checkpoint). Not through ActionGuard: it's the harness's own fixed, read-only bookkeeping, run every turn, not an
+// action the agent proposed (an "ask" policy would otherwise ask the user to approve it each turn). /undo's restore,
+// which changes files, still goes through the guard.
+const allowed = () => Effect.succeed({ decision: "allow" as const })
+export const snapshot = (input: string, cwd = process.cwd()) =>
   Effect.gen(function* () {
-    const out = yield* (yield* Kernel).exec(`root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
+    const out = yield* runBash(`cd ${quote(cwd)} || exit 3
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
 cd "$root" || exit 3
 ${PRIVATE_INDEX}
-git add -A . && echo "$root" && git write-tree`, 60_000)
+git add -A . && echo "$root" && git write-tree`, 60_000, allowed)
     const [root, tree] = ok(out) ?? []
     return root && tree && /^[0-9a-f]{40,64}$/.test(tree) ? { root, tree, input } satisfies Checkpoint : undefined
   }).pipe(Effect.orElseSucceed(() => undefined))

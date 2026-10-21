@@ -25,16 +25,25 @@ const repo = () => {
 }
 const session = { record: () => Effect.void } as unknown as SessionHandle
 
+test("the per-turn snapshot doesn't ask ActionGuard (an 'ask' policy would prompt every turn)", async () => {
+  const { dir } = repo()
+  const { ActionGuard } = await import("../../src/tools/action-guard")
+  const asked: unknown[] = []
+  const guard = { beforeAction: (action: unknown) => Effect.sync(() => { asked.push(action); return { decision: "deny" as const, reason: "no" } }) }
+  expect(await Effect.runPromise(snapshot("x", dir).pipe(Effect.provideService(ActionGuard, guard as never)))).toBeDefined()
+  expect(asked).toEqual([])
+})
+
 test("/undo puts back what the last file-changing turn changed, removes what it created, and leaves the index alone", async () => {
   const { dir, run } = repo()
   const conversation = newConversation()
   const index = execSync("git diff --cached --name-only", { cwd: dir }).toString()
 
-  conversation.checkpoints = [(await run(snapshot("fix a")))!]
+  conversation.checkpoints = [(await run(snapshot("fix a", dir)))!]
   writeFileSync(join(dir, "a.txt"), "two\n")
   writeFileSync(join(dir, "new.txt"), "created\n")
   execSync("rm notes.txt", { cwd: dir })
-  conversation.checkpoints.push((await run(snapshot("just talk")))!) // a turn that changed nothing
+  conversation.checkpoints.push((await run(snapshot("just talk", dir)))!) // a turn that changed nothing
 
   const reply = await run(undoCommand(session, conversation))
 
@@ -50,8 +59,8 @@ test("/undo puts back what the last file-changing turn changed, removes what it 
 
 test("outside a git repo there's no checkpoint", async () => {
   const dir = mkdtempSync(join(tmpdir(), "empty-vessel-nogit-"))
-  const kernel = { ...Kernel.defaultValue(), exec: (command: string, ms: number) => runBash(`cd '${dir}'\nexport GIT_CEILING_DIRECTORIES='${tmpdir()}'\n${command}`, ms) }
-  expect(await Effect.runPromise(snapshot("x").pipe(Effect.provideService(Kernel, kernel)))).toBeUndefined()
+  process.env.GIT_CEILING_DIRECTORIES = tmpdir() // so a parent folder's repo isn't found
+  try { expect(await Effect.runPromise(snapshot("x", dir))).toBeUndefined() } finally { delete process.env.GIT_CEILING_DIRECTORIES }
 })
 
 test("a resumed session keeps /undo's checkpoints: recorded per turn, trimmed by each /undo", async () => {
@@ -77,7 +86,7 @@ test("/undo records how many checkpoints are left", async () => {
   const recorded: Array<[string, string]> = []
   const recording = { record: (role: string, text: string) => Effect.sync(() => { recorded.push([role, text]) }) } as unknown as SessionHandle
 
-  conversation.checkpoints = [(await run(snapshot("one")))!]
+  conversation.checkpoints = [(await run(snapshot("one", dir)))!]
   writeFileSync(join(dir, "a.txt"), "changed\n")
   await run(undoCommand(recording, conversation))
 
