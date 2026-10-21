@@ -154,3 +154,11 @@ test("fileCompletions: git's tracked and new unignored files as @paths; none out
   process.env.GIT_CEILING_DIRECTORIES = tmpdir()
   try { expect(fileCompletions(mkdtempSync(join(tmpdir(), "empty-vessel-nogit-")))).toEqual([]) } finally { delete process.env.GIT_CEILING_DIRECTORIES }
 })
+
+test("the input box wraps by display width: wide characters (CJK, emoji) never make a line wider than the terminal", () => {
+  const model = { ...init("status"), input: "漢".repeat(100) + "😀".repeat(20), after: 0 }
+  const { lines, cursor } = live(model, 40)
+
+  for (const line of lines) expect(widthOf(line)).toBeLessThanOrEqual(40)
+  expect(cursor.col).toBeLessThanOrEqual(40)
+})
