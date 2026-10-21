@@ -23,7 +23,8 @@ const base64url = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64").r
 // the server, and an http:// token endpoint would send the code and tokens in the clear.
 const secure = (url: string, what: string) => {
   const u = new URL(url)
-  if (u.protocol === "https:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname))) return url
+  const loopback = ["localhost", "localhost.", "[::1]"].includes(u.hostname) || /^127(\.\d{1,3}){3}$/.test(u.hostname)
+  if (u.protocol === "https:" || (u.protocol === "http:" && loopback)) return url
   throw new Error(`the login server's ${what} isn't HTTPS: ${url}`)
 }
 
@@ -37,7 +38,7 @@ export const discover = async (resource: string) => {
   if (!as?.authorization_endpoint || !as?.token_endpoint) throw new Error(`${issuer} has no login metadata`)
   return {
     authorize: secure(as.authorization_endpoint, "login page"), token: secure(as.token_endpoint, "token endpoint"),
-    register: as.registration_endpoint === undefined ? undefined : secure(as.registration_endpoint, "registration endpoint") as string,
+    register: as.registration_endpoint == null ? undefined : secure(as.registration_endpoint, "registration endpoint") as string, // null: none
   }
 }
 
@@ -98,6 +99,7 @@ export const login = async (resource: string, open: (url: string) => void | Prom
 // A fresh access token from the refresh token (the login server may send a new refresh token too).
 export const refresh = async (l: Login): Promise<Login> => {
   if (!l.refreshToken) throw new Error("the login has expired and can't be refreshed: log in again")
-  const t = await tokens(l.tokenEndpoint, { grant_type: "refresh_token", refresh_token: l.refreshToken, client_id: l.clientId, resource: l.resource })
+  // A login saved before endpoints were checked may still name an http:// one: checked here too.
+  const t = await tokens(secure(l.tokenEndpoint, "token endpoint"), { grant_type: "refresh_token", refresh_token: l.refreshToken, client_id: l.clientId, resource: l.resource })
   return { ...l, accessToken: t.access_token, refreshToken: t.refresh_token ?? l.refreshToken, ...(t.expires_in ? { expiresAt: Date.now() + t.expires_in * 1000 } : {}) }
 }

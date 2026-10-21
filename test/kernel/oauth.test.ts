@@ -90,3 +90,12 @@ test("login refuses a login server whose endpoints aren't HTTPS (loopback may be
     await expect(login(`http://localhost:${server.port}/mcp`, () => {})).rejects.toThrow("token endpoint isn't HTTPS")
   } finally { server.stop(true) }
 })
+
+test("refresh won't send a refresh token to a saved http:// token endpoint; loopback addresses may stay http", async () => {
+  const saved = { resource: "r", clientId: "c", accessToken: "a", refreshToken: "secret", tokenEndpoint: "http://tokens.example.com/token" }
+  await expect(refresh(saved as never)).rejects.toThrow("token endpoint isn't HTTPS")
+  const local = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ access_token: "fresh" }) })
+  try {
+    expect(await refresh({ ...saved, tokenEndpoint: `http://127.0.0.1:${local.port}/token` } as never)).toMatchObject({ accessToken: "fresh" })
+  } finally { local.stop(true) }
+})
