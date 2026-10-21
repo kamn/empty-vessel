@@ -37,3 +37,10 @@ test("refine's signals: silence, timeout and its rerun, rereads, failing checks,
   expect(fixes).toHaveLength(1)
   expect(fixes[0]).toContain("then worked with PATH=$HOME/.nvm/versions/node/v24/bin:$PATH")
 })
+
+test("signalsOf with since: only what happened after the last refine (state from before still counts)", () => {
+  const { signals, flags, fixes } = signalsOf("01abc-session", lines as never, 13.5 * MIN)
+  expect(flags).toEqual([]) // the flag at 4.5 min was handled by that refine
+  expect(fixes).toEqual([]) // so was the PATH fix at 13 min
+  expect(signals.map((s) => s.kind)).toEqual(["checks", "scope", "steer", "stop", "silence", "long"]) // the second failed check (15 min) counts the first
+})
