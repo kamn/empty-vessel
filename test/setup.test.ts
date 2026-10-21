@@ -74,3 +74,15 @@ test("channel setup is optional, preserves existing choices, and does not force 
   expect(selected.config.channel).toEqual({ use: "chat" })
   expect(selected.config.plugins.chat.config.token).toBe("token")
 })
+
+test("a config that doesn't parse stops setup and is left exactly as it was", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "empty-vessel-setup-")), "config.json")
+  const broken = `{ "plugins": { "other": { "config": { "apiKey": "keep-me" } } }, oops }`
+  writeFileSync(file, broken)
+  const said: Array<string> = []
+
+  await Effect.runPromise(runSetup(file, [judge, alpha(true)], { ask: () => "good-key", say: (l) => Effect.sync(() => { said.push(l) }) }))
+
+  expect(readFileSync(file, "utf8")).toBe(broken)
+  expect(said.join("\n")).toContain("setup stopped without changing it")
+})
