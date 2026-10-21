@@ -13,12 +13,16 @@ export const keysOf = (chunk: string): ReadonlyArray<string> => {
   return chunk.match(/\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[[0-9;]*[A-Za-z~]|\x1bO[A-Z]|\x1b[\s\S]?|[\x00-\x1f\x7f]|[^\x00-\x1f\x7f\x1b]+/g) ?? []
 }
 
-// Keep incomplete markers and paste contents until the terminal closes the paste.
+// Keep incomplete markers and paste contents until the terminal closes the paste, and an escape sequence cut at the
+// chunk's end (a key or mouse report split over two reads) until its rest comes. `flush`: what's held, as keys, when
+// nothing more came (the runtime calls it after a moment): a lone Esc looks like the start of a sequence, and must
+// still arrive as Esc.
+const UNFINISHED = /\x1b(\[[0-?]*[ -/]*|O)?$/
 export const makeInputDecoder = () => {
   const start = "\x1b[200~", end = "\x1b[201~"
   let pending = "", pasting = false
 
-  return (chunk: string) => {
+  const decode = (chunk: string) => {
     pending += chunk
     const events: { key: string; paste: boolean }[] = []
 
@@ -37,6 +41,7 @@ export const makeInputDecoder = () => {
 
       let held = Math.min(marker.length - 1, pending.length)
       while (held && !pending.endsWith(marker.slice(0, held))) held--
+      held = Math.max(held, pending.match(UNFINISHED)?.[0].length ?? 0)
       events.push(...keysOf(pending.slice(0, pending.length - held)).map(key => ({ key, paste: false })))
       pending = pending.slice(pending.length - held)
       break
@@ -44,6 +49,15 @@ export const makeInputDecoder = () => {
 
     return events
   }
+  const holding = () => !pasting && pending.length > 0
+  const flush = () => {
+    if (!holding()) return []
+    const keys = keysOf(pending).map((key) => ({ key, paste: false }))
+    pending = ""
+    return keys
+  }
+
+  return Object.assign(decode, { holding, flush })
 }
 
 // Selecting text with the mouse: the terminal sends drags to empty-vessel (mouse reporting is on, for the wheel), so empty-vessel
@@ -228,8 +242,15 @@ export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void)
     // A paste with image paths in it (dragging a file into the terminal pastes its path): each path that's a real image
     // is shown as [Image #N], numbered on from the labels already in the input, and the TUI keeps what each stands for.
     const decode = makeInputDecoder()
+    let flushing: ReturnType<typeof setTimeout> | undefined
     const onData = (chunk: string) => {
-      for (const { key, paste } of decode(chunk)) {
+      clearTimeout(flushing)
+      handle(decode(chunk))
+      // Held bytes (a lone Esc, a cut sequence) that nothing follows within a moment are keys after all.
+      if (decode.holding()) flushing = setTimeout(() => handle(decode.flush()), 40)
+    }
+    const handle = (events: ReadonlyArray<{ key: string; paste: boolean }>) => {
+      for (const { key, paste } of events) {
         // The left button (with no modifier: 0 press/release, 32 drag) selects text; other mouse reports go on.
         const mouse = !paste && key.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/)
 
@@ -275,6 +296,7 @@ export const runTui = (start: Model, connect: (dispatch: (message: Msg) => void)
 
     yield* loop.pipe(Effect.ensuring(Effect.sync(() => {
       clearInterval(ticker)
+      clearTimeout(flushing)
       process.stdin.off("data", onData).pause()
       process.stdin.setRawMode(false)
       process.stdout.write("\x1b[?1002l\x1b[?1006l\x1b[?2004l") // restore normal mouse and paste handling

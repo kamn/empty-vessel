@@ -165,6 +165,20 @@ test("paste markers can split anywhere without releasing paste contents as keys"
   expect([...wrapped].flatMap(char => decode(char))).toEqual([{ key: "one\ntwo", paste: true }])
 })
 
+test("a lone Esc is held only until flush, then arrives as Esc; a sequence cut between reads is joined, not typed", () => {
+  const decode = makeInputDecoder()
+  expect(decode("\x1b")).toEqual([]) // could still be the start of a sequence or a paste
+  expect(decode.holding()).toBe(true)
+  expect(decode.flush()).toEqual([{ key: "\x1b", paste: false }]) // nothing came: it was Esc
+  expect(decode("a")).toEqual([{ key: "a", paste: false }]) // not Alt+a
+
+  expect(decode("\x1b[<0;10")).toEqual([])
+  expect(decode(";5M")).toEqual([{ key: "\x1b[<0;10;5M", paste: false }])
+  expect(decode("x\x1b[")).toEqual([{ key: "x", paste: false }])
+  expect(decode("A")).toEqual([{ key: "\x1b[A", paste: false }])
+  expect(decode.holding()).toBe(false)
+})
+
 test("typing, multiple pastes, and Enter keep their order in one chunk", () => {
   const decode = makeInputDecoder()
   expect(decode("before\x1b[200~first\x1b[201~between\x1b[200~second\x1b[201~\r")).toEqual([
