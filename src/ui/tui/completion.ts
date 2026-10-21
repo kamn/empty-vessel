@@ -17,7 +17,8 @@ const MAX_LISTED = 20_000
 export const fileCompletions = (cwd: string): ReadonlyArray<Completion> => {
   const git = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd, stdout: "pipe", stderr: "ignore" })
   if (git.exitCode !== 0) return []
-  return [...new Set(git.stdout.toString().split("\0").filter(Boolean))].slice(0, MAX_LISTED).map((p) => ({ command: `@${p}`, description: "" }))
+  // A path with a space can't be mentioned (@path ends at whitespace, src/loop/mentions.ts): not offered.
+  return [...new Set(git.stdout.toString().split("\0").filter((p) => p && !/\s/.test(p)))].slice(0, MAX_LISTED).map((p) => ({ command: `@${p}`, description: "" }))
 }
 
 // The @path being typed at the cursor (the word before it, starting with @), if any.

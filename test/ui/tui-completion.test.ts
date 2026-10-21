@@ -124,6 +124,14 @@ test("@ completes the project's files at the cursor: matches containing the word
 
   m = key(m, " ")
   expect(suggestions(m)).toEqual([]) // the word is finished
+
+  // Enter sends what was typed rather than taking a file suggestion (a typed .env isn't swapped for .env.example)
+  let e = init("status", [], "banner", [{ command: "@.env.example", description: "" }])
+  for (const k of "see @.env") e = key(e, k)
+  expect(suggestions(e).map((i) => i.command)).toEqual(["@.env.example"])
+  const sent = update(e, Message.PressedKey({ key: "\r" }))
+  expect(sent.model.input).toBe("")
+  expect(sent.model.printed.at(-1)?.text ?? sent.model.queued.at(-1) ?? "").toContain("see @.env")
   for (const k of "/he") m = key(m, k)
   expect(suggestions(m)).toEqual([]) // a slash mid-message isn't a command
 })
@@ -140,6 +148,7 @@ test("fileCompletions: git's tracked and new unignored files as @paths; none out
   writeFileSync(join(dir, "a.ts"), "")
   execSync("git add a.ts", { cwd: dir })
   writeFileSync(join(dir, "new.ts"), "")
+  writeFileSync(join(dir, "my notes.md"), "") // has a space: can't be mentioned, not offered
 
   expect(fileCompletions(dir).map((c) => c.command).sort()).toEqual(["@.gitignore", "@a.ts", "@new.ts"])
   process.env.GIT_CEILING_DIRECTORIES = tmpdir()

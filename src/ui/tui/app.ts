@@ -305,7 +305,9 @@ const pressed = (model: Model, key: string): Return => {
   if (selected) {
     if (key === "\x1b") return { model: { ...model, completionDismissed: true } }
     if (key === KEY.up || key === KEY.down) return { model: { ...model, completionSelected: Math.max(0, Math.min(items.length - 1, model.completionSelected + (key === KEY.up ? -1 : 1))) } }
-    if (key === "\t" || (key === KEY.enter && acceptCompletion(model, selected).input !== model.input)) {
+    // A file (@path) is taken with Tab only: Enter sends, so a typed path that isn't on the list (an ignored .env) isn't
+    // swapped for the top suggestion (.env.example).
+    if (key === "\t" || (key === KEY.enter && !selected.command.startsWith("@") && acceptCompletion(model, selected).input !== model.input)) {
       return { model: { ...model, ...acceptCompletion(model, selected), completionDismissed: true, completionSelected: 0 } }
     }
   }
@@ -349,7 +351,7 @@ export const update = (model: Model, message: Message): Return =>
     PressedKey: ({ key }) => {
       const next = pressed(model, key)
       // Acceptance stays dismissed; all other draft/cursor edits reopen and reset the menu.
-      const accepting = suggestions(model).length > 0 && (key === "\t" || key === KEY.enter)
+      const accepting = suggestions(model).length > 0 && (key === "\t" || (key === KEY.enter && !selectedCompletion(model)?.command.startsWith("@")))
       return !accepting && (next.model.input !== model.input || next.model.after !== model.after)
         ? { ...next, model: { ...next.model, completionDismissed: false, completionSelected: 0 } } : next
     },
