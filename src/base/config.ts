@@ -145,6 +145,7 @@ export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()(
         try: () => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}),
         catch: (e) => new ConfigError({ message: `${file}: ${e}` }),
       })
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return yield* new ConfigError({ message: `${file}: the settings must be a JSON object ({ … })` })
       // Parse only the two boolean spellings; other values fail schema validation.
       const learnAfterTurn = process.env.EMPTY_VESSEL_LEARN_AFTER_TURN
 
@@ -153,7 +154,10 @@ export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()(
       }
 
       if (process.env.EMPTY_VESSEL_COMPACT_AT) raw.compactAt = Number(process.env.EMPTY_VESSEL_COMPACT_AT)
-      if (process.env.EMPTY_VESSEL_ADOPTION) raw.adoption = { ...raw.adoption, ...JSON.parse(process.env.EMPTY_VESSEL_ADOPTION) } // e.g. an eval's settings
+      if (process.env.EMPTY_VESSEL_ADOPTION) { // e.g. an eval's settings
+        const adoption = yield* Effect.try({ try: () => JSON.parse(process.env.EMPTY_VESSEL_ADOPTION!), catch: (e) => new ConfigError({ message: `EMPTY_VESSEL_ADOPTION: ${e}` }) })
+        raw.adoption = { ...raw.adoption, ...adoption }
+      }
       // adoption.offerJev was the name before System One's generic one: still read.
       if (raw.adoption?.offerJev !== undefined && raw.adoption.offerSystemOne === undefined) raw.adoption = { ...raw.adoption, offerSystemOne: raw.adoption.offerJev }
       if (process.env.EMPTY_VESSEL_CHANNEL) raw.channel = { ...raw.channel, use: process.env.EMPTY_VESSEL_CHANNEL }
