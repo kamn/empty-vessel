@@ -135,7 +135,8 @@ export const loadView = (dir: string, initial: Model): Model => {
  * Errors intentionally propagate: callers decide how to report a failed save. */
 export const saveView = (dir: string, view: Model): void => {
   if (!model(view)) throw new Error("Invalid TUI view")
-  const contents = JSON.stringify({ version: VERSION, model: view }) + "\n"
+  // Completions aren't saved: they're made afresh at start (the project's files can be thousands).
+  const contents = JSON.stringify({ version: VERSION, model: { ...view, completions: [] } }) + "\n"
   mkdirSync(dir, { recursive: true })
   const temporary = join(dir, `.${SNAPSHOT}.${randomUUID()}.tmp`)
 
