@@ -34,6 +34,8 @@ export const loadConversation = (dir: string): Conversation => {
     else if (e.role === "compact" && e.thread) c.thread.splice(0, c.thread.length, ...e.thread.map(fromSaved))
     else if (e.role === "size") c.size = Number(e.text)
     else if (e.role === "tools") c.tools.add(e.text)
+    else if (e.role === "checkpoint") (c.checkpoints ??= []).push({ tree: e.text, root: e.root, input: e.input }) // /undo's (src/loop/checkpoint.ts)
+    else if (e.role === "undone") c.checkpoints?.splice(Number(e.text))
     else if (e.role === "skill" && typeof e.text === "string" && typeof e.content === "string") {
       c.activeSkills ??= Object.create(null)
       c.activeSkills![e.text] = e.content
