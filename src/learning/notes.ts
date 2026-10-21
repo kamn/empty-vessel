@@ -10,7 +10,8 @@ import { Memory, type Scope, SCOPES } from "../base/memory"
 // The latest notes for this project (open items, repeated failures), to show when a session starts.
 export const recentNotes = (root: string, n = 5) =>
   Effect.promise(() => Bun.file(join(projectDir(root), "notes.jsonl")).text().catch(() => "")).pipe(
-    Effect.map((text) => text.trim().split("\n").filter(Boolean).slice(-n).map((l) => JSON.parse(l) as { kind: string; text: string })),
+    // A line cut short (a crash mid-append) is skipped: it mustn't stop a session from starting.
+    Effect.map((text) => text.trim().split("\n").filter(Boolean).flatMap((l) => { try { return [JSON.parse(l) as { kind: string; text: string }] } catch { return [] } }).slice(-n)),
   )
 
 // empty-vessel memory (and /memory): what's remembered, per scope, numbered, with how full each is; `remove <scope> <n>`
