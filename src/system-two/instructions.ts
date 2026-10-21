@@ -15,7 +15,7 @@ const FILES_AND_SHELL: ReadonlyArray<readonly [Need, string]> = [
 ]
 const OTHERS: ReadonlyArray<readonly [Need | undefined, string]> = [
   [undefined, "now() and random() (the time, a random number)"], ["systemOne", "judge(items, evidence, questions)"], ["systemOne", "systemOne(evidence, questions)"],
-  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["library", "memory.add / memory.replace / memory.remove"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
+  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["library", "memory.add / memory.replace / memory.remove"], ["library", "pastSessions(query)"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
 ]
 const USE: ReadonlyArray<readonly [Need | undefined, string]> = [["read", "readText"], ["shell", "bash"], [undefined, "now"], [undefined, "random"], [undefined, "Effect.sleep"]]
 const granted = (g: Grants, items: ReadonlyArray<readonly [Need | undefined, string]>) => items.filter(([n]) => !n || has(g, n)).map(([, text]) => text)
@@ -29,7 +29,7 @@ const importLine = (g: Grants) => {
 export const notGranted = (g: Grants) => [
   ...(g.files === "none" ? ["read, readText, write and edit (no files)"] : g.files === "read-only" ? ["write and edit (files are read-only)"] : []),
   ...(g.shell ? [] : ["bash (no shell)"]), ...(g.systemOne ? [] : ["judge and systemOne (no System One)"]),
-  ...(g.agents ? [] : ["spawn, wait, cancel and jobs (no sub-agents)"]), ...(g.library ? [] : ["promote, tools, handTools and memory (no library)"]),
+  ...(g.agents ? [] : ["spawn, wait, cancel and jobs (no sub-agents)"]), ...(g.library ? [] : ["promote, tools, handTools, memory and pastSessions (no library)"]),
   ...(g.sources ? [] : ["tool sources"]),
 ]
 
@@ -45,6 +45,7 @@ export const kernelInstructions = (g: Grants = ALL) => {
   [["systemOne"], "- Each answer's confidence means something: at 0.95 and up System One is almost always right, below 0.5 often wrong. When some items have known answers (labels, examples), judge those first and compare: if too many are wrong, improve the evidence or the questions and judge again, rather than changing answers yourself. Where it matters, report low-confidence answers as uncertain."],
   [["agents"], `- spawn(task) starts a sub-agent (its own context and kernel) for work that needs its own reasoning (reading and changing code, writing). It doesn't block: it returns the job's id at once (4 run at a time, more are queued); keep working, then collect with wait(ids), which gives each job's status and answer (wait again if still running), or cancel(id). You can't finish while jobs are uncollected. spawn(task, { agent: name }) runs it as one of the agents your first prompt lists (its own instructions and model). Asked to make an agent, read ${join(agentsDir(), "README.md")} first.`],
   [["library"], "- What empty-vessel remembers (about this project, and how this agent works with the user) is in your briefing. When you find something a later session would need, keep it right away: yield* memory.add(\"project\" | \"agent\", \"one short line\"): project for anything about this repo (its setup, commands, versions, conventions), agent only for what holds in every project (the user's preferences, this computer). Keep: environment and setup discoveries (a version, a PATH, a command that only works a certain way), the user's corrections and preferences, the repo's conventions. Skip: anything about this task only, anything the code or git already shows, anything already in CLAUDE.md or AGENTS.md. Merge related entries with memory.replace(scope, oldText, newText); each scope has a size limit: when one is full, merge or memory.remove(scope, oldText) first."],
+  [["library"], "- Earlier sessions in this project: when the user refers to past work (\"what did we decide about X\", \"like last time\") and your briefing doesn't have it, search them: yield* pastSessions(\"a few words\") gives the matching messages, newest first, each with its session id and time. Say which session and when an answer came from; what was said then may be out of date."],
   [[], "- Loop in code, not in kernel calls: Effect.forEach(items, f, { concurrency: 8 }). Write results to files from code; never copy them by hand."],
   [[], "- Write multi-line cells. result(n) is an earlier cell's value, not a place to keep data: use definitions, or remember what's costly."],
   [[], "- For anything that isn't TypeScript (a Python script, Markdown, a long prompt or rubric), use a text cell: kernel { name, text } keeps the text exactly, never escaped into a TypeScript string; then use it from code" + (has(g, "write") ? ", e.g. write(\"work/report.py\", reportPy)." : ".") + ""],

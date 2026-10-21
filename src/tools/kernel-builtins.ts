@@ -46,7 +46,9 @@ export class Library extends Context.Service<Library, {
   readonly tools: Effect.Effect<Readonly<Record<string, string>>, Error>
   readonly handTools: (names: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly memory: (change: MemoryChange) => Effect.Effect<string, Error>
+  readonly pastSessions: (args: { query: string; limit?: number }) => Effect.Effect<ReadonlyArray<PastMessage>, Error>
 }>()("empty-vessel/Library") {}
+type PastMessage = { readonly session: string; readonly at: string; readonly role: "user" | "assistant"; readonly text: string }
 type MemoryScope = "agent" | "project"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
 export class Time extends Context.Service<Time, { readonly now: Effect.Effect<number> }>()("empty-vessel/Time") {}
@@ -87,6 +89,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     tools: call("tools") as Effect.Effect<Readonly<Record<string, string>>, Error>,
     handTools: (names) => call("handTools", names) as Effect.Effect<string, Error>,
     memory: (change) => call("memory", change) as Effect.Effect<string, Error>,
+    pastSessions: (args) => call("pastSessions", args) as Effect.Effect<ReadonlyArray<PastMessage>, Error>,
   }))] : []),
 ) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Time | Random> // only what's granted, in fact: cells see the rest missing
 export const layer = layerFor(ALL)
@@ -145,6 +148,11 @@ export const memory = {
   replace: (scope: MemoryScope, old: string, text: string) => Library.use((l) => l.memory({ action: "replace", scope, old, text })),
   remove: (scope: MemoryScope, old: string) => Library.use((l) => l.memory({ action: "remove", scope, old })),
 }
+
+// pastSessions: what was said in this project's earlier sessions (the user's messages and empty-vessel's answers)
+// containing every word of `query`, newest first: [{ session, at, role, text }] (text: the part around the match).
+// For "what did we decide about X?" when memory doesn't have it. `session` is the id to --resume.
+export const pastSessions = (query: string, limit = 20) => Library.use((l) => l.pastSessions({ query, limit }))
 
 // remember: an expensive Effect (or a function returning one) whose result is saved, so it runs once (per input, for a
 // function) across every later cell: `export const labels = remember(systemOne(…))`. Only for what can't change underneath:
