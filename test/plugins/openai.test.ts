@@ -73,3 +73,14 @@ test("openai setup: the key is tried against the address given; the model is pic
   expect(unknown.said).toContain("✗ omega isn't one of them")
   expect(unknown.config.systemTwo.use).toBe("fake")
 })
+
+test("each OpenAI call is recorded in the session's usage, as Codex's and Claude's are", async () => {
+  const { CurrentSession } = await import("../../src/base/session")
+  const fake = fakeServer()
+  const recorded: Array<{ role: string; extra: any }> = []
+  const session = { key: "sessions/s1", record: (role: string, _text: string, extra?: any) => Effect.sync(() => { recorded.push({ role, extra }) }) }
+
+  await Effect.runPromise(openAIModel(fake.url, "test-model", Redacted.make("test-key")).complete({ instructions: "", thread: [], tools: [] } as never).pipe(Effect.provideService(CurrentSession, session as never))).finally(fake.stop)
+
+  expect(recorded).toMatchObject([{ role: "usage", extra: { extra: { system: "systemTwo", model: "test-model", provider: "openai", input: 10, cached: 4, output: 3 } } }])
+})
