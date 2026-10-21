@@ -1,4 +1,6 @@
 import { randomUUIDv7 } from "bun"
+import { cp, readdir, readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { Context, Data, Effect } from "effect"
 import { projectDir } from "./project"
 import { Store } from "./store"
@@ -23,7 +25,7 @@ export const CurrentSession = Context.Reference<SessionHandle | undefined>("empt
 // actions (System One's line for a turn), given (a file System Two was given), size (the thread's size), resumed,
 // code (a piece of code System Two declared), shown (the library tools on System One's shortlist this turn), tools (a library tool handed to System One).
 type Role = "usage" | "skill" | "project" | "resumed" | "systemTwo" | "agent" | "user" | "assistant" | "spawn" | "result" | "decision" | "step" | "command" | "check" | "review" | "compact" |
-  "thread" | "stash" | "actions" | "given" | "size" | "code" | "shown" | "tools" | "steer" | "scope" | "flag" | "memory"
+  "thread" | "stash" | "actions" | "given" | "size" | "code" | "shown" | "tools" | "steer" | "scope" | "flag" | "memory" | "forked"
 // steer: what the user typed mid-run, as System Two got it; scope: the note System Two got when its changes reached
 // another part of the project; flag: the user's /flag (never sent to System Two; read by /refine, src/loop/signals.ts)
 
@@ -68,6 +70,37 @@ export const openSession = (key: string) =>
     const record = recorder(store, key)
     yield* record("resumed", process.cwd())
     return { id: key.split("/").at(-1)!, key, dir: store.folder(key), record } as const
+  })
+
+// A copy of a session to go on from, leaving the original as it was (Claude Code's --fork-session, Pi's /fork): its
+// conversation, kernel (cells and their definitions), sub-agents and saved view, under a new id. Paths and ids in the
+// copy's text files point at the copy. Usage lines are left out, so the original's spending isn't counted twice.
+// Returns the copy's key, to open as a resumed session.
+export const forkSession = (key: string) =>
+  Effect.gen(function* () {
+    const store = yield* Store
+    if (!(yield* store.list(key)).includes("main.jsonl")) return yield* Effect.fail(new SessionError({ cause: `no session at ${key}` }))
+
+    const from = key.split("/").at(-1)!, to = randomUUIDv7()
+    const copy = `${key.slice(0, -from.length)}${to}`
+    const source = store.folder(key), target = store.folder(copy)
+
+    yield* Effect.tryPromise({
+      try: async () => {
+        await cp(source, target, { recursive: true })
+        for (const entry of await readdir(target, { recursive: true, withFileTypes: true })) {
+          if (!entry.isFile() || !/\.(jsonl|json|ts)$/.test(entry.name)) continue
+          const file = join(entry.parentPath, entry.name)
+          let text = (await readFile(file, "utf8")).replaceAll(source, target).replaceAll(from, to)
+          if (entry.name === "main.jsonl") text = text.split("\n").filter((l) => !l.startsWith('{"role":"usage"')).join("\n")
+          await writeFile(file, text)
+        }
+      },
+      catch: (cause) => new SessionError({ cause }),
+    })
+
+    yield* recorder(store, copy)("forked", from)
+    return copy
   })
 
 // The newest session started in this folder (session ids are time-ordered), like Claude Code's --continue.

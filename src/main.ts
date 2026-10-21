@@ -15,7 +15,7 @@ import { loadContextFiles } from "./base/context"
 import { logo } from "./ui/logo"
 import { firstLoad, playOnboarding } from "./ui/onboarding/player"
 import { memoryCommand, recentNotes } from "./learning/notes"
-import { latestSession, makeSession, openSession, SESSIONS, type SessionHandle } from "./base/session"
+import { forkSession, latestSession, makeSession, openSession, SESSIONS, type SessionHandle } from "./base/session"
 import { cellsBeforeRules, loadConversation, useSystemTwo } from "./loop/resume"
 import { doctor } from "./doctor"
 import { guardPreview } from "./guard-preview"
@@ -257,13 +257,17 @@ const emptyVessel = Command.make(
     ),
     continue: Flag.Boolean("continue").pipe(Flag.withAlias("c"), Flag.withDefault(false), Flag.withDescription("Continue the newest session started in this folder")),
     resume: Flag.String("resume").pipe(Flag.withDescription("Continue this session (its id)"), Flag.optional),
+    fork: Flag.Boolean("fork-session").pipe(Flag.withDefault(false), Flag.withDescription("With --continue or --resume: go on in a copy of the session, leaving the original as it was")),
   },
   // The systems are connected here, inside the main command, so `empty-vessel setup` (and --help) work even when the
   // config is missing, a key is wrong or the Codex login expired: those are exactly what setup fixes.
   // The first load shows the walkthrough instead (before the systems connect: there may be no keys yet).
-  ({ prompt, continue: latest, resume }) => showOnboarding(prompt) ? onboarding : Effect.gen(function* () {
-      const dir = Option.isSome(resume) ? `${SESSIONS}/${resume.value}` : latest ? yield* latestSession(process.cwd()) : undefined
-      if (latest && !dir) yield* Console.log("no earlier session in this folder: starting a new one")
+  ({ prompt, continue: latest, resume, fork }) => showOnboarding(prompt) ? onboarding : Effect.gen(function* () {
+      const found = Option.isSome(resume) ? `${SESSIONS}/${resume.value}` : latest ? yield* latestSession(process.cwd()) : undefined
+      if (latest && !found) yield* Console.log("no earlier session in this folder: starting a new one")
+      if (fork && !found && !latest) yield* Console.log("--fork-session needs --continue or --resume: starting a new session")
+      const dir = fork && found ? yield* forkSession(found) : found
+      if (dir !== found) yield* Console.log(`forked session ${found!.split("/").at(-1)} into ${dir!.split("/").at(-1)}`)
       return yield* root(prompt, dir).pipe(
         Effect.ensuring(Effect.sync(closeSources)),
         Effect.ensuring(releaseAgent), // hand the pane back to Herdr on exit, including Ctrl+C
