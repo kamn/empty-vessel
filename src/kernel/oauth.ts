@@ -42,7 +42,9 @@ export const login = async (resource: string, open: (url: string) => void | Prom
   const endpoints = await discover(resource)
   if (!endpoints.register) throw new Error("the login server doesn't allow a client to register itself (no registration endpoint)")
 
-  // The redirect lands here: one request, then the server stops.
+  // The redirect lands here: the one with this login's state, then the server stops. Others (another local program
+  // calling /callback) are refused without ending the login.
+  const state = base64url(crypto.getRandomValues(new Uint8Array(16)))
   let arrived: (params: URLSearchParams) => void = () => {}
   const callback = new Promise<URLSearchParams>((resolve) => { arrived = resolve })
   const server = Bun.serve({
@@ -50,6 +52,7 @@ export const login = async (resource: string, open: (url: string) => void | Prom
     fetch: (req) => {
       const url = new URL(req.url)
       if (url.pathname !== "/callback") return new Response("not found", { status: 404 })
+      if (url.searchParams.get("state") !== state) return new Response("not this login", { status: 400 })
       arrived(url.searchParams)
       return new Response("Logged in: you can close this tab and go back to empty-vessel.", { headers: { "content-type": "text/plain; charset=utf-8" } })
     },
@@ -66,7 +69,6 @@ export const login = async (resource: string, open: (url: string) => void | Prom
 
     const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)))
     const challenge = base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))
-    const state = base64url(crypto.getRandomValues(new Uint8Array(16)))
     const url = new URL(endpoints.authorize)
     for (const [k, v] of Object.entries({ response_type: "code", client_id: client.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state, resource })) url.searchParams.set(k, v)
     await open(url.toString())
