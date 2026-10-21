@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 import { makeSessionRunner } from "./interaction"
 import { Config } from "./base/config"
 import { Events } from "./base/events"
@@ -6,6 +6,7 @@ import type { SessionHandle } from "./base/session"
 import type { Conversation } from "./loop/turnkit"
 import { init, Message, TurnRunner } from "./ui/tui/app"
 import { setTheme } from "./ui/tui/style"
+import { turnNotice } from "./ui/tui/notify"
 import { runTui } from "./ui/tui/runtime"
 import { loadView, saveView } from "./ui/tui/session"
 import { clipboardImage, imagesIn } from "./base/images"
@@ -40,6 +41,11 @@ export const tui = (session: SessionHandle, conversation: Conversation, status: 
     })
 
     let warned = false
+    // A long turn's end, as a desktop notification (src/ui/tui/notify.ts).
+    const notify = (ms: number, reply: string) => Effect.sync(() => {
+      const notice = turnNotice(ms, reply)
+      if (notice) process.stdout.write(notice)
+    })
     const start = loadView(session.dir, init(status, banner, completions()))
 
     yield* runTui(start, (d) => { dispatch = d }, {
@@ -56,7 +62,11 @@ export const tui = (session: SessionHandle, conversation: Conversation, status: 
       clipboard: () => clipboardImage()?.replace(/ /g, "\\ "),
       copy: (text) => { Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(text) }) }, // ponytail: macOS; OSC 52 for others
     }).pipe(
-      Effect.provideService(TurnRunner, { ...runner, run: (input) => runner.run(input).pipe(Effect.ensuring(refreshCompletions)), flag: (note, where) => session.record("flag", note, where).pipe(Effect.ignore) }),
+      Effect.provideService(TurnRunner, { ...runner, run: (input) => Effect.timed(runner.run(input)).pipe(
+        Effect.tap(([took, reply]) => notify(Duration.toMillis(took), reply.reply)),
+        Effect.map(([, reply]) => reply),
+        Effect.ensuring(refreshCompletions),
+      ), flag: (note, where) => session.record("flag", note, where).pipe(Effect.ignore) }),
       Effect.ensuring(Effect.sync(() => { closed = true })),
     )
   }).pipe(Effect.scoped)
