@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { discoverSkills } from "../../src/base/skills"
-import { compactIfNeeded } from "../../src/loop/compact"
+import { compactCommand, compactIfNeeded } from "../../src/loop/compact"
 import { loadConversation, switchConversation } from "../../src/loop/resume"
 import { skillContext, skillNotes } from "../../src/loop/skills"
 import { type Ctx, newConversation } from "../../src/loop/turnkit"
@@ -114,4 +114,33 @@ test("actual compaction marks loaded instructions for replay even if all outputs
   expect(c.thread).toEqual([])
   expect(skillNotes(c, true, project).join("\n")).toContain("saved instructions")
   expect(skillNotes(c, true, project)).toEqual([])
+})
+
+test("/compact: the next turn compacts even below compactAt, aiming for half the size; then it's back to the threshold", async () => {
+  const { c } = fixture()
+  expect(await Effect.runPromise(compactCommand(c))).toStartWith("Nothing to compact yet")
+  c.size = 60
+  const targets: number[] = []
+  const ctx = {
+    conversation: c,
+    config: { compactAt: 100 },
+    systemTwo: { compact: (_: unknown[], { target }: { target: number }) => {
+      targets.push(target)
+      return Effect.succeed({ masked: 0, savedTokens: 0, summarized: 1, after: 25, tokens: { input: 0, output: 0 } })
+    } },
+    usage: { add: () => Effect.void },
+    session: { record: () => Effect.void },
+    depth: 0,
+  } as unknown as Ctx
+
+  await Effect.runPromise(compactIfNeeded(ctx))
+  expect(targets).toEqual([]) // below compactAt, not asked: nothing
+
+  expect(await Effect.runPromise(compactCommand(c))).toContain("when you send your next message")
+  await Effect.runPromise(compactIfNeeded(ctx))
+  expect(targets).toEqual([30])
+  expect(c.size).toBe(25)
+
+  await Effect.runPromise(compactIfNeeded(ctx))
+  expect(targets).toEqual([30]) // asked once
 })

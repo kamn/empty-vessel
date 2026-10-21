@@ -44,6 +44,7 @@ export type Conversation = {
   activeSkillsPending?: boolean // replay loaded instructions after context loss
   explicitSkill?: boolean // host-owned user invocation must reach System Two
   size?: number
+  compactNext?: boolean // /compact: compact at the start of the next turn, whatever the thread's size
   olderCells?: string // a resumed session's cells from before the kernel's rules: told to System Two once (resume.ts)
   agent?: string // the agent this conversation works as (src/answer.ts, pickAgent), recorded in the session
   instructions?: string // the agent this conversation works as: its instructions, after the project's in the briefing

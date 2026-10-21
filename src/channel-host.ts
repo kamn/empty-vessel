@@ -56,7 +56,7 @@ export const serveChannel = <R>(channel: Channel["Service"], sessionId: string,
     }))))
   })
 
-  const help = "Send a message to work in this project's session.\n/stop — stop the current work\n/status — show session and activity\n/model [name] — show or change model\n/refine — learn from previous turns\n!command / !!command — shell (shared / private output)\n/exit — stop this channel process\nMessages during work steer the agent; replies to questions answer them."
+  const help = "Send a message to work in this project's session.\n/stop — stop the current work\n/status — show session and activity\n/model [name] — show or change model\n/refine — learn from previous turns\n/compact — compact the conversation at the next message\n!command / !!command — shell (shared / private output)\n/exit — stop this channel process\nMessages during work steer the agent; replies to questions answer them."
   const actor = Effect.gen(function* () {
     while (true) {
       const input = yield* Queue.take(incoming)
