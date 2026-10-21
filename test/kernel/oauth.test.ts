@@ -83,7 +83,7 @@ test("login refuses a login server whose endpoints aren't HTTPS (loopback may be
   const server = Bun.serve({ port: 0, fetch: (req) => {
     const url = new URL(req.url), base = url.origin
     if (url.pathname === "/.well-known/oauth-protected-resource/mcp") return Response.json({ resource: `${base}/mcp`, authorization_servers: [base] })
-    if (url.pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: base, authorization_endpoint: `${base}/authorize`, token_endpoint: "http://tokens.example.com/token", registration_endpoint: `${base}/register` })
+    if (url.pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: base, authorization_endpoint: `${base}/authorize`, token_endpoint: "http://tokens.example.invalid/token", registration_endpoint: `${base}/register` })
     return new Response("not found", { status: 404 })
   } })
   try {
@@ -92,7 +92,7 @@ test("login refuses a login server whose endpoints aren't HTTPS (loopback may be
 })
 
 test("refresh won't send a refresh token to a saved http:// token endpoint; loopback addresses may stay http", async () => {
-  const saved = { resource: "r", clientId: "c", accessToken: "a", refreshToken: "secret", tokenEndpoint: "http://tokens.example.com/token" }
+  const saved = { resource: "r", clientId: "c", accessToken: "a", refreshToken: "secret", tokenEndpoint: "http://tokens.example.invalid/token" }
   await expect(refresh(saved as never)).rejects.toThrow("token endpoint isn't HTTPS")
   const local = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ access_token: "fresh" }) })
   try {
