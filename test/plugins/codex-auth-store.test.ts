@@ -310,3 +310,15 @@ test("logout serialized after refresh cannot resurrect credentials", async () =>
   await expect(run(store.read)).rejects.toThrow("No Codex login")
   expect(JSON.parse(readFileSync(options.file, "utf8"))).toEqual({ version: 1, credentials: null })
 })
+
+test("by default a second reader waits out a slow refresh (6 s) instead of failing and blaming the lock", async () => {
+  let refreshes = 0
+  const { options } = fixture((value) => Effect.sleep("6 seconds").pipe(Effect.as({ ...value, access: "rotated", expires: clock + 3_600_000 }), Effect.tap(() => Effect.sync(() => { refreshes++ }))))
+  const { lockWaitMs: _, ...defaults } = options // the default wait, as auth.ts uses it
+  await run(makeCodexAuthStore(defaults).save(expired))
+
+  const [a, b] = await run(Effect.all([makeCodexAuthStore(defaults).read, makeCodexAuthStore(defaults).read], { concurrency: "unbounded" }))
+
+  expect([Redacted.value(a.token), Redacted.value(b.token)]).toEqual(["rotated", "rotated"])
+  expect(refreshes).toBe(1)
+}, 20_000)

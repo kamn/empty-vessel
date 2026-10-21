@@ -62,7 +62,9 @@ export function makeCodexAuthStore(options: Options) {
   }
   const now = options.now ?? Date.now
   const lockFile = `${options.file}.lock`
-  const waitMs = Number.isFinite(options.lockWaitMs) ? Math.max(0, Math.min(options.lockWaitMs!, 60_000)) : 5_000
+  // Longer than a refresh may hold the lock (its 30-second timeout, below): a second process waits it out instead of
+  // failing while the first is still refreshing.
+  const waitMs = Number.isFinite(options.lockWaitMs) ? Math.max(0, Math.min(options.lockWaitMs!, 60_000)) : 40_000
   const prepare = io("Cannot prepare private Codex credential directory.", () => {
     const parent = dirname(options.file)
     mkdirSync(parent, { recursive: true, mode: 0o700 })
@@ -143,7 +145,7 @@ export function makeCodexAuthStore(options: Options) {
         })
 
         if (orphan) return yield* Effect.fail(fail("Orphaned Codex credential lock. No lock was removed: verify its owner has stopped, remove the .lock file manually, then log in again before reading credentials."))
-        if (performance.now() - started >= waitMs) return yield* Effect.fail(fail("Timed out waiting for Codex credential lock. If a refresh failed, stop its owner, remove the .lock file manually, and log in again. Never recover a lock by age alone."))
+        if (performance.now() - started >= waitMs) return yield* Effect.fail(fail("Timed out waiting for Codex credential lock: another empty-vessel process is probably still refreshing. Try again in a moment. Only if no empty-vessel process is running, remove the .lock file and log in again; never remove it by age alone."))
         yield* restore(Effect.sleep(Math.min(25, waitMs)))
       }
     })
