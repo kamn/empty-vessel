@@ -299,12 +299,14 @@ export const promote = (dir: string, kernelDir: string, from: string, host: Host
       const refused = yield* updateTools(dir, (library, pool) => {
         if (inLibrary(library)) return { result: taken } // it graduated while this one was being checked
         writeWhole(file, readFileSync(candidate, "utf8"))
+        // A fresh record, even for a name used before: written under the lock, before the pool lists it, so a settle
+        // can never judge the new tool on the old one's numbers.
+        if (to === "pool") record(dir, { session: from, turn: 0, tool: args.name, for: kind, event: "added" })
         return to === "pool"
           ? { pool: [...pool.filter((e) => e.name !== args.name), { ...entry, for: kind }], result: undefined }
           : { library: [...library.filter((e) => e.name !== args.name), { ...entry, for: kind }], pool: pool.filter((e) => e.name !== args.name), result: undefined }
       })
       if (refused) return refused
-      if (to === "pool") record(dir, { session: from, turn: 0, tool: args.name, for: kind, event: "added" }) // a fresh record, even for a name used before
 
       const who = kind === "systemOne" ? "System One" : "you (System Two)"
       return to === "pool"
