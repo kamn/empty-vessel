@@ -1,3 +1,6 @@
+import { writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Effect } from "effect"
 import type { SourceTool, ToolSource } from "./kernel"
 
@@ -13,11 +16,26 @@ type Json = Record<string, any>
 // A request to the server and its reply's `result` (a JSON-RPC error becomes an Error).
 type Send = (method: string, params: Json, signal?: AbortSignal) => Promise<any>
 
-// An MCP tool result as a plain value: structured content if given, else the text blocks, parsed as JSON when they are
-// JSON. An error result (isError) fails. ponytail: images and other blocks become a short note; handling them is open.
-export const plainResult = (result: Json) => {
+// One content block as text: text as it is; an embedded resource's text (its uri first); a resource link's uri; an image
+// or audio saved to a temp file, its path given (a cell can read, attach or send it); anything else a short note.
+const EXTENSIONS: Readonly<Record<string, string>> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "audio/wav": "wav", "audio/mpeg": "mp3" }
+const blockText = (b: Json, dir: string) => {
+  if (b.type === "text") return b.text
+  if (b.type === "resource" && typeof b.resource?.text === "string") return `[resource ${b.resource.uri ?? ""}]\n${b.resource.text}`
+  if (b.type === "resource_link") return `[resource link ${b.uri}${b.name ? ` (${b.name})` : ""}]`
+  if ((b.type === "image" || b.type === "audio") && typeof b.data === "string") {
+    const path = join(dir, `empty-vessel-mcp-${crypto.randomUUID()}.${EXTENSIONS[b.mimeType] ?? "bin"}`)
+    writeFileSync(path, Buffer.from(b.data, "base64"))
+    return `[${b.type} ${b.mimeType ?? ""} saved: ${path}]`
+  }
+  return `[${b.type}${b.mimeType ? ` ${b.mimeType}` : ""} not shown]`
+}
+
+// An MCP tool result as a plain value: structured content if given, else the blocks as text (see blockText), parsed as
+// JSON when they are JSON. An error result (isError) fails.
+export const plainResult = (result: Json, dir = tmpdir()) => {
   const blocks: Array<Json> = result.content ?? []
-  const text = blocks.map((b) => (b.type === "text" ? b.text : `[${b.type}${b.mimeType ? ` ${b.mimeType}` : ""} not shown]`)).join("\n")
+  const text = blocks.map((b) => blockText(b, dir)).join("\n")
   if (result.isError) throw new Error(text || "the tool reported an error")
   if (result.structuredContent !== undefined) return result.structuredContent
   try { return JSON.parse(text) } catch { return text }

@@ -104,7 +104,12 @@ test("results: structured content first, else text (JSON when it is), other bloc
   expect(plainResult({ content: [{ type: "text", text: "[1,2]" }] })).toEqual([1, 2])
   expect(plainResult({ content: [{ type: "text", text: "hello" }] })).toBe("hello")
   expect(plainResult({ structuredContent: { a: 1 }, content: [{ type: "text", text: "ignored" }] })).toEqual({ a: 1 })
-  expect(plainResult({ content: [{ type: "image", mimeType: "image/png", data: "…" }] })).toBe("[image image/png not shown]")
+  const saved = plainResult({ content: [{ type: "image", mimeType: "image/png", data: Buffer.from("png bytes").toString("base64") }] }) as string
+  expect(saved).toMatch(/^\[image image\/png saved: .*\.png\]$/)
+  expect(require("node:fs").readFileSync(saved.match(/saved: (.*)\]$/)![1]!, "utf8")).toBe("png bytes")
+  expect(plainResult({ content: [{ type: "resource", resource: { uri: "file:///a.md", text: "# A" } }] })).toBe("[resource file:///a.md]\n# A")
+  expect(plainResult({ content: [{ type: "resource_link", uri: "file:///b.md", name: "b" }] })).toBe("[resource link file:///b.md (b)]")
+  expect(plainResult({ content: [{ type: "video" }] })).toBe("[video not shown]")
   expect(() => plainResult({ content: [{ type: "text", text: "nope" }], isError: true })).toThrow("nope")
 })
 
