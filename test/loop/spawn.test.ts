@@ -93,3 +93,25 @@ test("the kernel's spawn stops at MAX_SPAWNS_PER_TURN in one turn, saying what t
   await Effect.runPromise(makeHost(turn() as never, Context.empty() as never).spawn!({ task: "next turn" }) as never)
   expect(Object.keys(conversation.jobs.list())).toHaveLength(MAX_SPAWNS_PER_TURN + 1)
 })
+
+test("spawns made at once, each loading a named agent, still stop at MAX_SPAWNS_PER_TURN", async () => {
+  const { mkdirSync, mkdtempSync, writeFileSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const home = mkdtempSync(join(tmpdir(), "empty-vessel-agents-"))
+  mkdirSync(join(home, "agents", "helper"), { recursive: true })
+  writeFileSync(join(home, "agents", "helper", "agent.md"), "---\ndescription: Helps\n---\nHelp.")
+
+  // A fresh process: the agents folder comes from EMPTY_VESSEL_HOME when the module loads.
+  const script = `import { Context, Effect, Schema } from "effect"; import { ConfigSchema } from "./src/base/config"; import { makeHost, MAX_SPAWNS_PER_TURN } from "./src/loop/kernel"; import { newConversation } from "./src/loop/turnkit"
+    const config = Schema.decodeUnknownSync(ConfigSchema)({})
+    const conversation = newConversation()
+    const host = makeHost({ depth: 0, config, conversation, spawn: (task) => Effect.never.pipe(Effect.as(task)) }, Context.empty())
+    const tries = Array.from({ length: MAX_SPAWNS_PER_TURN + 10 }, (_, i) => Effect.exit(host.spawn({ task: "item " + i, agent: "helper" })))
+    Effect.runPromise(Effect.all(tries, { concurrency: "unbounded" })).then(() => { console.log(Object.keys(conversation.jobs.list()).length, MAX_SPAWNS_PER_TURN); process.exit(0) })`
+  const r = Bun.spawnSync(["bun", "-e", script], { cwd: join(import.meta.dir, "../.."), env: { ...process.env, EMPTY_VESSEL_HOME: home }, stdout: "pipe", stderr: "pipe" })
+  const [started, max] = r.stdout.toString().trim().split(" ").map(Number)
+
+  expect(r.stderr.toString()).toBe("")
+  expect(started).toBe(max!)
+})

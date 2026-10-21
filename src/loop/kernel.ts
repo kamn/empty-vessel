@@ -65,12 +65,13 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
     spawn: (arg: unknown) => {
       const { task, tools, agent } = typeof arg === "object" && arg !== null ? (arg as { task: string; tools?: Partial<Grants>; agent?: string }) : { task: String(arg), tools: undefined, agent: undefined }
       if (ctx.depth >= ctx.config.maxDepth) return Effect.fail(`too deep for another sub-agent (depth ${ctx.depth} of ${ctx.config.maxDepth})`)
-      const count = spawned.get(ctx) ?? 0
-      if (count >= MAX_SPAWNS_PER_TURN) return Effect.fail(`no more sub-agents this turn (${MAX_SPAWNS_PER_TURN} started): collect the ones running with wait, and do the rest in this kernel or give several items to one sub-agent`)
-
       return Effect.gen(function* () {
         const as = agent === undefined ? undefined : yield* loadAgent(agent).pipe(Effect.flatMap((a) => applyAgent(ctx.config, a).pipe(Effect.map((config) => ({ ...a, config })))))
-        spawned.set(ctx, (spawned.get(ctx) ?? 0) + 1) // counted once it starts: a refused agent name costs nothing
+        // Checked and counted together, with nothing in between: spawns made at once (Effect.all) can't all pass the
+        // check while an agent loads. Counted once it starts: a refused agent name costs nothing.
+        const count = spawned.get(ctx) ?? 0
+        if (count >= MAX_SPAWNS_PER_TURN) return yield* Effect.fail(`no more sub-agents this turn (${MAX_SPAWNS_PER_TURN} started): collect the ones running with wait, and do the rest in this kernel or give several items to one sub-agent`)
+        spawned.set(ctx, count + 1)
         return yield* ctx.conversation.jobs.spawn(String(task), ctx.spawn(String(task), { tools, agent: as }).pipe(Effect.provideContext(services)))
       }).pipe(Effect.mapError((e) => (typeof e === "object" && e !== null && "message" in e ? String(e.message) : e)))
     },
