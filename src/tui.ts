@@ -6,6 +6,7 @@ import type { SessionHandle } from "./base/session"
 import type { Conversation } from "./loop/turnkit"
 import { init, Message, TurnRunner } from "./ui/tui/app"
 import { setTheme } from "./ui/tui/style"
+import { copyText } from "./ui/tui/copy"
 import { runTui } from "./ui/tui/runtime"
 import { loadView, saveView } from "./ui/tui/session"
 import { clipboardImage, imagesIn } from "./base/images"
@@ -54,7 +55,7 @@ export const tui = (session: SessionHandle, conversation: Conversation, status: 
       },
       attach: (text, from) => imagesIn(text, process.cwd(), from),
       clipboard: () => clipboardImage()?.replace(/ /g, "\\ "),
-      copy: (text) => { Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(text) }) }, // ponytail: macOS; OSC 52 for others
+      copy: (text) => copyText(text),
     }).pipe(
       Effect.provideService(TurnRunner, { ...runner, run: (input) => runner.run(input).pipe(Effect.ensuring(refreshCompletions)), flag: (note, where) => session.record("flag", note, where).pipe(Effect.ignore) }),
       Effect.ensuring(Effect.sync(() => { closed = true })),
