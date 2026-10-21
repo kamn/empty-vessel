@@ -50,6 +50,7 @@ export type Conversation = {
   agent?: string // the agent this conversation works as (src/answer.ts, pickAgent), recorded in the session
   instructions?: string // the agent this conversation works as: its instructions, after the project's in the briefing
   takeover?: string // System Two changed: what the new one is told once, on its first run (resume.ts, switchConversation)
+  redo?: Array<Checkpoint> // undone ones, for /redo; a new file-changing turn clears it (src/loop/checkpoint.ts)
   checkpoints?: Array<Checkpoint> // the project before each turn of this run, for /undo (src/loop/checkpoint.ts)
   backend?: string // the System Two (systemTwo.use) the thread belongs to, as recorded in the session; none in older sessions
 }

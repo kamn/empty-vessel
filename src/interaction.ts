@@ -7,7 +7,7 @@ import { Inbox, makeInbox } from "./base/inbox"
 import type { SessionHandle } from "./base/session"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
-import { undoCommand } from "./loop/checkpoint"
+import { redoCommand, undoCommand } from "./loop/checkpoint"
 import { compactCommand } from "./loop/compact"
 import { skillCommand } from "./loop/skill-commands"
 import type { Conversation } from "./loop/turnkit"
@@ -33,7 +33,7 @@ export interface InteractionAdapters {
 }
 
 // Injection keeps lifecycle tests independent of providers, kernels and credentials.
-export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand, undoCommand }
+export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand, undoCommand, redoCommand }
 export const makeSessionRunner = (session: SessionHandle, conversation: Conversation, adapters: InteractionAdapters, operations = interactionOperations) =>
   Effect.gen(function* () {
     let services = yield* Effect.context<Effect.Services<ReturnType<typeof answer>> | Config | SystemOne>() // an agent or /model replaces System Two's
@@ -90,6 +90,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       const refine = /^\/refine(?=\s|$)/.test(input)
       const review = /^\/review(?=\s|$)/.test(input)
       const undo = /^\/undo\s*$/.test(input)
+      const redo = /^\/redo\s*$/.test(input)
       const compact = /^\/compact\s*$/.test(input)
       const model = input.match(/^\/model(?=\s|$)\s*(\S*)/)
       const named = input.match(/^\/agent(?=\s|$)\s*(\S*)/)
@@ -102,6 +103,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
 
         // /undo: the files back to before the last turn that changed them (src/loop/checkpoint.ts).
         if (undo) return { reply: yield* provide(operations.undoCommand(session, conversation)), usage: [] }
+        if (redo) return { reply: yield* provide(operations.redoCommand(session, conversation)), usage: [] }
 
         // /compact: System Two's conversation is compacted at the start of the next message (src/loop/compact.ts).
         if (compact) return { reply: yield* compactCommand(conversation), usage: [] }
@@ -137,7 +139,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
-        if (refine || review || undo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
+        if (refine || review || undo || redo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
         const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
         conversation.history.push({ user: input, answer: reply })
         return { reply, usage: [] }

@@ -17,7 +17,7 @@ import { firstLoad, playOnboarding } from "./ui/onboarding/player"
 import { memoryCommand, recentNotes } from "./learning/notes"
 import { forkSession, latestSession, listSessions, makeSession, openSession, sessionLines, SESSIONS, type SessionHandle } from "./base/session"
 import { cellsBeforeRules, loadConversation, useSystemTwo } from "./loop/resume"
-import { undoCommand } from "./loop/checkpoint"
+import { redoCommand, undoCommand } from "./loop/checkpoint"
 import { compactCommand } from "./loop/compact"
 import { doctor } from "./doctor"
 import { guardPreview } from "./guard-preview"
@@ -218,8 +218,9 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
     const flag = line.match(/^\/flag(?=\s|$)\s*(.*)$/)
     if (flag) { yield* session.record("flag", flag[1]!.trim(), { running: false, activity: "" }).pipe(Effect.ignore); yield* Console.log("flagged"); continue }
 
-    // /undo and /compact, as in the TUI and channels (src/interaction.ts).
+    // /undo, /redo and /compact, as in the TUI and channels (src/interaction.ts).
     if (/^\/undo\s*$/.test(line)) { yield* Console.log(yield* undoCommand(session, conversation).pipe(Effect.provideContext(services))); continue }
+    if (/^\/redo\s*$/.test(line)) { yield* Console.log(yield* redoCommand(session, conversation).pipe(Effect.provideContext(services))); continue }
     if (/^\/compact\s*$/.test(line)) { yield* Console.log(yield* compactCommand(conversation)); continue }
 
     // /model [name]: which System Two, or another for the rest of the session.

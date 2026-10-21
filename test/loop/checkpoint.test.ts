@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import type { SessionHandle } from "../../src/base/session"
-import { checkpointOf, snapshot, undoCommand } from "../../src/loop/checkpoint"
+import { checkpointOf, redoCommand, snapshot, undoCommand } from "../../src/loop/checkpoint"
 import { newConversation } from "../../src/loop/turnkit"
 import { runBash } from "../../src/tools/bash"
 import { Kernel } from "../../src/tools/kernel-service"
@@ -155,4 +155,27 @@ test("/undo records how many checkpoints are left", async () => {
   await run(undoCommand(recording, conversation))
 
   expect(recorded).toContainEqual(["undone", "0"])
+})
+
+test("/redo goes forward again after /undo, keeping what you changed in between; nothing to redo otherwise", async () => {
+  const { dir, run, turn } = repo()
+  const conversation = newConversation()
+  expect(await run(redoCommand(session, conversation))).toStartWith("Nothing to redo")
+  conversation.checkpoints = [(await turn("edit", () => {
+    writeFileSync(join(dir, "a.txt"), "turn\n")
+    writeFileSync(join(dir, "made.txt"), "by the turn\n")
+    writeFileSync(join(dir, "notes.txt"), "turn too\n")
+  }))!]
+
+  await run(undoCommand(session, conversation))
+  writeFileSync(join(dir, "notes.txt"), "mine after the undo\n")
+  const reply = await run(redoCommand(session, conversation))
+
+  expect(reply).toContain('Redid what "edit" changed')
+  expect(read(dir, "a.txt")).toBe("turn\n")
+  expect(read(dir, "made.txt")).toBe("by the turn\n")
+  expect(read(dir, "notes.txt")).toBe("mine after the undo\n")
+  expect(reply).toContain("- kept notes.txt: it changed again after the undo")
+  expect(conversation.checkpoints).toHaveLength(1) // undoable again
+  expect(await run(redoCommand(session, conversation))).toStartWith("Nothing to redo")
 })

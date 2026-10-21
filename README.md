@@ -94,6 +94,7 @@ In the TUI and in channels:
   covered (e.g. a `.env` a rewritten `.gitignore` exposed). Each `/undo` goes one turn further back, also after
   `--resume`. Only in a git repo; your index and branches are not touched. It can't undo anything outside the files
   (a sent message, a remote API call).
+- `/redo` goes forward again after `/undo` (until a new turn changes files), keeping what you changed in between.
 - `/compact` compacts System Two's conversation when you send your next message, whatever its size.
 
 A TUI turn that takes 30 seconds or more ends with a desktop notification (OSC 9: iTerm2, Ghostty, WezTerm and others).

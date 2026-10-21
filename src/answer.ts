@@ -29,6 +29,7 @@ export const answer = (session: SessionHandle, input: string, conversation: Conv
       const checkpoint = checkpointOf(input, before, yield* snapshot(process.cwd(), index))
       if (!checkpoint) return
       ;(conversation.checkpoints ??= []).push(checkpoint)
+      conversation.redo = [] // a new change: what was undone can't be redone on top of it
       yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input }).pipe(Effect.ignore)
     })
 

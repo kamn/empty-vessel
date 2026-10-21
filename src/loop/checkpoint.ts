@@ -63,20 +63,22 @@ const nul = (text: string) => text.split("\0").filter(Boolean)
 
 type Undone = { restored: Array<string>; removed: Array<string>; yours: Array<string>; ignored: Array<string>; failed?: string }
 
-// Take back what `checkpoint`'s turn changed (see the top). Lists go through files (paths can hold anything), and the
-// files are restored before anything is removed, so a failure leaves nothing deleted that wasn't put back.
-const restore = ({ root, before, after }: Checkpoint) =>
+// Move the paths that differ between `target` and `expected` from `expected` (what they should be now) back to `target`
+// (see the top): /undo moves a turn's after to its before, /redo the other way. A path that no longer matches `expected`
+// is left (yours). Lists go through files (paths can hold anything), and files are restored before anything is
+// removed, so a failure leaves nothing deleted that wasn't put back.
+const move = (root: string, target: string, expected: string) =>
   Effect.gen(function* () {
     const kernel = yield* Kernel
     const work = mkdtempSync(join(tmpdir(), "empty-vessel-undo-"))
     const file = (name: string) => quote(join(work, name))
 
-    // What the turn changed (before → after), and what changed since it ended (after → now).
+    // What differs (target → expected), and what changed since (expected → now).
     const looked = yield* kernel.exec(`cd ${quote(root)} || exit 3
 ${PRIVATE_INDEX}
 git add -A . && now=$(git write-tree) || exit 4
-git diff -z --name-status --no-renames ${before} ${after} > ${file("turn")} || exit 5
-git diff -z --name-only --no-renames ${after} "$now" > ${file("since")} || exit 5`, 60_000)
+git diff -z --name-status --no-renames ${target} ${expected} > ${file("turn")} || exit 5
+git diff -z --name-only --no-renames ${expected} "$now" > ${file("since")} || exit 5`, 60_000)
     if (!ok(looked)) return { restored: [], removed: [], yours: [], ignored: [], failed: "git couldn't compare the files (nothing was changed)" } satisfies Undone
 
     const pairs = nul(readFileSync(join(work, "turn"), "utf8"))
@@ -91,7 +93,7 @@ git diff -z --name-only --no-renames ${after} "$now" > ${file("since")} || exit 
     // Restore first; then, under the restored ignore rules, which of the created files they cover.
     const put = yield* kernel.exec(`cd ${quote(root)} || exit 3
 ${PRIVATE_INDEX}
-git read-tree ${before} || exit 5
+git read-tree ${target} || exit 5
 git checkout-index -f -z --stdin < ${file("restore")} || exit 6
 git check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}; [ $? -le 1 ] || exit 7`, 60_000)
     if (!ok(put)) {
@@ -106,30 +108,39 @@ git check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}
     return { restored, removed, yours, ignored: created.filter((p) => ignored.has(p)) } satisfies Undone
   })
 
-// /undo: back to before the last turn that changed files, told to System Two with its next prompt, as a shared
-// !command is. A failed undo keeps its checkpoint, to try again.
-export const undoCommand = (session: SessionHandle, conversation: Conversation) =>
+// /undo: back to before the last turn that changed files; /redo: forward again to after it (until a new turn changes
+// files). Told to System Two with its next prompt, as a shared !command is. A failed one keeps its checkpoint, to try
+// again. Recorded, so a resumed session has the same checkpoints (a redo records its checkpoint again).
+const shift = (session: SessionHandle, conversation: Conversation, kind: "undo" | "redo") =>
   Effect.gen(function* () {
-    const checkpoints = (conversation.checkpoints ??= [])
-    const checkpoint = checkpoints.pop()
-    let reply = "Nothing to undo: no turn in this session changed files (only files in a git repo are tracked)."
+    const checkpoints = (conversation.checkpoints ??= []), redo = (conversation.redo ??= [])
+    const [from, to] = kind === "undo" ? [checkpoints, redo] : [redo, checkpoints]
+    const checkpoint = from.pop()
+    let reply = kind === "undo"
+      ? "Nothing to undo: no turn in this session changed files (only files in a git repo are tracked)."
+      : "Nothing to redo: /redo goes forward after /undo, until a new turn changes files."
 
     if (checkpoint) {
-      const done = yield* restore(checkpoint)
-      if (done.failed) checkpoints.push(checkpoint)
+      const done = yield* (kind === "undo" ? move(checkpoint.root, checkpoint.before, checkpoint.after) : move(checkpoint.root, checkpoint.after, checkpoint.before))
+      ;(done.failed ? from : to).push(checkpoint)
       const lines = [
         ...done.restored.map((p) => `- restored ${p}`), ...done.removed.map((p) => `- removed ${p}`),
-        ...done.yours.map((p) => `- kept ${p}: it changed again after that turn`), ...done.ignored.map((p) => `- kept ${p}: ignored before that turn`),
+        ...done.yours.map((p) => `- kept ${p}: it changed again after ${kind === "undo" ? "that turn" : "the undo"}`),
+        ...done.ignored.map((p) => `- kept ${p}: ignored ${kind === "undo" ? "before" : "after"} that turn`),
       ]
       const what = `"${checkpoint.input.slice(0, 80)}"`
-      reply = done.failed ? `Couldn't undo ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `Undid what ${what} changed:\n${lines.join("\n")}`
+      reply = done.failed ? `Couldn't ${kind} ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `${kind === "undo" ? "Undid" : "Redid"} what ${what} changed:\n${lines.join("\n")}`
+      if (kind === "redo" && !done.failed) yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input: checkpoint.input }).pipe(Effect.ignore)
     }
 
-    yield* session.record("undone", String(checkpoints.length)).pipe(Effect.ignore) // what's left, for resume
-    const user = "/undo"
+    if (kind === "undo") yield* session.record("undone", String(checkpoints.length)).pipe(Effect.ignore) // what's left, for resume
+    const user = `/${kind}`
     conversation.history.push({ user, answer: reply })
     conversation.unseen.push({ user, answer: reply })
     yield* session.record("user", user).pipe(Effect.ignore)
     yield* session.record("assistant", reply).pipe(Effect.ignore)
     return reply
   })
+
+export const undoCommand = (session: SessionHandle, conversation: Conversation) => shift(session, conversation, "undo")
+export const redoCommand = (session: SessionHandle, conversation: Conversation) => shift(session, conversation, "redo")
