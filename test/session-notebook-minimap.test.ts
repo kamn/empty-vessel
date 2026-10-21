@@ -104,7 +104,13 @@ for (const [name, width, height, count] of [
           outcome = out.match(/data-probe="([^"]*)"/)?.[1]
         }
         expect(outcome ?? readFileSync(join(dir, "chrome.log"), "utf8").slice(-1000)).toBe("PASS")
-      } finally { proc.kill(); await proc.exited }
+      } finally {
+        // Chrome can ignore SIGTERM while busy (under a parallel test run it did, past the test's limit): give it a
+        // moment, then SIGKILL.
+        proc.kill()
+        if (await Promise.race([proc.exited.then(() => true), Bun.sleep(2000).then(() => false)]) === false) proc.kill("SIGKILL")
+        await proc.exited
+      }
     } finally { rmSync(dir, { recursive: true, force: true }) }
   }, 30_000)
 }
