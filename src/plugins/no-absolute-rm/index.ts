@@ -70,10 +70,12 @@ const tokenize = (source: string): { commands: Word[][]; unsupported: boolean } 
 const assignment = (word: Word) => /^[A-Za-z_][A-Za-z_0-9]*=/.test(word.text) && !word.dynamic
 // A command's name, without its folder and in lower case: macOS's disk usually ignores case, so RM and /BIN/RM run rm.
 const base = (text: string) => text.slice(text.lastIndexOf("/") + 1).toLowerCase()
-// Shells and launchers that run a command given as a string: wherever one appears (nice sh -c, timeout 5 bash -c,
-// su root -c, find -exec sh -c), its rm isn't a word this policy can see.
-// (exec, source and . only count first: later, `docker exec` or a "." argument are ordinary.)
-const SHELLS = ["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh", "su", "eval", "xargs"]
+// Shells that run a command given as a string. First in a command they're always uncertain; later (nice sh -c,
+// timeout 5 bash -c, su root -c, find -exec sh -c) only when a -c follows, since that string's rm isn't a word this
+// policy can see. A shell's name as an argument (grep -rn eval, which bash, brew install fish) is ordinary.
+const SHELLS = ["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh", "su"]
+const runsString = (words: ReadonlyArray<Word>) =>
+  words.some((w, k) => SHELLS.includes(base(w.text)) && words.slice(k + 1).some((x) => /^-[a-z]*c[a-z]*$/.test(x.text)))
 
 const checkCommand = (words: Word[]): GuardVerdict => {
   let i = 0
@@ -107,7 +109,7 @@ const checkCommand = (words: Word[]): GuardVerdict => {
     // Known interpreters/control syntax and rm passed through unknown launchers.
     // Literal echo/printf arguments aren't commands.
     if (["echo", "printf", "cat"].includes(base(executable.text))) return allow
-    if (base(executable.text) === "rm" || [...SHELLS, "exec", "source", ".", "if", "then", "else", "for", "while", "until", "do", "case", "function", "!"].includes(base(executable.text)) || words.slice(i).some((w) => base(w.text) === "rm" || SHELLS.includes(base(w.text)))) return revise()
+    if (base(executable.text) === "rm" || [...SHELLS, "eval", "xargs", "exec", "source", ".", "if", "then", "else", "for", "while", "until", "do", "case", "function", "!"].includes(base(executable.text)) || words.slice(i).some((w) => base(w.text) === "rm") || runsString(words.slice(i))) return revise()
     return allow
   }
 
