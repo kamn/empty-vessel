@@ -5,6 +5,7 @@ import { noAbsoluteRm, noAbsoluteRmPolicy } from "../../src/plugins/no-absolute-
 
 // All shell snippets are data only. No child processes or filesystem deletion.
 const allowed = [
+  "grep -rn eval src", "git grep Eval", "rg xargs src", "which bash", "man zsh", "brew install fish", "chsh -s /bin/zsh", "file /bin/sh", "ls scripts/sh", "docker exec -it web sh", "git commit -m su",
   "docker exec box ls", "git commit -m 'fix the bash script'",
   "rm -rf folder", "rm ./folder -rf", "rm ../folder", "rm -f a b -r c", "rm -- -folder",
   "rm './two words'", 'rm "relative path"', "rm relative\\ path",
