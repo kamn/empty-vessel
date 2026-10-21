@@ -1,3 +1,5 @@
 [test]
 # Only empty-vessel's own tests: benchmarks/ holds cloned repos with thousands of their own.
 root = "./test"
+# Every test file: no requests beyond this machine (test/no-network.ts).
+preload = ["./test/no-network.ts"]
