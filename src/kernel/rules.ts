@@ -17,6 +17,10 @@ const RULES: ReadonlyArray<{ readonly pattern: RegExp; readonly say: string }> =
 
 // The source with string and template text, comments and regular expressions' insides blanked (newlines kept, so
 // line numbers stay), and each character's brace depth (0: the top level).
+// A "/" starts a regular expression (not a division) after an operator, an opening bracket, a comma, the start, or a
+// keyword like return: the previous code that isn't a space says which.
+const startsRegex = (before: string) => /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|do|else|in|of|yield|await|void|delete|throw|new))\s*$/.test(before)
+
 const blank = (js: string) => {
   let out = "", depth = 0
   const depths: Array<number> = []
@@ -28,6 +32,21 @@ const blank = (js: string) => {
 
     if (c === "/" && next === "/") { while (i < js.length && js[i] !== "\n") { put(" "); i++ } put("\n"); continue }
     if (c === "/" && next === "*") { const end = js.indexOf("*/", i + 2); const stop = end < 0 ? js.length : end + 2; for (; i < stop; i++) put(js[i] === "\n" ? "\n" : " "); i--; continue }
+    // A regular expression's insides (a quote or brace in it isn't code), up to its unescaped closing "/" outside a
+    // character class; its flags stay.
+    if (c === "/" && startsRegex(out)) {
+      put(c)
+      let inClass = false
+      for (i++; i < js.length && js[i] !== "\n" && (inClass || js[i] !== "/"); i++) {
+        if (js[i] === "\\") { put(" "); i++; put(" "); continue }
+        if (js[i] === "[") inClass = true
+        else if (js[i] === "]") inClass = false
+        put(" ")
+      }
+      if (js[i] === "/") put("/")
+      else i--
+      continue
+    }
     if (c === "\"" || c === "'") { put(c); for (i++; i < js.length && js[i] !== c; i++) { if (js[i] === "\\") { put(" "); i++ } put(js[i] === "\n" ? "\n" : " ") } put(c); continue }
     if (c === "`" || (c === "}" && templates.at(-1) === depth)) {
       if (c === "}") templates.pop()
@@ -69,7 +88,9 @@ export const cellProblems = (code: string, imports: RegExp = /^kernel$/): Readon
 
   // The top level only defines things: no await there (work that runs every time the cell is imported), no let or var.
   const topLevel = (word: RegExp) => [...text.matchAll(word)].find((m) => depths[m.index!] === 0)
-  const awaited = topLevel(/\bawait\b/g), mutable = topLevel(/\b(let|var)\b/g)
+  // An await in an async arrow's expression body (async (x) => await x) isn't at the top level, braces or not.
+  const inArrow = (at: number) => /\basync\b[^;\n]*=>[^;\n]*$/.test(text.slice(0, at).split(/[;\n]/).at(-1) ?? "")
+  const awaited = [...text.matchAll(/\bawait\b/g)].find((m) => depths[m.index!] === 0 && !inArrow(m.index!)), mutable = topLevel(/\b(let|var)\b/g)
   if (awaited) problems.push(`line ${lineAt(awaited.index!)}: await at the top level: work at the top level runs every time the cell is imported; do it inside an Effect (the default export, or a function), and remember(...) what's costly`)
   if (mutable) problems.push(`line ${lineAt(mutable.index!)}: ${mutable[1]} at the top level: the top level only defines things (const); keep state inside an Effect (Ref)`)
 
