@@ -81,6 +81,22 @@ export const readWithin = <E>(stream: Stream.Stream<Uint8Array, E>, idle: Durati
 // thinks): give up on it and try again, instead of waiting out the whole request (one run sat 8 minutes on a silent
 // request, 2026-09-28). The overall limit stays as a safety net for replies that keep streaming.
 const IDLE = Duration.minutes(2)
+
+// A refusal the next try would hit the same way, said plainly: a 401/403 asks for a new login; any other 4xx but 429
+// gives what the server said (the cut-short body: context too long, an item it rejects). 429 and 5xx stay as they are,
+// for retryIfTemporary. (empty-vessel's clients fail every non-2xx status, so these never reach the reply's own checks.)
+const refused = <E>(e: E): Effect.Effect<never, E | CodexAuthError | CodexReplyError> => {
+  const err = e as { _tag?: string; reason?: { _tag?: string; response?: { status?: number; text?: Effect.Effect<string, unknown> } } }
+  const response = err._tag === "HttpClientError" && err.reason?._tag === "StatusCodeError" ? err.reason.response : undefined
+  const status = response?.status ?? 0
+
+  if (status === 401 || status === 403) return Effect.fail(new CodexAuthError({ message: "Codex denied this login or account access. Run `empty-vessel login codex` to reconnect; no fallback account was used." }))
+  if (status < 400 || status >= 500 || status === 429 || !response?.text) return Effect.fail(e)
+  return response.text.pipe(
+    Effect.orElseSucceed(() => ""),
+    Effect.flatMap((text) => Effect.fail(new CodexReplyError({ message: `Codex refused the request (${status})${text ? `: ${text.slice(0, 500)}` : ""}` }))),
+  )
+}
 export const postCodex = (client: HttpClient.HttpClient, body: Record<string, unknown>, sessionId?: string, idle: Duration.Input = IDLE) =>
   Effect.gen(function* () {
     const { token, accountId } = yield* readCodexAuth
@@ -90,9 +106,10 @@ export const postCodex = (client: HttpClient.HttpClient, body: Record<string, un
         ...(sessionId ? { "session-id": sessionId } : {}) }),
       HttpClientRequest.bodyJsonUnsafe({ ...body, store: false, stream: true }),
       client.execute,
+      Effect.catch(refused),
     )
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401 || response.status === 403) { // a client that doesn't fail on status (refused covers one that does)
       return yield* Effect.fail(new CodexAuthError({ message: "Codex denied this login or account access. Run `empty-vessel login codex` to reconnect; no fallback account was used." }))
     }
 

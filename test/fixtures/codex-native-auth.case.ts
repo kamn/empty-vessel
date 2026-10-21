@@ -67,6 +67,18 @@ if (process.env.EMPTY_VESSEL_NATIVE_AUTH_MODE !== "cli") {
       expect(JSON.parse(readFileSync(nativeFile, "utf8"))).toEqual({ version: 1, credentials })
     })))
 
+    test("a 401 asks for a new login and a 400 says what the server said, through the client's status filter as in production", () => Effect.runPromise(Effect.gen(function* () {
+      save({ version: 1, credentials })
+      const answering = (status: number, body: string) => HttpClient.make((httpRequest) => Effect.succeed(HttpClientResponse.fromWeb(httpRequest, new Response(body, { status })))).pipe(HttpClient.filterStatusOk)
+
+      const denied = yield* Effect.flip(codexModel(answering(401, "nope"), "native-auth-test").complete(request))
+      const refused = yield* Effect.flip(codexModel(answering(400, '{"detail":"context too long"}'), "native-auth-test").complete(request))
+
+      expect(String((denied as { message?: string }).message)).toContain("empty-vessel login codex")
+      expect(String((refused as { message?: string }).message)).toContain("Codex refused the request (400)")
+      expect(String((refused as { message?: string }).message)).toContain("context too long")
+    })))
+
     test("missing native file uses legacy read-only through the real model path", () => Effect.runPromise(Effect.gen(function* () {
       if (existsSync(nativeFile)) unlinkSync(nativeFile)
       const { client, requests } = fakeHttp()
