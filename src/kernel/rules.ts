@@ -9,7 +9,7 @@ const RULES: ReadonlyArray<{ readonly pattern: RegExp; readonly say: string }> =
   { pattern: /(?<![.\w$])(require|eval)\s*\(|(?<![.\w$])Function\s*\(|\bnew\s+Function\b|(?<![.\w$])import\s*\(/, say: "require, eval, Function and import() aren't allowed in a cell: import from \"kernel\"" },
   { pattern: /(?<![.\w$])(fetch|WebSocket|XMLHttpRequest|Worker)\b/, say: "the network and workers aren't available in a cell: use the kernel's services (a tool source, bash, spawn)" },
   { pattern: /(?<![.\w$])(setTimeout|setInterval|setImmediate|queueMicrotask)\b/, say: "timers aren't available in a cell: use Effect.sleep or a Schedule" },
-  { pattern: /(?<![.\w$])(process|globalThis|self)\b/, say: "process, globalThis and self aren't available in a cell: the kernel's services give what's needed" },
+  { pattern: /(?<![.\w$])(process|globalThis|self|postMessage|onmessage|addEventListener|removeEventListener|dispatchEvent)\b/, say: "process, globalThis, self and the worker's messaging aren't available in a cell: the kernel's services give what's needed" },
   { pattern: /\bimport\s*\.\s*meta\b/, say: "import.meta isn't available in a cell (it reaches modules outside the kernel): import from \"kernel\"" },
   { pattern: /(?<![.\w$])Date\s*\.\s*now\b|\bnew\s+Date\s*\(\s*\)|(?<![.\w$])performance\s*\.\s*now\b/, say: "the time isn't read directly in a cell: use now() from \"kernel\" (new Date(\"2026-01-01\") is fine)" },
   { pattern: /(?<![.\w$])Math\s*\.\s*random\b|(?<![.\w$])crypto\s*\./, say: "randomness isn't read directly in a cell: use random() from \"kernel\"" },

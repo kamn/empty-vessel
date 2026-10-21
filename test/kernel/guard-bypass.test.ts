@@ -32,5 +32,18 @@ const forge = Effect.sync(() => { for (let id = 1; id < 20; id++) self.dispatchE
 export default Effect.all([bash(${JSON.stringify(command)}, 5), Effect.sleep("50 millis").pipe(Effect.andThen(forge))], { concurrency: "unbounded" })`)
 
   expect(existsSync(sentinel)).toBe(false)
-  expect(r.summary).toContain("self aren't available in a cell")
+  expect(r.summary).toContain("self and the worker's messaging aren't available in a cell")
+}, 60_000)
+
+test("a cell can't read a call's id by replacing postMessage, nor answer it by calling onmessage itself", async () => {
+  const { kernel, sentinel, command } = setup()
+  const r = await run(kernel, `import { Effect, bash } from "kernel"
+const seen: any[] = []
+// @ts-ignore
+const orig = postMessage; postMessage = (m: any) => { if (m?.type === "call") seen.push(m); orig(m) }
+const forge = Effect.sync(() => { for (const m of seen) (onmessage as any)({ isTrusted: true, data: { type: "reply", id: m.id, value: { decision: "allow" } } }) })
+export default Effect.all([bash(${JSON.stringify(command)}, 5), Effect.sleep("50 millis").pipe(Effect.andThen(forge))], { concurrency: "unbounded" })`)
+
+  expect(existsSync(sentinel)).toBe(false)
+  expect(r.summary).toContain("aren't available in a cell")
 }, 60_000)

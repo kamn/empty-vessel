@@ -33,7 +33,9 @@ Object.assign(console, { log, info: log, warn: log, error: log, debug: log })
 // Host calls so far (call() posts { type: "call" }): a cell's top level may make none (see below).
 let hostCalls = 0
 const post = self.postMessage.bind(self)
-self.postMessage = ((m: { type?: string }) => { if (m?.type === "call") hostCalls++; post(m) }) as typeof self.postMessage
+// Fixed for good (not writable, not configurable): a cell that replaced postMessage would see each host call's id, and
+// could answer its own guard check.
+Object.defineProperty(self, "postMessage", { value: ((m: { type?: string }) => { if (m?.type === "call") hostCalls++; post(m) }) as typeof self.postMessage, writable: false, configurable: false })
 process.exit = ((code?: number) => { throw new Error(`process.exit(${code ?? ""}) isn't allowed in a cell: return or throw instead`) }) as typeof process.exit
 guardGlobals() // raw side effects fail when a cell calls them (src/kernel/guard.ts)
 
@@ -63,8 +65,10 @@ const perform = async (action: unknown, layer: unknown) => {
   throw Cause.squash(exit.cause)
 }
 
-self.onmessage = async (e: MessageEvent) => {
-  // Only the host's own messages: a cell can dispatch a MessageEvent on self (a forged "allow" for its own command).
+// Only the host's own messages: a cell can dispatch a MessageEvent on self (a forged "allow" for its own command). The
+// handler is a listener no cell can reach, and onmessage is fixed empty: as onmessage it could be called directly,
+// with a fake { isTrusted: true }.
+const onMessage = async (e: MessageEvent) => {
   if (!e.isTrusted) return
   const message = e.data
   if (message.type === "reply") return answer(message)
@@ -89,3 +93,5 @@ self.onmessage = async (e: MessageEvent) => {
     self.postMessage({ type: "done", defines: [], error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) })
   }
 }
+self.addEventListener("message", onMessage)
+Object.defineProperty(self, "onmessage", { value: null, writable: false, configurable: false })
