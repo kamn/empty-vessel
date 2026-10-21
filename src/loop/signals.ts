@@ -21,14 +21,17 @@ export const short = (s: string, n = 120) => (s.length > n ? `${s.slice(0, n)}â€
 const what = (l: Line) => (l.role === "check" ? `check ${l.text} â†’ ${l.verdict}` : l.text === "kernel" ? `cell: ${short(l.args?.code ?? "")}` : `${l.text}: ${short(l.args?.message ?? JSON.stringify(l.args ?? {}))}`)
 
 // One session's records into signals, flags, and pairs of a command that failed then a changed one that worked.
-export const signalsOf = (session: string, lines: ReadonlyArray<Line>) => {
+// `since`: only what happened after it (an earlier refine saw the rest); the whole session is still read, for state.
+export const signalsOf = (session: string, lines: ReadonlyArray<Line>, since = 0) => {
   const signals: Array<Signal> = [], flags: Array<Flag> = [], fixes: Array<string> = []
-  const say = (kind: string, turn: number, at: number, text: string) => signals.push({ kind, session, turn, at, text })
+  let now = 0 // the current record's time
+  const say = (kind: string, turn: number, at: number, text: string) => { if (now > since) signals.push({ kind, session, turn, at, text }) }
   let turn = 0, started = 0, shown = 0, commands = 0, failedChecks = 0, errors = 0
   let reads = new Map<string, number>(), timedOut = new Set<string>(), failed: Array<string> = []
   const recent: Array<string> = []
 
   for (const l of lines) {
+    now = l.ts
     const at = l.ts - started
     if (l.role === "user") {
       turn++; started = shown = l.ts; commands = failedChecks = errors = 0
@@ -58,7 +61,7 @@ export const signalsOf = (session: string, lines: ReadonlyArray<Line>) => {
 
       // A failing command, then a later one that worked with an env var, PATH or version added: a lesson for the repo.
       const env = lessonIn(failed, code, l.output ?? "")
-      if (env.length) fixes.push(`failed: ${short(failed.at(-1)!, 200)}\n  then worked with ${env.join(" ")}: ${short(code, 200)}`)
+      if (env.length && now > since) fixes.push(`failed: ${short(failed.at(-1)!, 200)}\n  then worked with ${env.join(" ")}: ${short(code, 200)}`)
       if (exitOf(l.output) !== 0) failed.push(code)
     }
 
@@ -66,7 +69,7 @@ export const signalsOf = (session: string, lines: ReadonlyArray<Line>) => {
     if (l.role === "scope") say("scope", turn, at, short(l.text, 200))
     if (l.role === "steer") say("steer", turn, at, `the user redirected it mid-run: ${short(l.text)}`)
     if (l.role === "actions" && l.text === "stopped by the user") say("stop", turn, at, "the user stopped it")
-    if (l.role === "flag") flags.push({ session, turn, at, note: l.text, running: l.running ?? false, before: [...recent] })
+    if (l.role === "flag" && now > since) flags.push({ session, turn, at, note: l.text, running: l.running ?? false, before: [...recent] })
     if (l.role === "command" || l.role === "check") { recent.push(what(l)); if (recent.length > 3) recent.shift() }
 
     if (l.role === "assistant") {

@@ -91,7 +91,7 @@ export const refine = (root = process.cwd(), yes = false) =>
     const since = lastAt(root)
     const sessions = yield* sessionsSince(root, since)
     const turns = sessions.flatMap((s) => turnsOf(s.id, s.lines, since))
-    const found = sessions.map((s) => signalsOf(s.id, s.lines))
+    const found = sessions.map((s) => signalsOf(s.id, s.lines, since ?? 0))
     const signals = found.flatMap((f) => f.signals), flags = found.flatMap((f) => f.flags), fixes = found.flatMap((f) => f.fixes)
     if (!turns.length && !flags.length) return [`nothing new to refine from${since ? ` since the last refine (${new Date(since).toLocaleString()})` : " yet: no turns in this project"}`]
 
