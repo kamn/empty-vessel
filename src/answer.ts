@@ -11,7 +11,7 @@ import { turn } from "./loop/turn"
 import { childConfig, type Conversation } from "./loop/turnkit"
 import { noteStop } from "./system-two/thread"
 import { saveConversation, useSystemTwo } from "./loop/resume"
-import { snapshot } from "./loop/checkpoint"
+import { checkpointOf, snapshot } from "./loop/checkpoint"
 import { ActiveAgent } from "./base/memory"
 
 // Shared by the plain prompt (main.ts) and the TUI (tui.ts).
@@ -21,16 +21,22 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
-    const checkpoint = yield* snapshot(input, process.cwd(), `${session.dir}/undo.index`) // for /undo, also after a resume (src/loop/resume.ts)
-    if (checkpoint) {
-      (conversation.checkpoints ??= []).push(checkpoint)
-      yield* session.record("checkpoint", checkpoint.tree, { root: checkpoint.root, input: checkpoint.input }).pipe(Effect.ignore)
-    }
+    // For /undo: the files before and after the turn (stopped or failed too); a turn that changed them is a checkpoint,
+    // recorded so a resumed session has it (src/loop/checkpoint.ts, src/loop/resume.ts).
+    const index = `${session.dir}/undo.index`
+    const before = yield* snapshot(process.cwd(), index)
+    const keep = Effect.gen(function* () {
+      const checkpoint = checkpointOf(input, before, yield* snapshot(process.cwd(), index))
+      if (!checkpoint) return
+      ;(conversation.checkpoints ??= []).push(checkpoint)
+      yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input }).pipe(Effect.ignore)
+    })
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
     const [took, reply] = yield* Effect.timed(turn(session, input, 0, conversation).pipe(
       Effect.ensuring(conversation.jobs.cancelAll),
+      Effect.ensuring(keep),
     ))
 
     const usage = yield* Usage

@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Effect } from "effect"
 import type { SessionHandle } from "../base/session"
 import { runBash } from "../tools/bash"
@@ -5,13 +8,17 @@ import { Kernel } from "../tools/kernel-service"
 import type { Conversation } from "./turnkit"
 
 // /undo: the project's files as they were before the last turn that changed them, as OpenCode's /undo and Claude Code's
-// rewind do. Before each turn, the working tree (new files too, not ignored ones) is written to git as a tree object,
-// through a temporary index: the user's index, branch and stash are never touched. /undo puts back the files that turn
-// changed and removes the ones it created. Only inside a git repo; elsewhere there's nothing to undo.
+// rewind do. Before and after each turn, the working tree (new files too, not ignored ones) is written to git as a tree
+// object, through a private index: the user's index, branch and stash are never touched. A turn whose trees differ is a
+// checkpoint. /undo takes back only what that turn changed (the paths that differ between its two trees): it restores the
+// ones it changed or deleted and removes the ones it created, but leaves a path alone if it changed again since the turn
+// ended (you edited it: yours to keep), or, for a file it would remove, if the ignore rules before the turn covered it
+// (a .env that a rewritten .gitignore exposed: it wasn't the turn's). Only inside a git repo.
 // Each checkpoint is recorded in the session (and each /undo, as how many are left), so a resumed session can undo too.
 // ponytail: the trees are unreferenced git objects, so `git gc` can drop them after two weeks (an /undo then says git
 // failed); pin them in refs/ if older undos matter.
-export type Checkpoint = { readonly root: string; readonly tree: string; readonly input: string }
+export type Checkpoint = { readonly root: string; readonly before: string; readonly after: string; readonly input: string }
+export const isTree = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f]{40,64}$/.test(s)
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
 
@@ -26,14 +33,14 @@ const ok = (out: string) => {
   return status === "exit 0" ? lines : undefined
 }
 
-// The project at `cwd` as it is now, or undefined outside git (or if git fails: a turn must never fail over its
-// checkpoint). Not through ActionGuard: it's the harness's own fixed, read-only bookkeeping, run every turn, not an
-// action the agent proposed (an "ask" policy would otherwise ask the user to approve it each turn). /undo's restore,
-// which changes files, still goes through the guard.
-const allowed = () => Effect.succeed({ decision: "allow" as const })
+// The project at `cwd` as it is now (its root and tree), or undefined outside git (or if git fails: a turn must never
+// fail over its checkpoint). Not through ActionGuard: it's the harness's own fixed, read-only bookkeeping, run twice a
+// turn, not an action the agent proposed (an "ask" policy would otherwise ask the user to approve it each turn).
+// /undo's restore, which changes files, still goes through the guard.
 // `index`: a private index kept between turns (in the session's folder), so git's cache of file times holds for new
 // files too and only what changed is read again; a fresh copy each turn re-read every untracked file every turn.
-export const snapshot = (input: string, cwd = process.cwd(), index?: string) =>
+const allowed = () => Effect.succeed({ decision: "allow" as const })
+export const snapshot = (cwd = process.cwd(), index?: string) =>
   Effect.gen(function* () {
     const kept = index ? `[ -f ${quote(index)} ] || cp "$(git rev-parse --path-format=absolute --git-path index)" ${quote(index)} 2>/dev/null
 export GIT_INDEX_FILE=${quote(index)}` : PRIVATE_INDEX
@@ -43,41 +50,77 @@ cd "$root" || exit 3
 ${kept}
 git add -A . && echo "$root" && git write-tree`, 60_000, allowed)
     const [root, tree] = ok(out) ?? []
-    return root && tree && /^[0-9a-f]{40,64}$/.test(tree) ? { root, tree, input } satisfies Checkpoint : undefined
+    return root && isTree(tree) ? { root, tree } : undefined
   }).pipe(Effect.orElseSucceed(() => undefined))
 
-// Put the files back as they were at `checkpoint`: "same" if nothing changed since, else git's name-status lines of what
-// changed since (A: created since, now removed; M and D: changed or deleted since, now restored).
-const restore = ({ root, tree }: Checkpoint) =>
+// Around a turn: its checkpoint if it changed the project's files, else undefined.
+export const checkpointOf = (input: string, before: { root: string; tree: string } | undefined, after: { root: string; tree: string } | undefined): Checkpoint | undefined =>
+  before && after && before.root === after.root && before.tree !== after.tree ? { root: before.root, before: before.tree, after: after.tree, input } : undefined
+
+const nul = (text: string) => text.split("\0").filter(Boolean)
+
+type Undone = { restored: Array<string>; removed: Array<string>; yours: Array<string>; ignored: Array<string>; failed?: string }
+
+// Take back what `checkpoint`'s turn changed (see the top). Lists go through files (paths can hold anything), and the
+// files are restored before anything is removed, so a failure leaves nothing deleted that wasn't put back.
+const restore = ({ root, before, after }: Checkpoint) =>
   Effect.gen(function* () {
-    const out = yield* (yield* Kernel).exec(`cd ${quote(root)} || exit 3
+    const kernel = yield* Kernel
+    const work = mkdtempSync(join(tmpdir(), "empty-vessel-undo-"))
+    const file = (name: string) => quote(join(work, name))
+
+    // What the turn changed (before → after), and what changed since it ended (after → now).
+    const looked = yield* kernel.exec(`cd ${quote(root)} || exit 3
 ${PRIVATE_INDEX}
 git add -A . && now=$(git write-tree) || exit 4
-[ "$now" = ${tree} ] && { echo same; exit 0; }
-git diff --name-status --no-renames ${tree} "$now"
-git diff --name-only -z --no-renames --diff-filter=A ${tree} "$now" | xargs -0 rm -f --
-git read-tree ${tree} || exit 5
-git diff --name-only -z --no-renames --diff-filter=MDT ${tree} "$now" | git checkout-index -f -z --stdin`, 60_000)
-    return ok(out)?.filter((l) => l && l !== "(no output)")
+git diff -z --name-status --no-renames ${before} ${after} > ${file("turn")} || exit 5
+git diff -z --name-only --no-renames ${after} "$now" > ${file("since")} || exit 5`, 60_000)
+    if (!ok(looked)) return { restored: [], removed: [], yours: [], ignored: [], failed: "git couldn't compare the files (nothing was changed)" } satisfies Undone
+
+    const pairs = nul(readFileSync(join(work, "turn"), "utf8"))
+    const since = new Set(nul(readFileSync(join(work, "since"), "utf8")))
+    const turn = Array.from({ length: pairs.length / 2 }, (_, i) => ({ status: pairs[2 * i]!, path: pairs[2 * i + 1]! }))
+    const yours = turn.filter((c) => since.has(c.path)).map((c) => c.path)
+    const restored = turn.filter((c) => !since.has(c.path) && c.status !== "A").map((c) => c.path)
+    const created = turn.filter((c) => !since.has(c.path) && c.status === "A").map((c) => c.path)
+    writeFileSync(join(work, "restore"), restored.map((p) => `${p}\0`).join(""))
+    writeFileSync(join(work, "created"), created.map((p) => `${p}\0`).join(""))
+
+    // Restore first; then, under the restored ignore rules, which of the created files they cover.
+    const put = yield* kernel.exec(`cd ${quote(root)} || exit 3
+${PRIVATE_INDEX}
+git read-tree ${before} || exit 5
+git checkout-index -f -z --stdin < ${file("restore")} || exit 6
+git check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}; [ $? -le 1 ] || exit 7`, 60_000)
+    if (!ok(put)) {
+      const what = put.startsWith("exit 5") ? "git couldn't read the checkpoint (nothing was changed)" : "git failed while restoring: some files may be restored already, check git status"
+      return { restored: [], removed: [], yours, ignored: [], failed: what } satisfies Undone
+    }
+
+    const ignored = new Set(nul(readFileSync(join(work, "ignored"), "utf8")))
+    const removed = created.filter((p) => !ignored.has(p))
+    for (const p of removed) rmSync(join(root, p), { force: true })
+    rmSync(work, { recursive: true, force: true })
+    return { restored, removed, yours, ignored: created.filter((p) => ignored.has(p)) } satisfies Undone
   })
 
-// /undo: back to before the last turn that changed files (turns that changed nothing are skipped), told to System Two
-// with its next prompt, as a shared !command is.
+// /undo: back to before the last turn that changed files, told to System Two with its next prompt, as a shared
+// !command is. A failed undo keeps its checkpoint, to try again.
 export const undoCommand = (session: SessionHandle, conversation: Conversation) =>
   Effect.gen(function* () {
     const checkpoints = (conversation.checkpoints ??= [])
+    const checkpoint = checkpoints.pop()
     let reply = "Nothing to undo: no turn in this session changed files (only files in a git repo are tracked)."
 
-    while (checkpoints.length) {
-      const checkpoint = checkpoints.pop()!
-      const changes = yield* restore(checkpoint)
-      if (!changes) { reply = `Couldn't undo: git failed in ${checkpoint.root}. Nothing was changed.`; break }
-      if (changes[0] === "same") continue
-
-      const words: Record<string, string> = { A: "removed", M: "restored", D: "restored", T: "restored" }
-      const files = changes.map((l) => `- ${words[l[0]!] ?? "restored"} ${l.slice(2)}`)
-      reply = `Undid the changes since before "${checkpoint.input.slice(0, 80)}":\n${files.join("\n")}`
-      break
+    if (checkpoint) {
+      const done = yield* restore(checkpoint)
+      if (done.failed) checkpoints.push(checkpoint)
+      const lines = [
+        ...done.restored.map((p) => `- restored ${p}`), ...done.removed.map((p) => `- removed ${p}`),
+        ...done.yours.map((p) => `- kept ${p}: it changed again after that turn`), ...done.ignored.map((p) => `- kept ${p}: ignored before that turn`),
+      ]
+      const what = `"${checkpoint.input.slice(0, 80)}"`
+      reply = done.failed ? `Couldn't undo ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `Undid what ${what} changed:\n${lines.join("\n")}`
     }
 
     yield* session.record("undone", String(checkpoints.length)).pipe(Effect.ignore) // what's left, for resume
