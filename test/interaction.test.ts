@@ -204,3 +204,28 @@ test("a message steered while a turn starts (agent pick, skill routing) reaches 
   expect(yield* runner.drain).toEqual(["unread"])
   expect(yield* runner.drain).toEqual([])
 }).pipe(Effect.scoped, Effect.provideContext(Context.empty() as never)) as never))
+
+test("a message steered during a !shell is a leftover for the host, never also read by the next turn", () => Effect.runPromise(Effect.gen(function* () {
+  const gate = yield* Deferred.make<void>(), entered = yield* Deferred.make<void>()
+  let seen: ReadonlyArray<string> = ["unset"]
+  const runner = yield* makeSessionRunner({} as SessionHandle, newConversation(), { events: { emit: () => Effect.void } }, {
+    ...interactionOperations,
+    userCommand: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(gate)), Effect.as("exit 0")) as never,
+    firstAgent: (_s, _c, _i, services) => Effect.succeed({ services, line: undefined }) as never,
+    skillCommand: () => Effect.succeed(undefined) as never,
+    answer: () => Effect.gen(function* () {
+      seen = (yield* Inbox).take()
+      return { reply: "ok", remembered: [], usage: [], brief: { turn: "turn", session: "total" } }
+    }) as never,
+  })
+
+  const shell = yield* Effect.forkChild(runner.shell("sleep 5", true))
+  yield* Deferred.await(entered)
+  yield* runner.steer("fix the tests")
+  yield* Deferred.succeed(gate, undefined)
+  yield* Fiber.join(shell)
+
+  // The TUI doesn't drain: it sends its own queue as the next message.
+  yield* runner.run("fix the tests")
+  expect(seen).toEqual([]) // the turn isn't told it again as steering
+}).pipe(Effect.scoped, Effect.provideContext(Context.empty() as never)) as never))

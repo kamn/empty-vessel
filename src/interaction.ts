@@ -82,6 +82,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
           if (state.stopping) return yield* interrupted
           return yield* Effect.fail(Cause.pretty(exit.cause))
         }).pipe(Effect.ensuring(Effect.gen(function* () {
+          leftovers.push(...inbox.drain()) // unread when it ended (a turn or a !shell): the host's, not the next turn's
           active = undefined
           yield* Deferred.succeed(state.done, undefined)
         })))
@@ -136,10 +137,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply, usage: [] }
       })
 
-      return execute(work.pipe(Effect.ensuring(Effect.sync(() => {
-        conversation.explicitSkill = false
-        leftovers.push(...inbox.drain())
-      }))), interrupted)
+      return execute(work.pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false }))), interrupted)
     })
     const runner: SessionRunner = {
       run,
