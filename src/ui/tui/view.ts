@@ -55,10 +55,26 @@ const fit = (text: string, width: number) => {
   return `${out}…`
 }
 
-// Split a line into pieces of at most `width` characters (the input box wraps; a long line isn't cut).
+// Split a line into pieces at most `width` columns wide (the input box wraps; a long line isn't cut). By display width,
+// per grapheme: a CJK character or most emoji take two columns, and counted as one they overflowed the terminal.
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 const wrap = (text: string, width: number) => {
-  const chars = Array.from(text)
-  return chars.length ? Array.from({ length: Math.ceil(chars.length / width) }, (_, i) => chars.slice(i * width, (i + 1) * width).join("")) : [""]
+  const rows: Array<string> = []
+  let row = "", used = 0
+
+  for (const { segment } of graphemes.segment(text)) {
+    const w = widthOf(segment)
+    if (used + w > width && row) {
+      rows.push(row)
+      row = ""
+      used = 0
+    }
+    row += segment
+    used += w
+  }
+
+  rows.push(row)
+  return rows
 }
 
 // While a turn runs: activity and queued messages. Events already live in the scrollable log.

@@ -111,3 +111,11 @@ test("idle hint is discoverable; menu rows fit narrow widths and keep cursor in 
     expect(menu.every(row => widthOf(row) <= width)).toBe(true)
   }
 })
+
+test("the input box wraps by display width: wide characters (CJK, emoji) never make a line wider than the terminal", () => {
+  const model = { ...init("status"), input: "漢".repeat(100) + "😀".repeat(20), after: 0 }
+  const { lines, cursor } = live(model, 40)
+
+  for (const line of lines) expect(widthOf(line)).toBeLessThanOrEqual(40)
+  expect(cursor.col).toBeLessThanOrEqual(40)
+})
