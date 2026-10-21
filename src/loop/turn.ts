@@ -130,7 +130,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     const dir = libraryDir(process.cwd())
     // The pool settles first (graduating or dropping trial tools); then System One's options come from the library's System One tools.
     const known = stats(dir) // the adoption record, read once this turn
-    const settled = yield* settle(dir, config.adoption, session.id, conversation.history.length + 1, known)
+    const settled = yield* settle(dir, config.adoption, session.id, conversation.history.length + 1)
     for (const e of settled.graduated) yield* emit("review", depth, `adoption: ${e.name} graduated into the library (for ${e.for === "systemOne" ? "System One" : "System Two"})`)
     for (const e of settled.dropped) yield* emit("review", depth, `adoption: ${e.name} dropped from the pool`)
 

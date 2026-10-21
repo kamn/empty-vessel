@@ -73,11 +73,12 @@ const successes = (s: Stats, reward: "used" | "ok" | "verdict") => (reward === "
 // Settle the pool before a turn samples it: a tool with `graduateAfter` successes joins the library (same kind); one
 // offered `dropAfter` times where it applied, succeeding less than `dropBelowRate` of them, leaves. Both are recorded.
 export type Settling = { readonly graduateAfter: number; readonly dropAfter: number; readonly dropBelowRate: number; readonly reward: "used" | "ok" | "verdict" }
-// `known`: the record's stats, read once per turn by the caller (the sampler uses them too).
-export const settle = (dir: string, rules: Settling, session: string, turn: number, known: ReadonlyMap<string, Stats> = stats(dir)) => {
+// The stats are read under the lock too: read before it, a tool re-added meanwhile would be judged on its old numbers.
+export const settle = (dir: string, rules: Settling, session: string, turn: number) => {
   const none: Stats = { offered: 0, used: 0, ok: 0, helped: 0, applied: 0, notApplied: 0 }
   // Decided and written under the tools lock, from the files as they are now (promote may be adding to them).
   return updateTools(dir, (library, pool) => {
+    const known = stats(dir)
     const graduated = pool.filter((e) => successes(known.get(e.name) ?? none, rules.reward) >= rules.graduateAfter)
     const dropped = pool.filter((e) => {
       const s = known.get(e.name) ?? none

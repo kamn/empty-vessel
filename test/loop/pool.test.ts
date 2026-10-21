@@ -72,6 +72,17 @@ test("settling: enough successes graduate a tool (its kind kept), too many offer
   expect(await Effect.runPromise(settle(dir, rules, "s", 12))).toEqual({ graduated: [], dropped: [] }) // settled: nothing moves twice
 })
 
+test("a tool re-added under an old name is judged on its own record, not the old tool's", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-pool-"))
+  savePool(dir, [tool("again")])
+  for (let t = 1; t <= 10; t++) record(dir, { session: "s", turn: t, tool: "again", for: "systemTwo", event: "offered" }) // the old one: 0 of 10
+  record(dir, { session: "s2", turn: 0, tool: "again", for: "systemTwo", event: "added" }) // re-added: a fresh record
+
+  const rules = { graduateAfter: 3, dropAfter: 10, dropBelowRate: 0.2, reward: "ok" as const }
+  expect(await Effect.runPromise(settle(dir, rules, "s", 11))).toEqual({ graduated: [], dropped: [] })
+  expect(loadPool(dir).map((e) => e.name)).toEqual(["again"])
+})
+
 test("a broken line in the record (a crash mid-write) is skipped, not fatal", () => {
   const dir = mkdtempSync(join(tmpdir(), "empty-vessel-pool-"))
   record(dir, { session: "s", turn: 1, tool: "grep", for: "systemTwo", event: "offered" })
