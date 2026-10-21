@@ -7,8 +7,9 @@ import type { Conversation } from "./turnkit"
 // rewind do. Before each turn, the working tree (new files too, not ignored ones) is written to git as a tree object,
 // through a temporary index: the user's index, branch and stash are never touched. /undo puts back the files that turn
 // changed and removes the ones it created. Only inside a git repo; elsewhere there's nothing to undo.
-// ponytail: the trees are unreferenced git objects, so `git gc` can drop them after two weeks; in memory only, so a
-// resumed session can't undo the turns of an earlier run. Pin them in refs/ and record them in the session if that matters.
+// Each checkpoint is recorded in the session (and each /undo, as how many are left), so a resumed session can undo too.
+// ponytail: the trees are unreferenced git objects, so `git gc` can drop them after two weeks (an /undo then says git
+// failed); pin them in refs/ if older undos matter.
 export type Checkpoint = { readonly root: string; readonly tree: string; readonly input: string }
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
@@ -69,6 +70,7 @@ export const undoCommand = (session: SessionHandle, conversation: Conversation) 
       break
     }
 
+    yield* session.record("undone", String(checkpoints.length)).pipe(Effect.ignore) // what's left, for resume
     const user = "/undo"
     conversation.history.push({ user, answer: reply })
     conversation.unseen.push({ user, answer: reply })

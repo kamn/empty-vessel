@@ -21,8 +21,11 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
-    const checkpoint = yield* snapshot(input) // for /undo
-    if (checkpoint) (conversation.checkpoints ??= []).push(checkpoint)
+    const checkpoint = yield* snapshot(input) // for /undo, also after a resume (src/loop/resume.ts)
+    if (checkpoint) {
+      (conversation.checkpoints ??= []).push(checkpoint)
+      yield* session.record("checkpoint", checkpoint.tree, { root: checkpoint.root, input: checkpoint.input }).pipe(Effect.ignore)
+    }
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
