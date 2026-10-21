@@ -21,6 +21,7 @@ import { ActiveAgent } from "./base/memory"
 export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
   Effect.gen(function* () {
     yield* reportState("working")
+    conversation.inputRecorded = false
     // For /undo: the files before and after the turn (stopped or failed too); a turn that changed them is a checkpoint,
     // recorded so a resumed session has it (src/loop/checkpoint.ts, src/loop/resume.ts).
     const index = `${session.dir}/undo.index`
@@ -92,6 +93,9 @@ export const stopped = (session: SessionHandle, input: string, conversation: Con
     yield* conversation.jobs.cancelAll // its sub-agents stop too
     noteStop(conversation.thread, input)
     yield* saveConversation(session, conversation)
+    // Stopped before the turn wrote its message (while picking the agent or taking the checkpoint): written now, so
+    // "(stopped)" isn't paired with the message before it on resume.
+    if (conversation.inputRecorded === false) yield* session.record("user", input).pipe(Effect.ignore)
 
     conversation.actions.push("stopped by the user")
     yield* session.record("actions", "stopped by the user").pipe(Effect.ignore)

@@ -112,6 +112,7 @@ export const turn = (session: SessionHandle, input: string, depth: number, conve
 const runTurn = (session: SessionHandle, input: string, depth: number, conversation: Conversation): Effect.Effect<string, SessionError, Needs> =>
   Effect.gen(function* () {
     yield* session.record("user", input)
+    conversation.inputRecorded = true
 
     // What the loop hands System Two with every request, worked out once: the project's AGENTS.md / CLAUDE.md, then what
     // empty-vessel learned about the project (notes, saved checks), then how to shape what it writes to the user

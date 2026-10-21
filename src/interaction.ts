@@ -91,6 +91,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
 
     const run = (input: string): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
       leftovers.length = 0
+      conversation.inputRecorded = false // a stop from here on writes this message if the turn hadn't yet (src/answer.ts)
       const refine = /^\/refine(?=\s|$)/.test(input)
       const review = /^\/review(?=\s|$)/.test(input)
       const undo = /^\/undo\s*$/.test(input)

@@ -52,6 +52,7 @@ export type Conversation = {
   takeover?: string // System Two changed: what the new one is told once, on its first run (resume.ts, switchConversation)
   redo?: Array<Checkpoint> // undone ones, for /redo; a new file-changing turn clears it (src/loop/checkpoint.ts)
   checkpoints?: Array<Checkpoint> // the project before each turn of this run, for /undo (src/loop/checkpoint.ts)
+  inputRecorded?: boolean // this turn's message is in the session file (src/loop/turn.ts): a stop before it records it
   backend?: string // the System Two (systemTwo.use) the thread belongs to, as recorded in the session; none in older sessions
 }
 export const newConversation = (): Conversation => ({ thread: [], history: [], actions: [], files: new Set(), stash: new Map(), jobs: makeJobs(), tools: new Set(), unseen: [], remembered: [], saved: { thread: 0, stash: 0 } })

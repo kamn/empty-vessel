@@ -248,3 +248,15 @@ test("resume: a stopped System Two run counts as handed what it hadn't seen; a t
   expect(c.unseen).toEqual([])
   expect(c.history.map((h) => h.answer)).toEqual(["4", "(stopped)"])
 })
+
+test("a turn stopped before it wrote its message: the stop writes it, so resume pairs \"(stopped)\" with it", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "empty-vessel-sessions-"))
+  const session = await Effect.runPromise(makeSession("sessions").pipe(Effect.provide(diskStore(parent))))
+  const conversation = newConversation()
+  await Effect.runPromise(Effect.all([session.record("user", "first"), session.record("assistant", "done")]))
+
+  conversation.inputRecorded = false // stopped while the agent was being picked: the turn never wrote "second"
+  await Effect.runPromise(stopped(session, "second", conversation).pipe(Effect.provide(Usage.layer)))
+
+  expect(loadConversation(session.dir).history).toEqual([{ user: "first", answer: "done" }, { user: "second", answer: "(stopped)" }])
+})
