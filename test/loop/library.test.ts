@@ -41,6 +41,7 @@ test("a definition that doesn't take the goal, or fails on the example, isn't pr
   expect(await tryPromote(s, "double")).toContain("type-error")
   expect(await tryPromote(s, "broken")).toContain("nope: hello")
   expect(await tryPromote(s, "escalate")).toContain("can't be promoted under that name")
+  for (const name of ["read", "tools", "scope", "builtins"]) expect(await tryPromote(s, name)).toContain("is a built-in's name (or one of the library's own files)") // shadowed, or overwriting scope.ts
   expect(await tryPromote(s, "missing")).toContain("no definition named missing")
   expect(loadLibrary(s.library)).toEqual([])
 })

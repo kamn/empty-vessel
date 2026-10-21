@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Schema } from "effect"
@@ -93,8 +93,9 @@ export const loadLibrary = (dir: string): ReadonlyArray<Entry> => {
 // loading the module, and every cell with it.
 // `g`: what the kernel grants (config.json's kernel.tools): only those built-ins are exported, a library tool that uses
 // another isn't, and the services' layer provides only the granted ones (src/tools/kernel-builtins.ts layerFor).
+const builtinNames = () => new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(BUILTINS, "utf8")).exports.filter((e) => e !== "default")
 export const builtinsModule = (entries: ReadonlyArray<{ name: string; file: string }>, g: Grants = ALL) => {
-  const own = new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(BUILTINS, "utf8")).exports.filter((e) => e !== "default")
+  const own = builtinNames()
   const granted = allGranted(g) ? own : own.filter((e) => allows(g, e) && e !== "layer")
   const once = entries.filter((e, i) => entries.findIndex((f) => f.name === e.name) === i && !own.includes(e.name) && usableWith(g)(e))
   return [
@@ -116,8 +117,9 @@ export const usableWith = (g: Grants) => (e: { readonly file: string }) => allGr
 // The library's scope.ts is rewritten too: it holds this checkout's absolute paths, so one written by another
 // checkout (a worktree since deleted) would break every cell that imports a library tool.
 export const writeBuiltins = (file: string, dir: string, g: Grants = ALL) => {
-  if (existsSync(join(dir, "scope.ts"))) writeFileSync(join(dir, "scope.ts"), scopeFor([], BUILTINS))
-  writeFileSync(file, builtinsModule([...loadLibrary(dir), ...loadPool(dir)], g)) // pool tools too: they're offered
+  // Whole files (temp, then rename): another process's kernel may be importing them right now.
+  if (existsSync(join(dir, "scope.ts"))) writeWhole(join(dir, "scope.ts"), scopeFor([], BUILTINS))
+  writeWhole(file, builtinsModule([...loadLibrary(dir), ...loadPool(dir)], g)) // pool tools too: they're offered
   return file
 }
 
@@ -234,6 +236,9 @@ export const promote = (dir: string, kernelDir: string, from: string, host: Host
     const taken = `"${args.name}" is already a library tool: pick another name (a new tool can't replace one that proved itself)`
     if (inLibrary(loadLibrary(dir))) return taken
     if (!NAME.test(args.name) || RESERVED.includes(args.name)) return `"${args.name}" can't be promoted under that name: use a camelCase name other than ${RESERVED.join(", ")}`
+    // A built-in's name would be shadowed by the built-in (builtinsModule exports the built-in), and scope or builtins
+    // would overwrite the library's own files, which every tool imports.
+    if (builtinNames().includes(args.name) || ["scope", "builtins"].includes(args.name)) return `"${args.name}" is a built-in's name (or one of the library's own files): pick another name`
     if (!args.description.trim()) return "give a description: it's what System One reads to decide when to pick it"
     const parameters = kind === "systemOne" && args.parameters && Object.keys(args.parameters).length ? args.parameters : undefined
     const badNames = Object.keys(parameters ?? {}).filter((k) => !NAME.test(k))
@@ -288,12 +293,12 @@ export const promote = (dir: string, kernelDir: string, from: string, host: Host
       // Accepted: the module next to its scope, and an entry in the pool or the library (a same-name one there is
       // replaced; into the library, it also leaves the pool). Under the lock, from the files as they are now.
       mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, "scope.ts"), scopeFor([], BUILTINS))
+      writeWhole(join(dir, "scope.ts"), scopeFor([], BUILTINS))
       const file = join(dir, `${args.name}.ts`)
       const entry = { name: args.name, description: args.description, file, from, ...(parameters ? { parameters } : {}) }
       const refused = yield* updateTools(dir, (library, pool) => {
         if (inLibrary(library)) return { result: taken } // it graduated while this one was being checked
-        copyFileSync(candidate, file)
+        writeWhole(file, readFileSync(candidate, "utf8"))
         return to === "pool"
           ? { pool: [...pool.filter((e) => e.name !== args.name), { ...entry, for: kind }], result: undefined }
           : { library: [...library.filter((e) => e.name !== args.name), { ...entry, for: kind }], pool: pool.filter((e) => e.name !== args.name), result: undefined }
