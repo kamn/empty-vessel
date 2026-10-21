@@ -27,8 +27,9 @@ export const truncateTail = (text: string) => {
 
   const path = join(tmpdir(), `empty-vessel-bash-${randomUUIDv7()}.txt`)
   writeFileSync(path, text)
-  // One huge last line doesn't fit whole: show its end. (ponytail: slices characters, not bytes; fine for ASCII output)
-  const shown = start === lines.length ? (lines.at(-1) ?? "").slice(-MAX_BYTES) : lines.slice(start).join("\n")
+  // One huge last line doesn't fit whole: show its last MAX_BYTES bytes (not characters: CJK or emoji are 3-4 bytes each),
+  // without the half character the cut may start in.
+  const shown = start === lines.length ? Buffer.from(lines.at(-1) ?? "").subarray(-MAX_BYTES).toString().replace(/^\uFFFD+/, "") : lines.slice(start).join("\n")
   const range = start === lines.length ? `the end of line ${lines.length}` : `lines ${start + 1}-${lines.length}`
   return `${shown}\n\n[Showing ${range} of ${lines.length}. Full output: ${path}]`
 }
