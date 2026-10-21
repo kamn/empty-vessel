@@ -1,4 +1,4 @@
-import { beforeCursor, type Draft } from "./edit"
+import { beforeCursor, chars, type Draft } from "./edit"
 
 export type Completion = { readonly command: string; readonly description: string; readonly skillName?: string }
 export type CompletionState = Draft & {
@@ -55,5 +55,5 @@ export const acceptCompletion = (model: Draft, item: Completion): Draft => {
   const suffix = rest.replace(/^\S*/, "")
   // A file replaces only the @word it completes; a command, everything before the cursor.
   const head = item.command.startsWith("@") ? prefix.slice(0, prefix.length - (mentionAt(prefix)?.length ?? 0)) : ""
-  return { input: head + item.command + suffix, after: Array.from(suffix).length }
+  return { input: head + item.command + suffix, after: chars(suffix).length }
 }
