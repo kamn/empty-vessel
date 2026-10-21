@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect"
+import { withLock } from "./files"
 import { projectDir } from "./project"
 import { Store } from "./store"
 
@@ -59,16 +60,19 @@ export const memoryOnStore = (root: string, limits: Limits = LIMITS) =>
         yield* store.put(yield* key(scope), after.map((l) => `${l}\n`).join(""))
       })
 
+    // Read → change → write while holding the scope's file lock, so two writers at once (sub-agents, other sessions)
+    // can't lose one's change.
+    const locked = <A, E>(scope: Scope, use: Effect.Effect<A, E>) => Effect.flatMap(key(scope), (k) => withLock(store.folder(k), use))
+
     // The entries with the one containing `old` changed (a string) or dropped (undefined); none or several is an error.
-    // ponytail: read, change, write without a lock; two writers at once could lose one change (Store has no lock yet)
     const change = (scope: Scope, old: string, to: string | undefined) =>
-      Effect.gen(function* () {
+      locked(scope, Effect.gen(function* () {
         const all = yield* entries(scope)
         const found = all.filter((l) => l.includes(old))
         if (found.length !== 1) return yield* new MemoryError({ message: `${found.length ? "several" : "no"} ${scope} entries contain "${old}"` })
 
         yield* write(scope, all, all.flatMap((l) => (l !== found[0] ? [l] : to === undefined ? [] : [`- ${to}`])))
-      })
+      }))
 
     // What System Two is told: empty-vessel's own notes, a named agent's, then the project's, each labelled.
     const snapshot = Effect.gen(function* () {
@@ -83,7 +87,7 @@ export const memoryOnStore = (root: string, limits: Limits = LIMITS) =>
 
     return {
       snapshot,
-      add: (scope, text) => Effect.flatMap(entries(scope), (all) => write(scope, all, [...all, `- ${text}`])),
+      add: (scope, text) => locked(scope, Effect.flatMap(entries(scope), (all) => write(scope, all, [...all, `- ${text}`]))),
       replace: (scope, old, text) => change(scope, old, text),
       remove: (scope, old) => change(scope, old, undefined),
       entries,

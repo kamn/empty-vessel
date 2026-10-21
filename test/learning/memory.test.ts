@@ -96,3 +96,14 @@ test("empty-vessel memory lists each scope numbered with how full it is; remove 
   expect(await command("remove team 1")).toContain("which scope?")
   expect(await command("edit agent")).toContain("agents/memory.md")
 })
+
+// Sub-agents (and other processes) write at the same time: each read → change → write holds the scope's lock.
+test("memory: concurrent adds to one scope all survive", async () => {
+  const home = mkdtempSync(join(tmpdir(), "empty-vessel-home-")), root = mkdtempSync(join(tmpdir(), "empty-vessel-proj-"))
+  const run = memoryIn(home, root)
+  const notes = Array.from({ length: 8 }, (_, i) => `note ${i}`)
+
+  await run((m) => Effect.all(notes.map((n) => m.add("project", n)), { concurrency: "unbounded" }))
+
+  expect([...(await run((m) => m.entries("project")))].sort()).toEqual(notes.map((n) => `- ${n}`))
+})

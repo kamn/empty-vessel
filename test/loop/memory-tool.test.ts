@@ -51,7 +51,7 @@ test("the memory tool's refusals come back as text to act on: full, no or severa
 
 test("memory is part of the library grant: without it, it isn't a built-in and System Two isn't told of it", () => {
   expect(builtinsModule([], ALL)).toContain("memory")
-  expect(builtinsModule([], { ...ALL, library: false })).not.toMatch(/\bmemory\b/)
+  expect(builtinsModule([], { ...ALL, library: false }).split(" from ")[0]).not.toMatch(/\bmemory\b/) // the names, not the path (a checkout can be called anything)
   expect(kernelInstructions(ALL)).toContain("memory.add(")
   expect(kernelInstructions({ ...ALL, library: false })).not.toContain("memory.add(")
 })
