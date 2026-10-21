@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
@@ -61,4 +61,21 @@ test("applyProposals: a check System Two ran itself (in a cell, not yielded) is 
 
   expect(said).toEqual(["saved (project): passes: true", "not saved (its command doesn't pass): fails: false"])
   expect(JSON.parse(readFileSync(join(projectDir(root, home), "checks.json"), "utf8")).map((c: { name: string }) => c.name)).toEqual(["passes"])
+})
+
+test("applyProposals never runs a slot value as shell: the template runs with values quoted, and a slot can't be the command", async () => {
+  const home = mkdtempSync(join(tmpdir(), "empty-vessel-home-")), root = mkdtempSync(join(tmpdir(), "empty-vessel-proj-"))
+  const marker = join(mkdtempSync(join(tmpdir(), "empty-vessel-marker-")), "ran")
+  const injected = `x; touch ${marker}`
+  const proposal = (name: string, template: string, value: string, from: string) => ({ action: "add" as const, name, description: name, template, slots: [{ name: "f", values: [value] }], scope: "project" as const, requires: [], from_command: from, why: "" })
+  const said = await Effect.runPromise(applyProposals({ checks: [
+    proposal("smuggled", "test -e {f}", injected, `test -e ${injected}`),
+    proposal("bare", "{f}", `touch ${marker}`, `touch ${marker}`),
+  ], notes: [], open_items: [], repeated_failures: [] }, [], root, "test", home).pipe(Effect.provide(memoryOnStore(root).pipe(Layer.provide(diskStore(home))))))
+
+  expect(existsSync(marker)).toBe(false)
+  expect(said).toEqual([
+    "not saved (its command doesn't pass): smuggled: test -e {f}",
+    "not saved (the command must be written out: a slot can only stand for its arguments): bare: {f}",
+  ])
 })

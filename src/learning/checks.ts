@@ -57,6 +57,7 @@ export const vetCheck = (save: SaveAs, command: string, root: string) => {
   const raw = save.template.replace(/\{(\w+)\}/g, (_, k: string) => (save.args[k] === undefined ? `{${k}}` : items(save.args[k]!).join(" ")))
   if (raw !== command) return "the template filled with args isn't the command that passed"
 
+  if (/^\s*\{\w+\}/.test(save.template)) return "the command must be written out: a slot can only stand for its arguments"
   if (/\|\|\s*true|;\s*exit 0|--passWithNoTests/.test(save.template)) return "a check must be able to fail"
   if (/(^|[\s;&|])(sed -i|rm|mv|cp|tee)\s|>/.test(save.template)) return "a check may only run things, not change files"
   if (/&&|;|\|\|/.test(save.template)) return "one command per check (no &&, ;, ||), so each stays reusable on its own"
