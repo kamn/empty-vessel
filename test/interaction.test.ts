@@ -176,3 +176,31 @@ test("model services persist for subsequent turns without changing another sessi
   expect((yield* a.run("one")).reply).toBe("changed")
   expect((yield* b.run("two")).reply).toBe("initial")
 })))
+
+test("a message steered while a turn starts (agent pick, skill routing) reaches that turn; leftovers wait for drain", () => Effect.runPromise(Effect.gen(function* () {
+  const gate = yield* Deferred.make<void>(), entered = yield* Deferred.make<void>()
+  let seen: ReadonlyArray<string> = []
+  const runner = yield* makeSessionRunner({} as SessionHandle, newConversation(), { events: { emit: () => Effect.void } }, {
+    ...interactionOperations,
+    firstAgent: (_s, _c, _i, services) => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(gate)), Effect.as({ services, line: undefined })) as never,
+    skillCommand: () => Effect.succeed(undefined) as never,
+    answer: (_s, text) => Effect.gen(function* () {
+      if (text === "hi") seen = (yield* Inbox).take()
+      return { reply: "ok", remembered: [], usage: [], brief: { turn: "turn", session: "total" } }
+    }) as never,
+  })
+
+  const turn = yield* Effect.forkChild(runner.run("hi"))
+  yield* Deferred.await(entered)
+  yield* runner.steer("also do X")
+  yield* Deferred.succeed(gate, undefined)
+  yield* Fiber.join(turn)
+  expect(seen).toEqual(["also do X"])
+
+  // Unread at the end: kept for the host's drain, dropped by the next turn.
+  const second = yield* Effect.forkChild(runner.run("again"))
+  yield* runner.steer("unread")
+  yield* Fiber.join(second)
+  expect(yield* runner.drain).toEqual(["unread"])
+  expect(yield* runner.drain).toEqual([])
+}).pipe(Effect.scoped, Effect.provideContext(Context.empty() as never)) as never))

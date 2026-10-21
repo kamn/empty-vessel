@@ -40,6 +40,9 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     let active: { fiber?: Fiber.Fiber<unknown, unknown>; stopping: boolean; done: Deferred.Deferred<void> } | undefined
     let pending: Deferred.Deferred<InteractionAnswer> | undefined
     const inbox = makeInbox(adapters.onSteerRead)
+    // What a turn left unread, set aside when it ends: the host takes them (drain: a channel sends them next) or not
+    // (the TUI keeps its own queue); a new turn drops them. Messages sent while a turn starts stay in the inbox for it.
+    const leftovers: Array<string> = []
     const owner: ModelOwner = {}
     yield* Effect.addFinalizer(() => owner.current ? Scope.close(owner.current, Exit.void) : Effect.void)
 
@@ -87,6 +90,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       }))
 
     const run = (input: string): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
+      leftovers.length = 0
       const refine = /^\/refine(?=\s|$)/.test(input)
       const review = /^\/review(?=\s|$)/.test(input)
       const undo = /^\/undo\s*$/.test(input)
@@ -133,7 +137,6 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         services = picked.services
         if (picked.line) yield* adapters.events.emit({ kind: "note", depth: 0, text: picked.line })
 
-        inbox.drain() // the host owns leftovers between turns (TUI keeps its own displayed queue)
         const result = yield* provide(operations.answer(session, turnInput, conversation))
         conversation.history.push({ user: input, answer: result.reply })
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
@@ -145,7 +148,10 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply, usage: [] }
       })
 
-      return execute(work.pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false }))), interrupted)
+      return execute(work.pipe(Effect.ensuring(Effect.sync(() => {
+        conversation.explicitSkill = false
+        leftovers.push(...inbox.drain())
+      }))), interrupted)
     })
     const runner: SessionRunner = {
       run,
@@ -161,7 +167,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       }),
       answer: (reply) => Effect.suspend(() => pending ? Deferred.succeed(pending, reply) : Effect.void).pipe(Effect.asVoid),
       steer: (text) => Effect.sync(() => inbox.push(text)),
-      drain: Effect.sync(inbox.drain),
+      drain: Effect.sync(() => [...leftovers.splice(0), ...inbox.drain()]),
     }
 
     return runner
