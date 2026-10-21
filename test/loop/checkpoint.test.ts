@@ -179,3 +179,26 @@ test("/redo goes forward again after /undo, keeping what you changed in between;
   expect(conversation.checkpoints).toHaveLength(1) // undoable again
   expect(await run(redoCommand(session, conversation))).toStartWith("Nothing to redo")
 })
+
+test("/undo of a turn that swapped a folder and a file puts both back without failing, and keeps going", async () => {
+  const { dir, run, turn } = repo()
+  const { mkdirSync, rmSync: rm } = await import("node:fs")
+  mkdirSync(join(dir, "d"))
+  writeFileSync(join(dir, "d", "x"), "in a folder\n")
+  writeFileSync(join(dir, "f"), "a file\n")
+  const conversation = newConversation()
+  conversation.checkpoints = [(await turn("swap", () => {
+    rm(join(dir, "d"), { recursive: true })
+    writeFileSync(join(dir, "d"), "now a file\n")
+    rm(join(dir, "f"))
+    mkdirSync(join(dir, "f"))
+    writeFileSync(join(dir, "f", "y"), "now in a folder\n")
+  }))!]
+
+  const reply = await run(undoCommand(session, conversation))
+
+  expect(reply).toContain('Undid what "swap" changed')
+  expect(read(dir, "d/x")).toBe("in a folder\n")
+  expect(read(dir, "f")).toBe("a file\n")
+  expect(conversation.redo).toHaveLength(1) // it worked: redoable, not lost
+})

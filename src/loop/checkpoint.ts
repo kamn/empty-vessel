@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
@@ -61,17 +61,18 @@ export const checkpointOf = (input: string, before: { root: string; tree: string
 
 const nul = (text: string) => text.split("\0").filter(Boolean)
 
-type Undone = { restored: Array<string>; removed: Array<string>; yours: Array<string>; ignored: Array<string>; failed?: string }
+type Undone = { restored: Array<string>; removed: Array<string>; yours: Array<string>; ignored: Array<string>; stuck?: Array<string>; failed?: string }
 
 // Move the paths that differ between `target` and `expected` from `expected` (what they should be now) back to `target`
 // (see the top): /undo moves a turn's after to its before, /redo the other way. A path that no longer matches `expected`
 // is left (yours). Lists go through files (paths can hold anything), and files are restored before anything is
 // removed, so a failure leaves nothing deleted that wasn't put back.
-const move = (root: string, target: string, expected: string) =>
-  Effect.gen(function* () {
+const move = (root: string, target: string, expected: string) => {
+  const work = mkdtempSync(join(tmpdir(), "empty-vessel-undo-")) // removed however this ends
+  const file = (name: string) => quote(join(work, name))
+
+  return Effect.gen(function* () {
     const kernel = yield* Kernel
-    const work = mkdtempSync(join(tmpdir(), "empty-vessel-undo-"))
-    const file = (name: string) => quote(join(work, name))
 
     // What differs (target → expected), and what changed since (expected → now).
     const looked = yield* kernel.exec(`cd ${quote(root)} || exit 3
@@ -101,12 +102,24 @@ git check-ignore -z --no-index --stdin < ${file("created")} > ${file("ignored")}
       return { restored: [], removed: [], yours, ignored: [], failed: what } satisfies Undone
     }
 
+    // A removal can fail where the restore just put something else at the path (a folder the turn had replaced with a
+    // file, or a file it had replaced with a folder): then it's already right. Any other failure is kept and said.
     const ignored = new Set(nul(readFileSync(join(work, "ignored"), "utf8")))
-    const removed = created.filter((p) => !ignored.has(p))
-    for (const p of removed) rmSync(join(root, p), { force: true })
-    rmSync(work, { recursive: true, force: true })
-    return { restored, removed, yours, ignored: created.filter((p) => ignored.has(p)) } satisfies Undone
-  })
+    const removed: Array<string> = [], stuck: Array<string> = []
+
+    for (const p of created.filter((p) => !ignored.has(p))) {
+      try {
+        rmSync(join(root, p), { force: true })
+        removed.push(p)
+      } catch {
+        const there = (() => { try { return lstatSync(join(root, p)) } catch { return undefined } })()
+        if (there && !there.isDirectory()) stuck.push(p)
+      }
+    }
+
+    return { restored, removed, yours, ignored: created.filter((p) => ignored.has(p)), ...(stuck.length ? { stuck } : {}) } satisfies Undone
+  }).pipe(Effect.ensuring(Effect.sync(() => rmSync(work, { recursive: true, force: true }))))
+}
 
 // /undo: back to before the last turn that changed files; /redo: forward again to after it (until a new turn changes
 // files). Told to System Two with its next prompt, as a shared !command is. A failed one keeps its checkpoint, to try
@@ -121,12 +134,13 @@ const shift = (session: SessionHandle, conversation: Conversation, kind: "undo" 
       : "Nothing to redo: /redo goes forward after /undo, until a new turn changes files."
 
     if (checkpoint) {
-      const done = yield* (kind === "undo" ? move(checkpoint.root, checkpoint.before, checkpoint.after) : move(checkpoint.root, checkpoint.after, checkpoint.before))
+      const done: Undone = yield* (kind === "undo" ? move(checkpoint.root, checkpoint.before, checkpoint.after) : move(checkpoint.root, checkpoint.after, checkpoint.before))
       ;(done.failed ? from : to).push(checkpoint)
       const lines = [
         ...done.restored.map((p) => `- restored ${p}`), ...done.removed.map((p) => `- removed ${p}`),
         ...done.yours.map((p) => `- kept ${p}: it changed again after ${kind === "undo" ? "that turn" : "the undo"}`),
         ...done.ignored.map((p) => `- kept ${p}: ignored ${kind === "undo" ? "before" : "after"} that turn`),
+        ...(done.stuck ?? []).map((p) => `- couldn't remove ${p}: remove it by hand if it shouldn't be there`),
       ]
       const what = `"${checkpoint.input.slice(0, 80)}"`
       reply = done.failed ? `Couldn't ${kind} ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `${kind === "undo" ? "Undid" : "Redid"} what ${what} changed:\n${lines.join("\n")}`
