@@ -1,4 +1,4 @@
-import { beforeCursor, type Draft } from "./edit"
+import { beforeCursor, chars, type Draft } from "./edit"
 
 export type Completion = { readonly command: string; readonly description: string; readonly skillName?: string }
 export type CompletionState = Draft & {
@@ -28,5 +28,5 @@ export const acceptCompletion = (model: Draft, item: Completion): Draft => {
   const rest = model.input.slice(prefix.length)
   // Finish the token containing the cursor, not any following argument (including multiline arguments).
   const suffix = rest.replace(/^\S*/, "")
-  return { input: item.command + suffix, after: Array.from(suffix).length }
+  return { input: item.command + suffix, after: chars(suffix).length }
 }

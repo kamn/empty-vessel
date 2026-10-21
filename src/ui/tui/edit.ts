@@ -1,10 +1,12 @@
 // Editing the input box: the text and where the cursor is, as `after` (how many characters are after the cursor: 0 is
 // the end, so text that's replaced whole, a recalled message or a restored queue, has its cursor at the end).
-// Characters are code points (an emoji is one), so the cursor never lands inside one.
+// Characters are graphemes, what reads as one character: an emoji made of several code points (👨‍👩‍👧, 🇺🇸, 👍🏽) is
+// one, so the cursor never lands inside one and Backspace takes it whole.
 
 export type Draft = { readonly input: string; readonly after: number }
 
-const chars = (s: string) => Array.from(s)
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+export const chars = (s: string) => Array.from(graphemes.segment(s), (g) => g.segment)
 const split = (d: Draft) => {
   const all = chars(d.input)
   const at = Math.max(0, all.length - Math.min(d.after, all.length))

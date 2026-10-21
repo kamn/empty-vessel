@@ -49,3 +49,11 @@ test("backspace takes an image label as a whole", () => {
   expect(show(backspace(d("look at [Image #1]|")))).toBe("look at |")
   expect(show(backspace(d("look at [Image #1] |")))).toBe("look at [Image #1]|")
 })
+
+test("emoji made of several code points are one character: Backspace takes them whole, the cursor steps over them", () => {
+  for (const emoji of ["👨‍👩‍👧", "🇺🇸", "👍🏽"]) {
+    expect(backspace({ input: `a${emoji}`, after: 0 })).toEqual({ input: "a", after: 0 })
+    expect(left({ input: `a${emoji}`, after: 0 })).toEqual({ input: `a${emoji}`, after: 1 })
+    expect(insert(left({ input: `a${emoji}`, after: 0 }), "b")).toEqual({ input: `ab${emoji}`, after: 1 })
+  }
+})
