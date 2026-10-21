@@ -59,3 +59,17 @@ test("a valid empty LSP report permits execution without fallback", async () => 
   expect(calls).toBe(1)
   expect(existsSync(fallback)).toBe(false)
 }, 15_000)
+
+test("a compiler that hangs is stopped at the cell's time limit; the cell doesn't run", async () => {
+  const dir = mkdtempSync(`${tmpdir()}/empty-vessel-hung-tsc-`)
+  const tsc = compiler(dir, "exec sleep 30")
+  let calls = 0
+  const k = makeKernel({ dir: `${dir}/kernel`, tsc, languageServer: false, spareWorker: false, timeoutMs: 1500 })
+  const started = Date.now()
+
+  const r = await Effect.runPromise(k.run(action, { count: () => Effect.sync(() => ++calls) }))
+
+  expect(r.summary).toContain("didn't finish within 1500 ms")
+  expect(calls).toBe(0)
+  expect(Date.now() - started).toBeLessThan(10_000)
+}, 20_000)

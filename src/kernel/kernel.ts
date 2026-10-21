@@ -130,15 +130,27 @@ const compilerOptions = (options: KernelOptions) => ({ strict: true, noEmit: tru
 
 // The type check's output if it found problems (or couldn't run), undefined if the cell is fine: from the folder's
 // language server (src/kernel/checker.ts) when it answers, else a fresh tsc for this cell.
+// The fresh tsc is killed at the cell's time limit, or when the cell is stopped (the run interrupted): left alone, a
+// stuck compiler held the cell forever and outlived the turn.
 const typeCheck = (options: KernelOptions, file: string, changed: ReadonlyArray<string>) =>
-  Effect.tryPromise(async () => {
+  Effect.tryPromise(async (signal) => {
     const served = options.languageServer === false ? undefined : await checkWithServer(options.tsc!, options.dir, file, changed)
     if (served !== undefined) return served || undefined
 
     writeFileSync(`${options.dir}/tsconfig.check.json`, JSON.stringify({ compilerOptions: compilerOptions(options), files: [file] }))
     const proc = Bun.spawn([options.tsc!, "-p", `${options.dir}/tsconfig.check.json`], { cwd: options.dir, stdout: "pipe", stderr: "pipe" })
+    const limit = options.timeoutMs ?? 600_000
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; proc.kill() }, limit)
+    const stop = () => proc.kill()
+    signal.addEventListener("abort", stop)
+
     const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
     const exit = await proc.exited
+    clearTimeout(timer)
+    signal.removeEventListener("abort", stop)
+
+    if (timedOut) return `the type check didn't finish within ${limit} ms and was stopped`
     return exit === 0 ? undefined : out.trim() || `the type check failed: compiler exited with code ${exit} without diagnostics`
   }).pipe(Effect.catch((e) => Effect.succeed(`the type check couldn't run: ${e}`)))
 
