@@ -101,7 +101,7 @@ const escalate: Step = (ctx, state) =>
       ...skills,
       ...(state.escalated === 0 ? [`Goal: ${attached.text}`] : ["The goal isn't done yet. What happened since your last answer:"]),
       ...(state.escalated === 0 && attached.images.length ? [`Images attached to this message (you can see them): ${attached.images.map((i) => `${i.label} ${i.path}`).join(", ")}`] : []),
-      ...(state.escalated === 0 && state.gathered ? [`System One loaded these files for you (read others if you need them):\n\n${state.gathered}`] : []),
+      ...(state.escalated === 0 && state.gathered ? [`Files for this request, from the user's @mentions and what System One loaded (read others if you need them):\n\n${state.gathered}`] : []),
       // Only the names: System Two loads one when it needs it (import it from "kernel"; tools() says what each is for).
       ...(state.escalated === 0 && state.offered.systemTwo.length ? [`Tools on trial (new, being tried out: import from "kernel" if one helps; tools() says how to call each): ${state.offered.systemTwo.join(", ")}`] : []),
       ...(state.escalated === 0 && outside ? [outside] : []),
@@ -168,7 +168,7 @@ const gather: Step = (ctx, state) =>
     const fresh = found.picked.filter((p) => !given.has(p))
     fresh.forEach((p) => given.add(p))
     for (const p of fresh) yield* ctx.session.record("given", p).pipe(Effect.ignore)
-    state.gathered = yield* packFiles(process.cwd(), fresh)
+    state.gathered = [state.gathered, yield* packFiles(process.cwd(), fresh)].filter(Boolean).join("\n\n") // after any @mentioned files
 
     yield* Effect.logDebug(`system one gather (${Math.round(ms)} ms) ${JSON.stringify({ calls: found.calls, picked: found.picked })}`)
     state.did.push(`gather (${found.picked.map((p) => p.split("/").at(-1)).join(", ") || "nothing"})`)

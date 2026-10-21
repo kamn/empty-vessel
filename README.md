@@ -82,6 +82,9 @@ Restoring the view does not rerun commands or resume an interrupted operation.
 Older sessions without a saved view are reconstructed from the available session records;
 visual details that were never recorded cannot be recovered.
 
+Point at a file with `@path` in a message (`fix the bug in @src/tools/bash.ts`): the file goes to System Two with
+the request, up to 10 files and 100k characters each.
+
 ## Terminal theme
 
 Add `"theme": "teal"` alongside your existing settings in `~/.empty-vessel/config.json`,

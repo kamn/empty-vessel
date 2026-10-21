@@ -1,3 +1,4 @@
+import { packMentioned } from "./mentions"
 import { Context, Effect } from "effect"
 import { reportState } from "../integrations/herdr"
 import { systemTwoServices } from "./systems"
@@ -144,6 +145,12 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     // into its options, past the shortlist, and System Two's into its prompt. Each offer is recorded.
     const state = newTurnState()
     state.cellsBefore = kernelCells(session.dir).length
+
+    // Files the user pointed at with @path: for System Two's first prompt, recorded like gathered ones (resume knows them).
+    const mentioned = yield* packMentioned(input, process.cwd(), conversation.files)
+    state.gathered = mentioned.packed
+    for (const p of mentioned.paths) yield* session.record("given", p).pipe(Effect.ignore)
+    if (mentioned.paths.length) state.did.push(`mentioned (${mentioned.paths.map((p) => p.split("/").at(-1)).join(", ")})`)
     state.turn = conversation.history.length + 1
     const pool = loadPool(dir).filter(usable)
     const trial = (kind: "systemOne" | "systemTwo", n: number) => choose(pool.filter((e) => e.for === kind), known, n, config.adoption.sampler, config.adoption.reward)
