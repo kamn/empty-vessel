@@ -55,7 +55,8 @@ export const finalReply = (answerText: string | undefined, last: string, hitLimi
 
 // System One's decision for the next step: is the goal done, and if not, which option. Its view stays small: what it did
 // in the last 20 turns, the last 3 exchanges (long answers trimmed), the goal, and this turn's last 3 steps.
-const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, string>>, library: ReadonlySet<string>) =>
+// `last`: the step limit is reached and only `finished` matters (no step follows): said as such, not as a next step.
+const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, string>>, library: ReadonlySet<string>, last = false) =>
   Effect.gen(function* () {
     const { history, actions } = ctx.conversation
     const earlier = history.slice(-3).map((h) => `User: ${h.user} → answered: ${h.answer.length > 300 ? `${h.answer.slice(0, 300)}…` : h.answer}`)
@@ -76,6 +77,10 @@ const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, str
     if (vetoed) yield* emit("step", ctx.depth, `System One: not done yet (${done.toFixed(2)}), System Two continues`)
     state.systemTwoAnswered = false
 
+    if (last) {
+      yield* emit("step", ctx.depth, `step limit: ${finished ? "done" : "not done"} (done ${done.toFixed(2)})`)
+      return { choice, finished }
+    }
     yield* emit("step", ctx.depth, `step ${state.steps.length + 1}: ${finished ? "done" : choice}${choice !== picked && !finished ? ` (System One unsure of ${picked}: ${confidence.toFixed(2)})` : ""}${confirmed?.fits && !finished ? ` (${confidence.toFixed(2)}, confirmed yes ${confirmed.confidence.toFixed(2)})` : ""} (done ${done.toFixed(2)})`)
     return { choice, finished }
   })
@@ -184,7 +189,9 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       if (finishedByCheck || waitingForUser) break
     }
 
-    const hitLimit = state.steps.length === config.maxSteps && !finishedByCheck && !waitingForUser
+    // At the limit, System One says once more whether the last step finished the goal: only an unfinished one is cut short.
+    const atLimit = state.steps.length === config.maxSteps && !finishedByCheck && !waitingForUser
+    const hitLimit = atLimit && !(yield* decide(ctx, state, optionsNow(), library, true)).finished
     const reply = finalReply(state.answerText, last, hitLimit)
 
     yield* session.record("assistant", reply)
