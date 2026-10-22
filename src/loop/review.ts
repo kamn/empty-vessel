@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect"
 import { exitOf, lessonIn } from "../base/lessons"
 import { Memory } from "../base/memory"
 import { projectDir } from "../base/project"
-import { SESSIONS } from "../base/session"
+import { logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
 import { Reviewer } from "../learning/reviewer"
 
@@ -95,7 +95,7 @@ const sessionsFor = (root: string, ids: ReadonlyArray<string>, since: number, la
     const found: Array<{ id: string; lines: ReadonlyArray<Line> }> = []
 
     for (const id of yield* store.list(SESSIONS)) {
-      const lines: Array<Line> = ((yield* store.get(`${SESSIONS}/${id}/main.jsonl`)) ?? "").split("\n").flatMap((l) => { try { return [JSON.parse(l)] } catch { return [] } })
+      const lines: Array<Line> = logEntries(yield* store.get(`${SESSIONS}/${id}/main.jsonl`))
       const first = lines[0] as (Line & { checks?: string }) | undefined
       if (first?.role !== "project" || (first.checks ?? projectDir(first.text)) !== project) continue
       if (ids.length ? ids.some((wanted) => id.endsWith(wanted)) : since ? (lines.at(-1)?.ts ?? 0) > since : true) found.push({ id, lines })

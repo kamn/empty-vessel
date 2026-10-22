@@ -27,7 +27,7 @@ test("durable usage has versioned nested metadata, recorder time, and distinct r
   expect(b).not.toBe(a)
   const usage = rows(session).filter((r) => r.role === "usage")
   expect(usage).toHaveLength(2)
-  expect(usage[0]).toEqual({ role: "usage", text: "model request", ts: expect.any(Number), extra: {
+  expect(usage[0]).toEqual({ role: "usage", text: "model request", seq: expect.any(Number), ts: expect.any(Number), extra: {
     usageVersion: 1, usageId: a, system: "systemOne", model: "jev-latest", agent: session.key, input: 10, output: 2, provider: "jev",
   } })
   expect(usage[0].ts).toBeGreaterThanOrEqual(before)

@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.4
+# empty-vessel core 0.0.5
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -520,7 +520,9 @@ export interface StepState {
 declare const Store_base: Context.ServiceClass<Store, "empty-vessel/Store", {
     readonly get: (key: string) => Effect.Effect<string | undefined>;
     readonly put: (key: string, text: string) => Effect.Effect<void>;
-    readonly append: (key: string, text: string) => Effect.Effect<void>;
+    readonly append: (key: string, text: string, options?: {
+        readonly sync?: boolean;
+    }) => Effect.Effect<void>;
     readonly list: (prefix: string) => Effect.Effect<ReadonlyArray<string>>;
     readonly folder: (key: string) => string;
 }>;

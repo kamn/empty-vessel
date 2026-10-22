@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { projectDir } from "../base/project"
-import { SESSIONS } from "../base/session"
+import { logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
 
 // pastSessions: what was said in this project's earlier sessions, for "what did we decide about X?" (Hermes's session
@@ -27,8 +27,7 @@ export const pastSessions = (query: string, options: { readonly cwd: string; rea
 
     for (const id of [...(yield* store.list(SESSIONS))].reverse()) { // ids are time-ordered: newest first
       if (id === options.exclude) continue
-      const lines = ((yield* store.get(`${SESSIONS}/${id}/main.jsonl`)) ?? "").split("\n")
-      const entries = lines.flatMap((l) => { try { return [JSON.parse(l) as { role: string; text: string; ts: number; checks?: string }] } catch { return [] } })
+      const entries = logEntries(yield* store.get(`${SESSIONS}/${id}/main.jsonl`))
       const first = entries[0]
       if (first?.role !== "project" || (first.checks ? first.checks !== checks : first.text !== options.cwd)) continue
 

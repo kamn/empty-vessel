@@ -4,7 +4,7 @@ import { Channel } from "./base/channel"
 import { Config } from "./base/config"
 import { Store } from "./base/store"
 import { Background } from "./base/background"
-import { makeSession, openSession, SESSIONS } from "./base/session"
+import { logEntries, makeSession, openSession, SESSIONS } from "./base/session"
 import { newConversation } from "./loop/turnkit"
 import { loadConversation, useSystemTwo } from "./loop/resume"
 import { makeSessionRunner } from "./interaction"
@@ -22,13 +22,8 @@ export const channelRoot = (resume?: string) => Effect.scoped(Effect.gen(functio
   if (key) {
     if (!/^sessions\/[a-zA-Z0-9-]+$/.test(key)) return yield* Effect.fail(new Error("Invalid channel session key"))
     const saved = yield* store.get(`${key}/main.jsonl`)
-    let project: string | undefined
-    try {
-      const first: unknown = JSON.parse(saved?.split("\n")[0] ?? "{}")
-      if (first && typeof first === "object" && "role" in first && first.role === "project" && "text" in first && typeof first.text === "string") {
-        project = first.text
-      }
-    } catch {}
+    const first = logEntries(saved)[0]
+    const project = first?.role === "project" && typeof first.text === "string" ? first.text : undefined
 
     if (!project || resolve(project) !== resolve(process.cwd())) {
       return yield* Effect.fail(new Error("The channel session is missing or belongs to another project; select a session from this directory with --resume"))

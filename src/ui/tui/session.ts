@@ -73,6 +73,8 @@ const parse = (text: string | undefined): unknown => {
 
 // Only explicit public records are replayed. `thread`, `stash`, `step` (debug results), child files,
 // and kernel result files are NOT chat history. The index enriches recorded cells, never adds duplicates.
+// Its own read of main.jsonl, not base/session.ts's logEntries (ui can't import base, test/layers.test.ts): like it,
+// a torn line or an entry type it doesn't know is skipped.
 const replay = (dir: string, initial: Model): Model => {
   const printed = [...initial.printed]
   const history = [...initial.history]

@@ -1,7 +1,7 @@
 import { isTree } from "./checkpoint"
 import { readFileSync } from "node:fs"
 import { Effect } from "effect"
-import type { SessionHandle } from "../base/session"
+import { logEntries, type SessionHandle } from "../base/session"
 import { fromSaved, toSaved } from "../base/images"
 import { type Conversation, type Ctx, newConversation, unseenBySystemTwo } from "./turnkit"
 import { type Cell, underRules } from "../kernel/kernel"
@@ -13,11 +13,8 @@ export const loadConversation = (dir: string): Conversation => {
   const c = newConversation()
   let user = "", lastStep: string | undefined, switched = false
 
-  for (const line of readFileSync(`${dir}/main.jsonl`, "utf8").split("\n")) {
-    if (!line) continue
-    // A line cut short (the process killed mid-append) is skipped: one torn line mustn't make every resume fail.
-    let e
-    try { e = JSON.parse(line) } catch { continue }
+  // A line cut short (the process killed mid-append) is skipped: one torn line mustn't make every resume fail.
+  for (const e of logEntries(readFileSync(`${dir}/main.jsonl`, "utf8"))) {
     if (e.role === "user") {
       user = e.text
       lastStep = undefined

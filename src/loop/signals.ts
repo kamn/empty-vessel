@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { exitOf, lessonIn } from "../base/lessons"
 import { projectDir } from "../base/project"
-import { SESSIONS } from "../base/session"
+import { logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
 
 // What refine (src/loop/refine.ts) reads back from this project's sessions: the records, and the signals code finds in
@@ -90,7 +90,7 @@ export const sessionsSince = (root: string, since: number, latest = 5) =>
     const found: Array<{ id: string; lines: ReadonlyArray<Line> }> = []
 
     for (const id of yield* store.list(SESSIONS)) {
-      const lines: Array<Line> = ((yield* store.get(`${SESSIONS}/${id}/main.jsonl`)) ?? "").split("\n").flatMap((l) => { try { return [JSON.parse(l)] } catch { return [] } })
+      const lines: Array<Line> = logEntries(yield* store.get(`${SESSIONS}/${id}/main.jsonl`))
       if (lines[0]?.role !== "project" || (lines[0].checks ?? projectDir(lines[0].text)) !== project) continue
       if (!since || (lines.at(-1)?.ts ?? 0) > since) found.push({ id, lines })
     }

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { appendFile, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises"
 import { dirname } from "node:path"
 import { Effect } from "effect"
@@ -51,3 +52,30 @@ export const withLock = <A, E, R>(path: string, use: Effect.Effect<A, E, R>) => 
 // Small appends of one line don't interleave, so no lock is needed.
 export const appendHistory = (path: string, entry: Readonly<Record<string, unknown>>) =>
   Effect.promise(() => mkdir(dirname(path), { recursive: true }).then(() => appendFile(path, `${JSON.stringify({ ...entry, ts: Date.now() })}\n`)))
+
+// When process `pid` started, as `ps` prints it (the same text each time for one process), or undefined if there's no
+// such process. With the pid, it names one process even after the pid is reused.
+export const processStart = (pid: number): string | undefined => {
+  try {
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 1000, env: { ...process.env, LC_ALL: "C" } }).trim() || undefined
+  } catch { return undefined }
+}
+let ownStart: string | undefined
+
+// An owner lease (KTD8): `path` names the one process that owns something, as { pid, startedAt }. Taking it succeeds
+// (undefined) when nobody holds it, or its holder is gone: its pid is dead, is this process, or now belongs to a process
+// that started at another time. Otherwise it gives the live holder, and leaves the lease as it was.
+// Not withLock: that gives up after 10s and breaks any lock older than 30s, even a live owner's.
+// ponytail: check-then-write, so two processes taking a dead holder's lease at the same instant can both win; a create-
+// exclusive handover if that race shows up.
+export type Owner = { readonly pid: number; readonly startedAt: string }
+export const takeLease = (path: string) =>
+  Effect.gen(function* () {
+    const held = yield* Effect.promise(() => readFile(path, "utf8").then((t) => JSON.parse(t) as Partial<Owner>, () => undefined))
+    const live = typeof held?.pid === "number" && held.pid !== process.pid && processStart(held.pid) === held.startedAt
+    if (live) return held as Owner
+
+    ownStart ??= processStart(process.pid) ?? "unknown"
+    yield* writeAtomic(path, JSON.stringify({ pid: process.pid, startedAt: ownStart }))
+    return undefined
+  })

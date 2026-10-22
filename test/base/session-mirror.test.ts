@@ -58,7 +58,7 @@ test("mirror receives the stable key, exact timestamp and extra only after the S
   }).pipe(Effect.provideService(SessionMirror, (entry) => Effect.sync(() => {
     // Reading inside the callback proves append ordering, not just eventual persistence.
     const saved = readFileSync(join(home, entry.key, "main.jsonl"), "utf8")
-    expect(JSON.parse(saved!.trim().split("\n").at(-1)!)).toEqual({ role: entry.role, text: entry.text, ...entry.extra, ts: entry.ts })
+    expect(JSON.parse(saved!.trim().split("\n").at(-1)!)).toEqual({ role: entry.role, text: entry.text, ...entry.extra, seq: expect.any(Number), ts: entry.ts })
     seen.push(entry)
   })), Effect.provide(store)))
 })

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile } from "node:fs/promises"
+import { appendFile, mkdir, open, readdir, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { Context, Effect, Layer } from "effect"
 import { writeAtomic } from "./files"
@@ -10,7 +10,7 @@ import { EMPTY_VESSEL_HOME } from "./home"
 export class Store extends Context.Service<Store, {
   readonly get: (key: string) => Effect.Effect<string | undefined>
   readonly put: (key: string, text: string) => Effect.Effect<void>
-  readonly append: (key: string, text: string) => Effect.Effect<void>
+  readonly append: (key: string, text: string, options?: { readonly sync?: boolean }) => Effect.Effect<void> // sync: on the disk (fsync) before it succeeds
   readonly list: (prefix: string) => Effect.Effect<ReadonlyArray<string>>
   readonly folder: (key: string) => string // the key as a folder on this machine, for what still needs real files (the kernel)
 }>()("empty-vessel/Store") {}
@@ -21,7 +21,16 @@ export const diskStore = (home = EMPTY_VESSEL_HOME) =>
   Layer.succeed(Store, {
     get: (key) => Effect.promise(() => readFile(join(home, key), "utf8").catch(() => undefined)),
     put: (key, text) => writeAtomic(join(home, key), text),
-    append: (key, text) => Effect.promise(() => mkdir(dirname(join(home, key)), { recursive: true }).then(() => appendFile(join(home, key), text))),
+    append: (key, text, options) => Effect.promise(async () => {
+      await mkdir(dirname(join(home, key)), { recursive: true })
+      if (!options?.sync) return appendFile(join(home, key), text)
+
+      const file = await open(join(home, key), "a")
+      try {
+        await file.appendFile(text)
+        await file.sync()
+      } finally { await file.close() }
+    }),
     list: (prefix) => Effect.promise(() => readdir(join(home, prefix)).then((names) => names.sort(), () => [])),
     folder: (key) => join(home, key),
   })
