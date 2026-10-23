@@ -18,11 +18,14 @@ import { effectExports } from "./effect-exports"
 // services, so they show in each Effect's requirements.
 
 export type HostFunctions = Readonly<Record<string, (arg: unknown) => Effect.Effect<unknown, unknown>>>
+// Asked before each host call is made (its name and argument): a failure is the call's, and the call isn't made.
+export type BeforeCall = (fn: string, arg: unknown) => Effect.Effect<void, unknown>
 
 // A tool source: tools from outside (an MCP server, later a CLI or an API), which cells
 // use like any other built-in, grouped under the source's name: `yield* posthog.insights_query({ … })`. How the tools
 // are provided is the source's business; to the kernel they're a list and a call.
-export type SourceTool = { readonly name: string; readonly description: string; readonly inputSchema?: unknown }
+// `readOnlyHint`: the source says the tool changes nothing (MCP's annotation), so a cell that used it can run again.
+export type SourceTool = { readonly name: string; readonly description: string; readonly inputSchema?: unknown; readonly readOnlyHint?: boolean }
 export type ToolSource = {
   readonly name: string // a TypeScript name: what cells import
   readonly list: Effect.Effect<ReadonlyArray<SourceTool>, Error>
@@ -164,7 +167,7 @@ const startWorker = (options: KernelOptions) => {
 }
 
 // Run one cell in its Worker: host calls answered, logs collected, stopped at the timeout or when interrupted.
-const runInWorker = (options: KernelOptions, file: string, host: HostFunctions, worker: Worker) =>
+const runInWorker = (options: KernelOptions, file: string, host: HostFunctions, worker: Worker, beforeCall?: BeforeCall) =>
   Effect.callback<{ defines: ReadonlyArray<string>; value?: string; ran?: boolean; error?: string; logs: string; timedOut?: boolean }>((resume) => {
     const logs: Array<string> = []
     const calls = new Set<Fiber.Fiber<unknown, unknown>>() // host calls still in flight for this cell
@@ -196,7 +199,7 @@ const runInWorker = (options: KernelOptions, file: string, host: HostFunctions, 
         const reply = fn
           // Any failure is the cell's error, a crash or a throw while making the call too: unanswered, the cell would wait
           // out its whole time limit (and a throw here would escape onmessage).
-          ? Effect.suspend(() => fn(m.arg)).pipe(Effect.matchCause({
+          ? Effect.suspend(() => (beforeCall ? beforeCall(m.fn, m.arg).pipe(Effect.andThen(Effect.suspend(() => fn(m.arg)))) : fn(m.arg))).pipe(Effect.matchCause({
             onSuccess: (value) => ({ id: m.id, value }),
             onFailure: (cause) => ({ id: m.id, error: Cause.hasFails(cause) ? String(Cause.squash(cause)) : Cause.pretty(cause) }),
           }))
@@ -249,8 +252,8 @@ export const makeKernel = (given: KernelOptions) => {
     warmChecker(options.tsc, options.dir)
   }
 
-  // Run code as the next cell and keep what it defines.
-  const run = (code: string, host: HostFunctions = {}, title?: string) =>
+  // Run code as the next cell and keep what it defines. `beforeCall`: asked before each of its host calls.
+  const run = (code: string, host: HostFunctions = {}, title?: string, beforeCall?: BeforeCall) =>
     Effect.gen(function* () {
       mkdirSync(`${options.dir}/results`, { recursive: true })
       const before = cells()
@@ -291,7 +294,7 @@ export const makeKernel = (given: KernelOptions) => {
         return save({ n, status: "type-error", defines: [], summary: types.slice(0, 4000), logs: "", error: types })
       }
 
-      const r = yield* runInWorker(options, file, withSources, worker)
+      const r = yield* runInWorker(options, file, withSources, worker, beforeCall)
       if (r.error !== undefined) return save({ n, status: r.timedOut ? "timeout" : "error", defines: [], summary: r.error, logs: r.logs, error: r.error })
 
       const value = r.value === undefined ? undefined : JSON.parse(r.value)

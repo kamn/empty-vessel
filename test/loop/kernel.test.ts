@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { Effect } from "effect"
-import { makeKernel } from "../../src/kernel/kernel"
+import { makeGuardedKernel } from "../../src/tools/kernel-service" // write and edit need its journal ($effect)
 import { KERNEL_INSTRUCTIONS } from "../../src/system-two/instructions"
 
 const BUILTINS = new URL("../../src/tools/kernel-builtins.ts", import.meta.url).pathname
@@ -32,7 +32,7 @@ test("the worked examples in the instructions run under the kernel's rules: judg
 
   const project = mkdtempSync(`${tmpdir()}/empty-vessel-project-`)
   writeFileSync(`${project}/tickets.jsonl`, [{ id: "T-1", subject: "Can't log in", body: "password reset fails" }, { id: "T-2", subject: "Charged twice", body: "two charges on my card" }].map((t) => JSON.stringify(t)).join("\n"))
-  const k = makeKernel({ dir: mkdtempSync(`${tmpdir()}/empty-vessel-kernel-`), builtins: BUILTINS, tsc: TSC })
+  const k = makeGuardedKernel({ dir: mkdtempSync(`${tmpdir()}/empty-vessel-kernel-`), builtins: BUILTINS, tsc: TSC })
   const inProject = (code: string) => code.replaceAll("data/tickets.jsonl", `${project}/tickets.jsonl`).replaceAll("work/triage.jsonl", `${project}/triage.jsonl`)
 
   const one = await Effect.runPromise(k.run(inProject(cells[0]!), host))

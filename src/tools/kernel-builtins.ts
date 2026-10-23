@@ -57,6 +57,15 @@ export { Sources }
 
 const tool = (name: string, args: object) => TOOLS.find((t) => t.name === name)!.call(args)
 const readOnly = (what: string) => Effect.succeed(`not done: files are read-only in this kernel (${what})`)
+// write and edit ask the host to record them first ($effect: the session's effect journal) and say how they went after.
+// One the host can't record (or a kernel with no journal) isn't done.
+const journaled = (what: "write" | "edit", path: string, act: Effect.Effect<string>) =>
+  call("$effect", { tool: what, path }).pipe(
+    Effect.matchEffect({
+      onFailure: (e) => Effect.succeed(`not done: the ${what} couldn't be recorded first (${e.message})`),
+      onSuccess: (id) => act.pipe(Effect.tap((outcome) => call("$effect", { id, outcome }).pipe(Effect.ignore))),
+    }),
+  )
 
 // The services, only those `g` grants (config.json's kernel.tools): one it doesn't isn't provided at all, so even a cell
 // that names it some other way (its key) gets nothing. Read-only files: write and edit say so instead of writing.
@@ -67,8 +76,8 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     read: (path, offset, limit) => tool("read", { path, ...(offset ? { offset } : {}), ...(limit ? { limit } : {}) }),
     skill: (args) => call("skill", args) as Effect.Effect<string, Error>,
     readText: (path) => Effect.tryPromise({ try: () => readFile(path, "utf8"), catch: (e) => new Error(`can't read ${path}: ${e}`) }),
-    write: (path, content) => (has(g, "write") ? tool("write", { path, content }) : readOnly(`write ${path}`)),
-    edit: (path, edits) => (has(g, "write") ? tool("edit", { path, edits }) : readOnly(`edit ${path}`)),
+    write: (path, content) => (has(g, "write") ? journaled("write", path, tool("write", { path, content })) : readOnly(`write ${path}`)),
+    edit: (path, edits) => (has(g, "write") ? journaled("edit", path, tool("edit", { path, edits })) : readOnly(`edit ${path}`)),
   }))] : []),
   // Always ask the host. A cell replacing local Effect services cannot authorize its own command.
   ...(g.shell ? [Layer.succeed(Shell, Shell.of({ run: (command, timeout) =>

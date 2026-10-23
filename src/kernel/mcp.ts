@@ -49,7 +49,7 @@ const sourceFrom = (name: string, send: Send, reset: () => void, instructions: (
     const all: Array<SourceTool> = []
     for (let cursor: string | undefined, first = true; first || cursor; first = false) {
       const page = await send("tools/list", cursor ? { cursor } : {})
-      for (const t of page.tools ?? []) all.push({ name: t.name, description: t.description ?? "", inputSchema: t.inputSchema })
+      for (const t of page.tools ?? []) all.push({ name: t.name, description: t.description ?? "", inputSchema: t.inputSchema, ...(t.annotations?.readOnlyHint === true ? { readOnlyHint: true } : {}) })
       cursor = page.nextCursor
     }
     return all
