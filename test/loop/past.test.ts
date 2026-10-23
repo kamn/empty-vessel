@@ -14,8 +14,9 @@ const session = (home: string, id: string, project: string, lines: ReadonlyArray
   writeFileSync(join(home, "sessions", id, "main.jsonl"), entries.map((e) => JSON.stringify(e)).join("\n") + "\n")
 }
 
-test("pastSessions: this project's messages with every word, newest first, with session and time; other projects and the current session left out", async () => {
+test("pastSessions: a bare query still works (discover): this project's matching sessions with session ids and times; other projects and the current session left out", async () => {
   const home = mkdtempSync(join(tmpdir(), "empty-vessel-home-"))
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ui: "plain", systemOne: { use: "fake" }, systemTwo: { use: "fake" } }))
   const here = mkdtempSync(join(tmpdir(), "empty-vessel-proj-")), elsewhere = mkdtempSync(join(tmpdir(), "empty-vessel-other-"))
   session(home, "01-old", here, [["user", "Should the cache use Redis?", 1000], ["assistant", "We decided: no Redis, an LRU cache in memory.", 2000], ["thread", "Redis cache internals", 2500]])
   session(home, "02-other", elsewhere, [["assistant", "Redis cache for the other project", 3000]])
@@ -24,9 +25,11 @@ test("pastSessions: this project's messages with every word, newest first, with 
 
   const found = await Effect.runPromise(pastSessions("redis CACHE", { cwd: here, exclude: "04-current" }).pipe(Effect.provide(diskStore(home))))
 
-  expect(found.map((f) => [f.session, f.role])).toEqual([["03-new", "assistant"], ["01-old", "assistant"], ["01-old", "user"]])
-  expect(found[1]!.at).toBe(new Date(2000).toISOString())
-  expect(found[1]!.text).toContain("LRU cache")
-  expect(await Effect.runPromise(pastSessions("redis", { cwd: here, limit: 1 }).pipe(Effect.provide(diskStore(home))))).toHaveLength(1)
-  expect(await Effect.runPromise(pastSessions("  ", { cwd: here }).pipe(Effect.provide(diskStore(home))))).toEqual([])
+  expect(found.sessions.map((s) => s.session).sort()).toEqual(["01-old", "03-new"])
+  const old = found.sessions.find((s) => s.session === "01-old")!
+  expect(old.messages.map((m) => m.role).sort()).toEqual(["assistant", "user"])
+  expect(old.messages.find((m) => m.role === "assistant")!.at).toBe(new Date(2000).toISOString())
+  expect(old.messages.find((m) => m.role === "assistant")!.text).toContain("LRU **cache**")
+  expect((await Effect.runPromise(pastSessions({ query: "redis", limit: 1 }, { cwd: here }).pipe(Effect.provide(diskStore(home))))).sessions).toHaveLength(1)
+  expect((await Effect.runPromise(pastSessions("  ", { cwd: here }).pipe(Effect.provide(diskStore(home))))).sessions).toEqual([])
 })

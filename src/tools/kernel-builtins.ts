@@ -47,11 +47,16 @@ export class Library extends Context.Service<Library, {
   readonly tools: Effect.Effect<Readonly<Record<string, string>>, Error>
   readonly handTools: (names: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly memory: (change: MemoryChange) => Effect.Effect<string, Error>
-  readonly pastSessions: (args: { query: string; limit?: number }) => Effect.Effect<ReadonlyArray<PastMessage>, Error>
+  readonly pastSessions: (args: PastArgs) => Effect.Effect<PastResult, Error>
   readonly saveSkill: (edit: SkillEdit) => Effect.Effect<string, Error>
 }>()("empty-vessel/Library") {}
 export type SkillEdit = { readonly name: string; readonly content: string } | { readonly name: string; readonly old: string; readonly new: string }
-type PastMessage = { readonly session: string; readonly at: string; readonly role: "user" | "assistant"; readonly text: string }
+type PastArgs = {
+  readonly query?: string; readonly mode?: "discover" | "scroll" | "read"; readonly limit?: number; readonly allProjects?: boolean; readonly summarize?: boolean
+  readonly session?: string; readonly seq?: number; readonly window?: number
+}
+type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
+type PastResult = { readonly sessions: ReadonlyArray<{ readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }>; readonly summary?: string; readonly truncated?: boolean }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
 export class Time extends Context.Service<Time, { readonly now: Effect.Effect<number> }>()("empty-vessel/Time") {}
@@ -102,7 +107,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     tools: call("tools") as Effect.Effect<Readonly<Record<string, string>>, Error>,
     handTools: (names) => call("handTools", names) as Effect.Effect<string, Error>,
     memory: (change) => call("memory", change) as Effect.Effect<string, Error>,
-    pastSessions: (args) => call("pastSessions", args) as Effect.Effect<ReadonlyArray<PastMessage>, Error>,
+    pastSessions: (args) => call("pastSessions", args) as Effect.Effect<PastResult, Error>,
     saveSkill: (edit) => call("saveSkill", edit) as Effect.Effect<string, Error>,
   }))] : []),
 ) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Time | Random> // only what's granted, in fact: cells see the rest missing
@@ -173,10 +178,14 @@ export const memory = {
   remove: (scope: MemoryScope, old: string) => Library.use((l) => l.memory({ action: "remove", scope, old })),
 }
 
-// pastSessions: what was said in this project's earlier sessions (the user's messages and empty-vessel's answers)
-// containing every word of `query`, newest first: [{ session, at, role, text }] (text: the part around the match).
-// For "what did we decide about X?" when memory doesn't have it. `session` is the id to --resume.
-export const pastSessions = (query: string, limit = 20) => Library.use((l) => l.pastSessions({ query, limit }))
+// pastSessions: what was said in earlier sessions (the user's messages and empty-vessel's answers), for "what did we decide
+// about X?" when memory doesn't have it. Every mode answers { sessions: [{ session, started, messages: [{ seq, at, role, text }] }] }.
+// pastSessions("words") or { query, limit?, allProjects?, summarize? }: this project's sessions (every project's with
+// allProjects) holding every word, best first, matches in **bold**; summarize adds `summary`. { mode: "scroll", session,
+// seq, window? }: the messages around a hit. { mode: "read", session }: a whole session (`truncated` if cut). `session` is
+// the id to --resume.
+export const pastSessions = (args: string | PastArgs, limit?: number) =>
+  Library.use((l) => l.pastSessions(typeof args === "string" ? { query: args, ...(limit ? { limit } : {}) } : args))
 
 // saveSkill: keep a workflow that worked as a personal skill (<home>/skills/<name>/SKILL.md), usable at once with skill().
 // { name, content }: the whole SKILL.md (frontmatter name and description, then the steps); { name, old, new }: change the

@@ -12,7 +12,7 @@ import { DETACHED, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { Memory, type Scope, SCOPES } from "../base/memory"
-import { pastSessions } from "./past"
+import { type PastArgs, pastSessions } from "./past"
 import { fillParameters, helpers, systemOneTools, kernelImports, libraryDir, loadLibrary, loadPool, promote, TSC, usableWith, writeBuiltins } from "./library"
 import { record } from "./pool"
 import { kernelSources, sourceTools } from "./sources"
@@ -161,12 +161,18 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
         ? `staged skill ${saved.name}: it waits for the user's approval (/skills pending, /skills approve ${saved.name}) and isn't in the catalog yet: ${saved.path}${warned}`
         : `saved skill ${saved.name} (${saved.created ? "new" : "updated"}): ${saved.path}; in the catalog now: skill({ name: "${saved.name}" })${warned}`
     }).pipe(Effect.mapError((e) => new Error(e.message))),
-    // Earlier sessions of this project, searched (src/loop/past.ts); this conversation's own session is left out.
+    // Earlier sessions, searched and read back (src/loop/past.ts); this conversation's own session is left out of searches.
+    // Only the fields pastSessions knows, each of its own type, are passed on.
     pastSessions: (arg: unknown) => {
-      const { query, limit } = arg as { query: unknown; limit?: unknown }
-      if (typeof query !== "string" || !query.trim()) return Effect.fail(new Error("pastSessions expects a query of words"))
-      const max = typeof limit === "number" && limit > 0 ? Math.min(limit, 100) : 20
-      return pastSessions(query, { cwd: process.cwd(), exclude: ctx.session.key.split("/")[1], limit: max }).pipe(Effect.provideContext(services))
+      const a = (arg && typeof arg === "object" ? arg : {}) as Record<string, unknown>
+      const mode: PastArgs["mode"] = a.mode === "scroll" || a.mode === "read" ? a.mode : a.mode === undefined || a.mode === "discover" ? "discover" : undefined
+      if (!mode) return Effect.fail(new Error("pastSessions mode is discover, scroll or read"))
+      if (mode === "discover" && (typeof a.query !== "string" || !a.query.trim())) return Effect.fail(new Error("pastSessions expects a query of words"))
+
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined)
+      const args: PastArgs = { mode, query: typeof a.query === "string" ? a.query : undefined, session: typeof a.session === "string" ? a.session : undefined, seq: num(a.seq), window: num(a.window),
+        limit: num(a.limit) !== undefined && num(a.limit)! > 0 ? num(a.limit) : undefined, allProjects: a.allProjects === true, summarize: a.summarize === true }
+      return pastSessions(args, { cwd: process.cwd(), exclude: ctx.session.key.split("/")[1] }).pipe(Effect.provideContext(services))
     },
   }
   return host

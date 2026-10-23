@@ -58,7 +58,7 @@ test("unknown entry types are skipped by resume and session search", async () =>
     '{"role":"fromTheFuture","text":"needle","ts":3}', '{"role":"assistant","text":"needle found","ts":4}', ""].join("\n"))
 
   expect(loadConversation(join(home, SESSIONS, id)).history).toEqual([{ user: "find the needle", answer: "needle found" }])
-  expect((await run(home, pastSessions("needle", { cwd: project }))).map((m) => m.role)).toEqual(["assistant", "user"])
+  expect((await run(home, pastSessions("needle", { cwd: project }))).sessions[0]!.messages.map((m) => m.role).sort()).toEqual(["assistant", "user"])
 })
 
 test("after an append with an unknown outcome the session stops writing", async () => {

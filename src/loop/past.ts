@@ -1,42 +1,117 @@
-import { Effect } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { projectDir } from "../base/project"
 import { logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
+import { Reviewer } from "../learning/reviewer"
+import { indexSessions, numbered, said, withIndex } from "./recall"
 
-// pastSessions: what was said in this project's earlier sessions, for "what did we decide about X?" (Hermes's session
-// search, beside its curated memory). Messages only (the user's and empty-vessel's answers), where every word of the
-// query appears, newest first, each with where it came from: the session (to --resume it) and when. Another project's
-// sessions are never searched: a session belongs to the project its first line names (worktrees of one repo count as one).
-// ponytail: reads every session file on each search; an index if the history grows past a few thousand sessions.
-export type PastMessage = { readonly session: string; readonly at: string; readonly role: "user" | "assistant"; readonly text: string }
+// pastSessions: what was said in earlier sessions, for "what did we decide about X?" (Hermes's session search, beside its
+// curated memory), from the recall index (src/loop/recall.ts). Three modes:
+// - discover (the default; a bare query string is one): the sessions whose messages (the user's and empty-vessel's
+//   answers) hold every word of the query, best match first, each with up to three excerpts, matches in **bold**; the best
+//   hit comes whole (up to FULL characters). Only this project's sessions (a session belongs to the project its first line
+//   names; worktrees of one repo count as one) unless `allProjects: true`. `summarize: true` adds the reviewer's summary.
+// - scroll: the messages around one (`session`, `seq` from a hit, `window` either side).
+// - read: a whole session's messages, up to READ characters.
+export type PastArgs = {
+  readonly query?: string; readonly mode?: "discover" | "scroll" | "read"; readonly limit?: number; readonly allProjects?: boolean; readonly summarize?: boolean
+  readonly session?: string; readonly seq?: number; readonly window?: number
+}
+export type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
+export type PastSession = { readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }
+export type PastResult = { readonly sessions: ReadonlyArray<PastSession>; readonly summary?: string; readonly truncated?: boolean }
 
-const SNIPPET = 400 // characters around the first match
+const FULL = 2000, READ = 60_000, PER_SESSION = 3
 
-const snippet = (text: string, word: string) => {
-  const at = Math.max(0, text.toLowerCase().indexOf(word) - SNIPPET / 4)
-  return `${at > 0 ? "…" : ""}${text.slice(at, at + SNIPPET)}${at + SNIPPET < text.length ? "…" : ""}`
+const iso = (ts: number) => new Date(ts).toISOString()
+
+// The best hit, whole, or (if long) from a little before its first match.
+const fuller = (text: string) => {
+  if (text.length <= FULL) return text
+  const at = Math.max(0, text.indexOf("**") - FULL / 4)
+  return `${at > 0 ? "…" : ""}${text.slice(at, at + FULL)}${at + FULL < text.length ? "…" : ""}`
 }
 
-export const pastSessions = (query: string, options: { readonly cwd: string; readonly exclude?: string; readonly limit?: number }) =>
+type Hit = { session: string; started: number; role: PastMessage["role"]; seq: number; ts: number; excerpt: string; full: string }
+
+const discover = (query: string, options: { readonly cwd: string; readonly exclude?: string; readonly limit: number; readonly allProjects: boolean }) =>
   Effect.gen(function* () {
-    const store = yield* Store
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-    const checks = projectDir(options.cwd)
-    const found: Array<PastMessage> = []
-    if (!words.length) return found
+    const words = query.split(/\s+/).filter(Boolean)
+    if (!words.length) return []
+    yield* indexSessions
 
-    for (const id of [...(yield* store.list(SESSIONS))].reverse()) { // ids are time-ordered: newest first
-      if (id === options.exclude) continue
-      const entries = logEntries(yield* store.get(`${SESSIONS}/${id}/main.jsonl`))
-      const first = entries[0]
-      if (first?.role !== "project" || (first.checks ? first.checks !== checks : first.text !== options.cwd)) continue
+    // Every word as a quoted FTS5 term: the query's own punctuation is never FTS syntax.
+    const match = words.map((w) => `"${w.replaceAll('"', '""')}"`).join(" ")
+    const projects = options.allProjects ? [] : [projectDir(options.cwd), options.cwd]
+    const hits = yield* withIndex((db) => Effect.try({
+      try: () => db.query<Hit, Array<string>>(
+        `SELECT session, role, seq, ts, (SELECT started FROM sessions WHERE id = session) AS started,
+          snippet(entries, 0, '**', '**', '…', 24) AS excerpt, highlight(entries, 0, '**', '**') AS full
+        FROM entries WHERE entries MATCH ? AND session != ? ${projects.length ? "AND project IN (?, ?)" : ""} ORDER BY bm25(entries) LIMIT 200`,
+      ).all(match, options.exclude ?? "", ...projects),
+      catch: (cause) => new Error(`searching past sessions failed: ${cause}`),
+    }))
 
-      const hits = entries.filter((e) => (e.role === "user" || e.role === "assistant") && typeof e.text === "string" && words.every((w) => e.text.toLowerCase().includes(w)))
-      for (const e of hits.reverse()) {
-        found.push({ session: id, at: new Date(e.ts).toISOString(), role: e.role as PastMessage["role"], text: snippet(e.text, words[0]!) })
-        if (found.length >= (options.limit ?? 20)) return found
-      }
+    const found = new Map<string, { session: string; started: string; messages: Array<PastMessage> }>()
+    for (const h of hits) {
+      const s = found.get(h.session) ?? (found.size < options.limit ? { session: h.session, started: iso(h.started), messages: [] } : undefined)
+      if (!s || s.messages.length >= PER_SESSION) continue
+
+      found.set(h.session, s)
+      s.messages.push({ seq: h.seq, at: iso(h.ts), role: h.role, text: found.size === 1 && !s.messages.length ? fuller(h.full) : h.excerpt })
     }
 
-    return found
+    return [...found.values()]
+  })
+
+// One root session's messages, numbered as the index numbers them. Only an id the Store lists (never a path).
+const messagesOf = (id: string | undefined) =>
+  Effect.gen(function* () {
+    const store = yield* Store
+    if (!id || !(yield* store.list(SESSIONS)).includes(id)) return yield* Effect.fail(new Error(`no session ${id ?? "(none given)"}`))
+
+    const entries = numbered(logEntries(yield* store.get(`${SESSIONS}/${id}/main.jsonl`)))
+    const messages = entries.flatMap((e) => {
+      const s = said(e)
+      return s ? [{ seq: s.seq, at: iso(s.ts), role: s.role, text: s.text }] : []
+    })
+    return { session: id, started: iso(entries[0]?.ts ?? 0), messages }
+  })
+
+const SUMMARY = "Below are excerpts from a coding agent's earlier sessions that matched a search. In a few sentences, say what they tell about the query, naming the session each point comes from. If they don't answer it, say so. Don't add anything they don't say."
+
+const summarize = (query: string, sessions: ReadonlyArray<PastSession>) =>
+  Effect.gen(function* () {
+    const reviewer = yield* Effect.serviceOption(Reviewer)
+    if (Option.isNone(reviewer)) return yield* Effect.fail(new Error("summarize needs a model to ask (the reviewer)"))
+
+    const input = [`Query: ${query}`, ...sessions.map((s) => `## Session ${s.session} (${s.started})\n${s.messages.map((m) => `${m.role}: ${m.text}`).join("\n")}`)].join("\n\n")
+    const { value } = yield* reviewer.value.ask(SUMMARY, Schema.Struct({ summary: Schema.String }), input).pipe(Effect.mapError((e) => new Error(`summarizing failed: ${e.message}`)))
+    return value.summary
+  })
+
+// `exclude`: this conversation's own session. A string is a discover query (how pastSessions was first called).
+export const pastSessions = (args: string | PastArgs, options: { readonly cwd: string; readonly exclude?: string }) =>
+  Effect.gen(function* () {
+    const a: PastArgs = typeof args === "string" ? { query: args } : args
+
+    if (a.mode === "scroll") {
+      if (typeof a.seq !== "number") return yield* Effect.fail(new Error("scroll needs the seq of a hit (from discover)"))
+      const s = yield* messagesOf(a.session)
+      const window = Math.min(Math.max(a.window ?? 5, 0), 50)
+      const at = Math.max(0, s.messages.findIndex((m) => m.seq >= a.seq!))
+      return { sessions: [{ ...s, messages: s.messages.slice(Math.max(0, at - window), at + window + 1) }] } satisfies PastResult
+    }
+
+    if (a.mode === "read") {
+      const s = yield* messagesOf(a.session)
+      let left = READ
+      const kept = s.messages.filter((m) => (left -= m.text.length) >= 0)
+      return { sessions: [{ ...s, messages: kept }], ...(kept.length < s.messages.length ? { truncated: true } : {}) } satisfies PastResult
+    }
+
+    const query = a.query ?? ""
+    const sessions = yield* discover(query, { cwd: options.cwd, exclude: options.exclude, limit: Math.min(a.limit ?? 5, 20), allProjects: a.allProjects === true })
+    if (!a.summarize || !sessions.length) return { sessions } satisfies PastResult
+    return { sessions, summary: yield* summarize(query, sessions) } satisfies PastResult
   })
