@@ -8,6 +8,7 @@ export interface StepState {
   readonly earlier?: readonly string[]
   readonly goal: string
   readonly steps: readonly string[]
+  readonly user?: string // the user profile's first line (src/base/memory.ts): who System One is working for
 }
 
 type Question = { readonly question: string; readonly yes: string; readonly no: string }

@@ -40,6 +40,7 @@ export type Conversation = {
   readonly remembered: Array<string> // memory changes this turn ("remembered (project): …"), shown to the user at its end
   saved: { thread: number; stash: number } // how much of the thread and stash is in the session file (src/loop/resume.ts)
   briefing?: string
+  profile?: string // the user profile's first line, worked out with the briefing: in System One's step state
   skills?: SkillCatalog // metadata snapshot; bodies are loaded only on activation
   skillCatalogPending?: boolean // refreshed or lost to compaction/provider handover
   activeSkills?: Record<string, string> // loaded envelopes, persisted separately from prunable outputs

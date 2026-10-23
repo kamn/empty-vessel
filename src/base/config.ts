@@ -78,7 +78,8 @@ export const ConfigSchema = described({
     use: setting(Schema.String, "The plugin that remembers (notes: one line per entry, kept in the store)", { default: "notes" }),
     // The notes plugin's size limits (src/base/memory.ts): a write that would go over fails until entries are merged.
     projectChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters this project's memory may hold (merge or remove entries to add more)", { default: 2200 }),
-    agentChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters each agent's memory may hold (how it works with you, this machine)", { default: 2400 }),
+    agentChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters each agent's memory may hold (this machine and its tools)", { default: 2400 }),
+    userChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters the user profile may hold (who you are and how you work), shared by every agent", { default: 1375 }),
   }, "What empty-vessel remembers across sessions"),
   // Capabilities: a cell can't import what isn't granted, the cells' services don't
   // provide it, System Two isn't told of it, and library tools that need it aren't offered. Without a sandbox, files

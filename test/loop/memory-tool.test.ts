@@ -31,9 +31,11 @@ test("the memory tool adds, replaces and removes; each change is recorded and ke
   expect(await call({ action: "replace", scope: "project", old: "APP_MODE", text: "tests: APP_MODE=test bun test" })).toBe("done: updated (project): tests: APP_MODE=test bun test")
   expect(await snapshot()).toBe("About this project:\n- tests: APP_MODE=test bun test")
   expect(await call({ action: "remove", scope: "project", old: "bun test" })).toBe("done: forgot (project): bun test")
+  expect(await call({ action: "add", scope: "user", text: "prefers plain words" })).toBe("done: remembered (user): prefers plain words")
+  expect(await snapshot()).toBe("Who the user is and how they work:\n- prefers plain words")
 
-  expect(ctx.conversation.remembered).toEqual(["remembered (project): tests need APP_MODE=test", "updated (project): tests: APP_MODE=test bun test", "forgot (project): bun test"])
-  expect(recorded.map(([role]) => role)).toEqual(["memory", "memory", "memory"])
+  expect(ctx.conversation.remembered).toEqual(["remembered (project): tests need APP_MODE=test", "updated (project): tests: APP_MODE=test bun test", "forgot (project): bun test", "remembered (user): prefers plain words"])
+  expect(recorded.map(([role]) => role)).toEqual(["memory", "memory", "memory", "memory"])
 })
 
 test("the memory tool's refusals come back as text to act on: full, no or several matches, a bad scope, an empty entry", async () => {
@@ -44,7 +46,7 @@ test("the memory tool's refusals come back as text to act on: full, no or severa
   await call({ action: "add", scope: "agent", text: "likes tea" })
   await call({ action: "add", scope: "agent", text: "likes short answers" })
   expect(await call({ action: "remove", scope: "agent", old: "likes" })).toBe('not done: several agent entries contain "likes"')
-  expect(await call({ action: "add", scope: "team", text: "x" })).toBe('not done: no memory scope "team" (agent or project)')
+  expect(await call({ action: "add", scope: "team", text: "x" })).toBe('not done: no memory scope "team" (agent, project or user)')
   expect(await call({ action: "add", scope: "project", text: "  " })).toBe("not done: the entry is empty")
   expect(ctx.conversation.remembered).toEqual(["remembered (project): one fact about the build", "remembered (agent): likes tea", "remembered (agent): likes short answers"])
 })

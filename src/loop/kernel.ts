@@ -128,7 +128,7 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
     // shown to the user at the end of the turn; a refusal (full, no or several matching entries) comes back as text.
     memory: (arg: unknown) => Effect.gen(function* () {
       const { action, scope, text = "", old = "" } = arg as { action: string; scope: Scope; text?: string; old?: string }
-      if (!SCOPES.includes(scope)) return `not done: no memory scope "${scope}" (agent or project)`
+      if (!SCOPES.includes(scope)) return `not done: no memory scope "${scope}" (agent, project or user)`
       if (action !== "remove" && !text.trim()) return "not done: the entry is empty"
 
       const m = yield* Memory

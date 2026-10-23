@@ -167,22 +167,22 @@ test("with the background agent, each user turn's report goes to its worker, not
 test("a review whose add goes over the cap gets the error back once, and merges instead", async () => {
   const w = world({
     config: { memory: { agentChars: 80 } },
-    memory: "- The user likes tabs.\n",
+    memory: "- rg is not installed.\n",
     answers: [
-      { memory: [{ op: "add", scope: "agent", old: null, text: "The user likes short replies and asks for them again and again." }] },
-      { memory: [{ op: "replace", scope: "agent", old: "likes tabs", text: "The user likes tabs and short replies." }] },
+      { memory: [{ op: "add", scope: "agent", old: null, text: "fd and jq are missing on this machine too: use find and node instead." }] },
+      { memory: [{ op: "replace", scope: "agent", old: "rg is not", text: "rg, fd and jq are not installed." }] },
     ],
   })
   try {
     const said = await w.inProject(() => Effect.runPromise(w.provide(curateMemory("the user corrected an earlier answer", [{ user: "shorter please", answer: "ok" }]))))
     expect(w.asked).toHaveLength(2)
     expect(w.asked[1]!.input).toContain("agent memory is full")
-    expect(w.asked[1]!.input).toContain("The user likes tabs.")
+    expect(w.asked[1]!.input).toContain("rg is not installed.")
     expect(said).toEqual([
       expect.stringContaining("not changed (agent memory is full"),
-      "replaced (agent): The user likes tabs and short replies.",
+      "replaced (agent): rg, fd and jq are not installed.",
     ])
-    expect(w.remembered()).toBe("- The user likes tabs and short replies.\n")
+    expect(w.remembered()).toBe("- rg, fd and jq are not installed.\n")
   } finally { w.done() }
 })
 
@@ -219,7 +219,7 @@ test("a turn's learning signals are this turn's only: a steer, failed checks, a 
 })
 
 test("/memory in the shared runner (the TUI, channels, the agent's worker) lists memory without making a turn", async () => {
-  const w = world({ memory: "- The user likes tabs.\n" })
+  const w = world({ memory: "- rg is not installed.\n" })
   try {
     const reply = await w.inProject(() => Effect.runPromise(w.provide(Effect.gen(function* () {
       const conversation = newConversation()
@@ -229,6 +229,6 @@ test("/memory in the shared runner (the TUI, channels, the agent's worker) lists
       return reply
     }).pipe(Effect.scoped))))
     expect(reply).toContain("agent (23 of 2400 characters)")
-    expect(reply).toContain("1. The user likes tabs.")
+    expect(reply).toContain("1. rg is not installed.")
   } finally { w.done() }
 })

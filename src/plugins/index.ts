@@ -35,7 +35,7 @@ const fake: Plugin = {
 const disk: Plugin = { name: "disk", provides: { store: Effect.succeed(diskStore()) } }
 const notes: Plugin = { name: "notes", provides: { memory: Effect.gen(function* () {
   const { memory } = yield* Config
-  return memoryOnStore(process.cwd(), { project: memory.projectChars, agent: memory.agentChars })
+  return memoryOnStore(process.cwd(), { project: memory.projectChars, agent: memory.agentChars, user: memory.userChars })
 }) } }
 
 export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]

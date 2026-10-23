@@ -26,8 +26,8 @@ const ProposedCheck = Schema.Struct({
 })
 const Proposals = Schema.Struct({
   checks: Schema.Array(ProposedCheck),
-  // knowledge learned the hard way; agent: about the user or this computer (a missing program), read in every project
-  notes: Schema.Array(Schema.Struct({ text: Schema.String, scope: Schema.Literals(["project", "agent"]) })),
+  // knowledge learned the hard way; agent: this computer (a missing program); user: who the user is and how they work
+  notes: Schema.Array(Schema.Struct({ text: Schema.String, scope: Schema.Literals(["project", "agent", "user"]) })),
   open_items: Schema.Array(Schema.String),
   repeated_failures: Schema.Array(Schema.String),
 })
@@ -38,7 +38,7 @@ const NONE: Proposals = { checks: [], notes: [], open_items: [], repeated_failur
 const INSTRUCTIONS = [
   "You review finished turns of a coding agent (empty-vessel), one or several (refine sends a batch, each turn under its own heading; \"this turn\" below means any of them), and keep what it learned the hard way, so later tasks don't learn it again.",
   "Keep something only if the turn shows failed attempts before it worked, or it needed something that can't be read from package.json or the README (an environment variable, a special flag, a non-standard script). Things the agent got right first time aren't worth keeping.",
-  "Knowledge (how things work here, used in different ways) goes in notes, one sentence each, e.g. \"Run quick scripts against src/ with BABEL_ENV=test npx babel-node (without it the imports fail).\" Scope project for anything about this repo (its setup, commands, versions, conventions); agent only for what holds in every project (the user's preferences, a program missing from this computer).",
+  "Knowledge (how things work here, used in different ways) goes in notes, one sentence each, e.g. \"Run quick scripts against src/ with BABEL_ENV=test npx babel-node (without it the imports fail).\" Scope project for anything about this repo (its setup, commands, versions, conventions), e.g. \"Tests run with pnpm test, not npm test.\"; agent for this computer and its tools, in every project, e.g. \"rg isn't installed: use grep.\"; user for who the user is and how they work, never machine facts, e.g. \"Prefers plain words over jargon.\"",
   "Keep a note only if it would help a different task in this repo (or in every project), not just this bug: how one function should be fixed is not a note.",
   "A repeatable pass/fail action goes in checks. Propose a check only if all of these hold:",
   "- it comes from a command that PASSED in this turn: copy that command exactly into from_command;",
@@ -83,7 +83,8 @@ export const ReviewerLive = Layer.effect(
 // cell's worker where the host never sees it, so it's run once more here: vetted first (it can't change files), and run
 // as the template filled with its values shell-quoted, never as the proposal's own text (a value like "a.js; rm -rf x"
 // stays one argument).
-export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<string>, root: string, source: string, home = EMPTY_VESSEL_HOME) =>
+// `fromUser`: the turn was the user's own (not a job's or a sub-agent's): only then may a note go in the profile.
+export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<string>, root: string, source: string, home = EMPTY_VESSEL_HOME, fromUser = true) =>
   Effect.gen(function* () {
     const results: Array<string> = []
     const { exec } = yield* Kernel // a check runs where the cells' files are
@@ -103,7 +104,7 @@ export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<strin
     const memory = yield* Memory
     const learned: Array<{ text: string; scope: Scope }> = []
     for (const { text, scope } of proposals.notes) {
-      const refused = yield* memory.add(scope, text).pipe(Effect.as(undefined), Effect.catch((e) => Effect.succeed(e.message)))
+      const refused = scope === "user" && !fromUser ? "the profile is only written from the user's own turns" : yield* memory.add(scope, text).pipe(Effect.as(undefined), Effect.catch((e) => Effect.succeed(e.message)))
       results.push(refused ? `not learned (${refused}): ${text}` : `learned (${scope}): ${text}`)
       if (!refused) learned.push({ text, scope })
     }
@@ -120,14 +121,14 @@ export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<strin
 // whose text contains `old`. Strict JSON: every field is there, `old` null for an add and `text` empty for a remove.
 const MemoryOp = Schema.Struct({
   op: Schema.Literals(["add", "replace", "remove"]),
-  scope: Schema.Literals(["agent", "project"]),
+  scope: Schema.Literals(["agent", "project", "user"]),
   old: Schema.NullOr(Schema.String),
   text: Schema.String,
 })
 export const MemoryOps = Schema.Struct({ memory: Schema.Array(MemoryOp) })
 
 const CURATE = [
-  "You curate the memory of a coding agent (empty-vessel): short notes it reads at the start of every session, in two scopes. agent: how it works with this user (their preferences and corrections) and what holds on this computer, read in every project. project: this repo's setup, commands and conventions.",
+  "You curate the memory of a coding agent (empty-vessel): short notes it reads at the start of every session, in three scopes, one example each. project: this repo's setup, commands and conventions, e.g. \"Tests run with pnpm test, not npm test.\" agent: this computer and its tools, in every project, e.g. \"rg isn't installed: use grep.\" user: who the user is and how they work (their preferences and corrections), never machine facts, e.g. \"Prefers plain words over jargon.\"",
   "You're shown the memory as it is, what in the last messages showed something to learn (the user correcting or redirecting the agent, failing checks, errors, a command that only worked with an environment variable), and the recent conversation.",
   "Keep only what would help a later, different task. Prefer changing what's there to adding: replace an entry that's out of date or that the new lesson refines, remove one that's wrong or no longer useful, merge near-duplicates (replace one, remove the other). Add only what's new.",
   "replace and remove name their entry by a piece of its text in old, found in that entry only; an add has old null. text is the whole entry as it should read, one sentence; a remove's is empty.",
@@ -142,7 +143,7 @@ export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly
     const reviewer = yield* Reviewer
     const memory = yield* Memory
     const { memory: limits } = yield* Config
-    const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars }
+    const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars, user: limits.userChars }
     const conversation = exchanges.slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
     const said: Array<string> = []
     let refused: Array<string> = []

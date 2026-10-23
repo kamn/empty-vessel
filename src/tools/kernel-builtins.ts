@@ -50,7 +50,7 @@ export class Library extends Context.Service<Library, {
   readonly pastSessions: (args: { query: string; limit?: number }) => Effect.Effect<ReadonlyArray<PastMessage>, Error>
 }>()("empty-vessel/Library") {}
 type PastMessage = { readonly session: string; readonly at: string; readonly role: "user" | "assistant"; readonly text: string }
-type MemoryScope = "agent" | "project"
+type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
 export class Time extends Context.Service<Time, { readonly now: Effect.Effect<number> }>()("empty-vessel/Time") {}
 export class Random extends Context.Service<Random, { readonly next: Effect.Effect<number> }>()("empty-vessel/Random") {}
@@ -160,7 +160,8 @@ export const tools = () => Library.use((l) => l.tools)
 // Hand library tools to System One: they're in its options from now on this session, even if its shortlist (the few
 // tools it judges relevant to a request) would leave them out. For when you see a tool that fits work System One hands you.
 export const handTools = (names: ReadonlyArray<string>) => Library.use((l) => l.handTools(names))
-// memory: what a later session would need (for this project; or for the agent: the user, this computer), kept across sessions
+// memory: what a later session would need (project: this repo; agent: this computer and its tools; user: who the user is
+// and how they work, never machine facts), kept across sessions
 // and given to System Two at the start of each. One short line per entry; each scope has a size limit. The answer says
 // what was done, or why not (full: merge or remove first; no or several entries containing `old`).
 export const memory = {

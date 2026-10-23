@@ -22,7 +22,7 @@ import { TEST_OPTIONS, TEST_STEPS } from "./test-options"
 import { type ChildOptions, childConfig, type Conversation, type Ctx, type Needs, newConversation, newTurnState, type Step, type StepResult, timed, type TurnState } from "./turnkit"
 import { Usage } from "../base/usage"
 import { freshSession, needsSystemTwo, type Unfinished } from "./resume"
-import { ActiveAgent } from "../base/memory"
+import { ActiveAgent, Memory } from "../base/memory"
 import { Timers } from "./jobs"
 
 const DONE_AT = 0.5 // ponytail: fixed; tune from logged decisions once we have evals
@@ -57,14 +57,15 @@ export const isFinished = (stepsSoFar: number, done: number, systemTwoAnswered: 
 export const finalReply = (answerText: string | undefined, last: string, hitLimit: boolean) => `${answerText ?? last}${hitLimit ? " (step limit)" : ""}`
 
 // System One's decision for the next step: is the goal done, and if not, which option. Its view stays small: what it did
-// in the last 20 turns, the last 3 exchanges (long answers trimmed), the goal, and this turn's last 3 steps.
+// in the last 20 turns, the last 3 exchanges (long answers trimmed), the goal, this turn's last 3 steps, and the user
+// profile's first line (who it works for; it doesn't shape what Jev says: a Jev-only reply is the last step's output).
 // `last`: the step limit is reached and only `finished` matters (no step follows): said as such, not as a next step.
 const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, string>>, library: ReadonlySet<string>, last = false) =>
   Effect.gen(function* () {
     const { history, actions } = ctx.conversation
     const earlier = history.slice(-3).map((h) => `User: ${h.user} → answered: ${h.answer.length > 300 ? `${h.answer.slice(0, 300)}…` : h.answer}`)
     const recent = actions.slice(-20).map((a, i, all) => `turn ${actions.length - all.length + i + 1}: ${a}`)
-    const view = { ...(recent.length ? { did: recent } : {}), ...(earlier.length ? { earlier } : {}), goal: ctx.input, steps: state.steps.slice(-3) }
+    const view = { ...(recent.length ? { did: recent } : {}), ...(earlier.length ? { earlier } : {}), goal: ctx.input, steps: state.steps.slice(-3), ...(ctx.conversation.profile ? { user: ctx.conversation.profile } : {}) }
 
     yield* emit("activity", ctx.depth, last ? "System One is checking whether the goal is done" : `System One is choosing step ${state.steps.length + 1}`)
     const { result: { choice: picked, confidence, done, tokens }, ms } = yield* timed(ctx, "systemOne", ctx.systemOne.choose(view, options))
@@ -137,6 +138,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       const style = responseStyle((yield* Config).systemTwo.style)
       const parts = [yield* projectInstructions(process.cwd()).pipe(Effect.orElseSucceed(() => "")), yield* briefing(process.cwd()), style]
       conversation.briefing = [...parts, conversation.instructions].filter(Boolean).join("\n\n") // an agent's instructions last
+      conversation.profile = (yield* (yield* Memory).entries("user"))[0]?.replace(/^- /, "")
     }
 
     const config = yield* Config

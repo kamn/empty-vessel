@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.8
+# empty-vessel core 0.0.9
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -156,6 +156,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
         readonly use: string;
         readonly projectChars: number;
         readonly agentChars: number;
+        readonly userChars: number;
     };
     readonly kernel: {
         readonly tools: {
@@ -445,7 +446,7 @@ export declare const recordUsage: (request: {
 export declare const retryIfTemporary: <A, E, R>(call: Effect.Effect<A, E, R>, tries?: number, maxWaitMs?: number) => Effect.Effect<A, E, R>;
 
 ## Scope (src/base/memory)
-export type Scope = "agent" | "project";
+export type Scope = "agent" | "project" | "user";
 
 ## serveTools (src/system-two/relay)
 export declare const serveTools: (hooks: Hooks) => Effect.Effect<{
@@ -524,6 +525,7 @@ export interface StepState {
     readonly earlier?: readonly string[];
     readonly goal: string;
     readonly steps: readonly string[];
+    readonly user?: string;
 }
 
 ## Store (src/base/store)
@@ -723,7 +725,8 @@ config.channel.use: {"type":"string","description":"The conversation channel (te
 config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
 config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
-config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (how it works with you, this machine)","default":2400}
+config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}
+config.memory.userChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters the user profile may hold (who you are and how you work), shared by every agent","default":1375}
 config.kernel.tools.files: {"type":"string","enum":["read-write","read-only","none"],"description":"Cells' access to the project's files (read, readText, write, edit), and Gather's","default":"read-write"}
 config.kernel.tools.shell: {"type":"boolean","description":"bash in cells, and System One's checks (a check is a command)","default":true}
 config.kernel.tools.systemOne: {"type":"boolean","description":"systemOne and judge in cells","default":true}

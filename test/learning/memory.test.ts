@@ -41,20 +41,21 @@ test("a named agent writes its own memory and sees empty-vessel's; empty-vessel 
 })
 
 // The old scopes (user.md, machine notes in learned.md) move into empty-vessel's own memory once, all of it, even over the
-// limit; the old files stay where they were.
+// limit; the old files stay where they were. Then the entries about the user move on to the profile (KTD19).
 test("migration: the old user and machine notes become empty-vessel's, once and whole", async () => {
   const home = mkdtempSync(join(tmpdir(), "empty-vessel-home-")), root = mkdtempSync(join(tmpdir(), "empty-vessel-proj-"))
   writeFileSync(join(home, "user.md"), "- prefers short answers\n")
   writeFileSync(join(home, "learned.md"), `- rg isn't installed: use grep\n- ${"x".repeat(60)}\n`)
   const run = memoryIn(home, root, { agent: 40, project: 400 })
 
-  expect(await run((m) => m.entries("agent"))).toEqual(["- prefers short answers", "- rg isn't installed: use grep", `- ${"x".repeat(60)}`])
+  expect(await run((m) => m.entries("agent"))).toEqual(["- rg isn't installed: use grep", `- ${"x".repeat(60)}`])
+  expect(await run((m) => m.entries("user"))).toEqual(["- prefers short answers"])
   expect(existsSync(join(home, "user.md")) && existsSync(join(home, "learned.md"))).toBe(true)
   expect(await run((m) => Effect.flip(m.add("agent", "one more")))).toMatchObject({ message: expect.stringContaining("agent memory is full") })
 
   await run((m) => m.remove("agent", "xxxx"))
   writeFileSync(join(home, "user.md"), "- prefers short answers\n- a later line, never moved\n") // only once
-  expect(await run((m) => m.entries("agent"))).toEqual(["- prefers short answers", "- rg isn't installed: use grep"])
+  expect(await run((m) => m.entries("agent"))).toEqual(["- rg isn't installed: use grep"])
 })
 
 // Each scope has a size limit (Hermes's rule): over it, a write fails until entries are merged or removed; a file

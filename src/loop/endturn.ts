@@ -69,7 +69,8 @@ const review = (ctx: Ctx, state: TurnState, reply: string) =>
 
     const { result: { proposals }, ms } = yield* timed(ctx, "systemTwo", (yield* Reviewer).review(digest))
 
-    const applied = yield* applyProposals(proposals, state.passed, process.cwd(), `reviewer in session ${ctx.session.id}`)
+    const fromUser = ctx.depth === 0 && ((yield* Timers).origin() ?? "user") === "user" // only a user's own turn may write the profile
+    const applied = yield* applyProposals(proposals, state.passed, process.cwd(), `reviewer in session ${ctx.session.id}`, undefined, fromUser)
     yield* ctx.session.record("review", "proposals", { proposals, applied })
     yield* emit("review", ctx.depth, `reviewer (${(ms / 1000).toFixed(1)}s): ` +
       `${applied.map((a) => `\n  ${a}`).join("") || "no checks"}` +
