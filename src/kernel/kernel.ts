@@ -273,6 +273,9 @@ export const makeKernel = (given: KernelOptions) => {
         writeFileSync(index, JSON.stringify([...before, { n: cell.n, status: cell.status, defines: cell.defines, ...(cell.rules ? { rules: true } : {}), summary: cell.summary, ...(title ? { title } : {}) }], null, 1))
         return { ...cell, ...(title ? { title } : {}) }
       }
+      // Its number is taken now, as a failure until it ends: a cell that never finished (stopped, the process killed)
+      // stays failed in the index, and the next cell gets the next number instead of writing over this one's files.
+      save({ n, status: "error", defines: [], summary: "the cell didn't finish (stopped, or the process ended while it ran)", logs: "" })
 
       // Syntax (instant, Bun's parser), the rules (src/kernel/rules.ts: "refused"), then types (a TypeScript compiler,
       // if given): problems go back before anything runs.

@@ -26,11 +26,12 @@ export const CurrentSession = Context.Reference<SessionHandle | undefined>("empt
 // actions (System One's line for a turn), given (a file System Two was given), size (the thread's size), resumed,
 // code (a piece of code System Two declared), shown (the library tools on System One's shortlist this turn), tools (a library tool handed to System One).
 const ROLES = ["usage", "skill", "project", "resumed", "systemTwo", "agent", "user", "assistant", "spawn", "result", "decision", "step", "command", "check", "review", "compact",
-  "thread", "stash", "actions", "given", "size", "code", "shown", "tools", "steer", "scope", "flag", "memory", "forked", "checkpoint", "undone"] as const
+  "thread", "stash", "actions", "given", "size", "code", "shown", "tools", "steer", "scope", "flag", "memory", "forked", "checkpoint", "undone", "call"] as const
 type Role = typeof ROLES[number]
 const known = new Set<string>(ROLES)
 // steer: what the user typed mid-run, as System Two got it; scope: the note System Two got when its changes reached
-// another part of the project; flag: the user's /flag (never sent to System Two; read by /refine, src/loop/signals.ts)
+// another part of the project; flag: the user's /flag (never sent to System Two; read by /refine, src/loop/signals.ts);
+// call: one System Two tool call and its result, saved before anything shows it (src/system-two/dispatch.ts, callTool)
 
 // Extra fields per entry type: `child` on spawn/result (the sub-agent's id = subfolder name),
 // `confidence` and `done` on decision (how sure System One was; how likely the goal is already achieved),

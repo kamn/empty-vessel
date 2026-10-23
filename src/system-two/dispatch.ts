@@ -1,6 +1,7 @@
 import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { Effect, Option, Schema } from "effect"
 import { emit } from "../base/events"
+import { CurrentSession } from "../base/session"
 import { exitOf, lessonIn } from "../base/lessons"
 import { Delivery, deliveryError } from "../base/delivery"
 import { ALL, allGranted, type Grants } from "../base/grants"
@@ -75,7 +76,8 @@ export const showActivity = (name: string, parsed: unknown, hooks: Hooks) =>
   name === "yield_to_system_one" ? Effect.void : emit("activity", hooks.depth ?? 0, `running ${shownAs(name, parsed).split("\n")[0]}`, undefined, cellSummary(name, parsed))
 
 // System Two's tools. `undefined` for a tool this doesn't know.
-export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallState): Effect.Effect<{ output: string } | Ended | undefined> =>
+// A tell_user note comes back as `note`, for callTool to show once the call is saved.
+export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallState): Effect.Effect<{ output: string; note?: string } | Ended | undefined> =>
   Effect.gen(function* () {
     if (name === "ask_user") {
       const decoded = Schema.decodeUnknownOption(AskUserArgs)(parsed)
@@ -123,9 +125,8 @@ export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallStat
         return { output: sent.output }
       }
 
-      yield* emit("note", hooks.depth ?? 0, decoded.value.message)
       state.told = state.now()
-      return { output: "The user has it. Keep working." }
+      return { output: "The user has it. Keep working.", note: decoded.value.message }
     }
 
     if (name === "more_output") {
@@ -166,6 +167,8 @@ export const callTool = (name: string, parsed: unknown, hooks: Hooks, state: Cal
   Effect.gen(function* () {
     yield* showActivity(name, parsed, hooks)
     const result = (yield* runTool(name, parsed, hooks, state)) ?? { output: `unknown tool: ${name}` }
+    yield* saveCall(name, parsed, result)
+    if ("note" in result && result.note !== undefined) yield* emit("note", hooks.depth ?? 0, result.note)
 
     // A finishing check that passed only with a setup lesson in it (often how the lesson is found: npm test fails, then
     // the finishing check sets APP_MODE=test): the run doesn't end on it yet, so System Two can keep the lesson first.
@@ -185,6 +188,19 @@ export const callTool = (name: string, parsed: unknown, hooks: Hooks, state: Cal
     const notes = [fromUser(said), scope, lesson, progressReminder(hooks, state)].filter(Boolean)
     if (notes.length) yield* Effect.logDebug(`system two notes ${JSON.stringify({ tool: name, notes })}`)
     return { output: [output, ...notes].join("\n\n") }
+  })
+
+// The call and its result, into the turn's session file (on disk, synced) before anything shows it: a crash after a
+// client saw a step can't lose it. Outside a turn (no session), nothing to save. A failed write is logged, not fatal:
+// the session stops writing then (src/base/session.ts) and the run goes on.
+const saveCall = (name: string, parsed: unknown, result: CallResult) =>
+  Effect.gen(function* () {
+    const session = yield* CurrentSession
+    if (!session) return
+
+    yield* session.record("call", shownAs(name, parsed), { tool: name, args: parsed, ...result }, { sync: true }).pipe(
+      Effect.catch((e) => Effect.logWarning(`system two call not saved ${JSON.stringify({ tool: name, cause: String(e.cause) })}`)),
+    )
   })
 
 // Messages the user typed while System Two works, as System Two reads them.
