@@ -85,6 +85,16 @@ for (const answer of ["Allow once", "Deny", "yes", "no", "allow once", "Allow on
   })
 }
 
+test("a rejection's note reaches the deny reason", async () => {
+  const f = fixture()
+  const result = await Effect.runPromise(f.kernel.run(f.code()).pipe(
+    Effect.provideService(ActionGuard, verdict({ decision: "ask", reason: "Needs human approval" })),
+    Effect.provideService(AskUser, { ask: (asked) => Effect.succeed(asked.map(({ question }) => ({ question, answer: "(no answer)", note: "No one is attending" }))) }),
+  ))
+  blocked(f, result)
+  expect(result.value).toContain("Approval rejected: Needs human approval (No one is attending)")
+})
+
 test("missing host approval service fails closed", async () => {
   const f = fixture()
   const result = await Effect.runPromise(f.kernel.run(f.code()).pipe(

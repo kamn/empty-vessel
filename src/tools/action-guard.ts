@@ -110,7 +110,7 @@ export const authorizeAction = (action: Action, alwaysAsk?: string): Effect.Effe
 
     return answers.length === 1 && answers[0]?.answer === "Allow once"
       ? { decision: "allow" } as const
-      : deny(`Approval rejected: ${verdict.reason}`)
+      : deny(`Approval rejected: ${verdict.reason}${answers[0]?.note ? ` (${answers[0].note})` : ""}`)
   }).pipe(Effect.catchCause(() => Effect.succeed(deny("Authorization failed or timed out"))))
 
 // A worker supplies its host authorization call explicitly, not via a service the cell could replace.

@@ -83,7 +83,8 @@ Restoring the view does not rerun commands or resume an interrupted operation.
 A session the always-on agent (`empty-vessel-agent`) owns is joined with `empty-vessel --attach --agent-store <store>`
 (add `--agent-session <id>`; the store defaults to `EMPTY_VESSEL_AGENT_STORE`, else `./.sessions`): it shows the
 conversation so far and the running turn's progress, and what you type steers it; `/stop`, `/answer`, `/retry`. A line
-client, not the full TUI; see the agent's README.
+client, not the full TUI; see the agent's README. Under the agent, System Two can also set reminders and recurring jobs
+with `schedule()` (only when you ask for one; see the agent's README).
 
 Older sessions without a saved view are reconstructed from the available session records;
 visual details that were never recorded cannot be recovered.
@@ -101,7 +102,7 @@ Two drive a browser, answer yes when `empty-vessel setup` offers one: it adds Pl
 On a Mac, `empty-vessel setup` also offers desktop control (off unless you answer yes): it adds
 [macos-automator-mcp](https://github.com/steipete/macos-automator-mcp) as the `desktop` source
 (`npx -y @steipete/macos-automator-mcp@latest`) with `"ask": true`, so every call asks you first (in the TUI, or in
-Telegram through the agent); a turn nobody can answer, such as a scheduled job's, is refused. Any source can be marked
+Telegram through the agent); a turn nobody is attending (a scheduled job's, a sub-agent's) is refused at once. Any source can be marked
 `"ask": true` the same way. empty-vessel must run on the Mac itself, not in Docker, and macOS needs your terminal (or the
 app that runs empty-vessel) allowed under System Settings > Privacy & Security > Accessibility, and under Automation for
 the apps it controls. Screenshots a source returns are shown to System Two as images.
@@ -116,6 +117,22 @@ In the TUI and in channels:
   that session's edits then count as the turn's, so check what it restored.
 - `/redo` goes forward again after `/undo` (until a new turn changes files), keeping what you changed in between.
 - `/compact` compacts System Two's conversation when you send your next message, whatever its size.
+- `/memory` lists what empty-vessel remembers, per scope (`agent`, `project`, and the `user` profile: who you are and
+  how you work, shared by every agent), numbered and with how full each is; `/memory remove <scope> <n>` forgets one
+  entry. Only your own turns can write the profile, not a job's or a sub-agent's.
+- `/skills` lists skills. Skills the agent saves (`saveSkill`) from a job, a sub-agent or a background review wait in
+  `skills-pending/` until `/skills approve <name>` (or `/skills reject <name>`; `/skills pending` lists them); with
+  `"skills": { "writeApproval": true }`, those from your own turns wait too. `/skills install <source> [--scope
+  project|personal]` downloads a skill (a GitHub folder, a `SKILL.md` URL or an Agent Skills index entry, HTTPS only),
+  shows every file and what the scan flagged, and installs only when you answer Install; nothing in it runs.
+  `/skills browse <index-url>` lists what an index offers.
+
+Memory nudges (`"nudges": true`, the default): after 10 of your turns (or 10 tool calls) that showed something to learn,
+such as a correction, a steer or failing checks, a background review may save, update or remove memory entries.
+
+System Two can look back at earlier sessions with `pastSessions` in a cell: `pastSessions("words")` searches this
+project's sessions (`allProjects: true` for every project's, `summarize: true` adds a summary), `{ mode: "scroll",
+session, seq }` shows the messages around a hit and `{ mode: "read", session }` a whole session.
 
 A TUI turn that takes 30 seconds or more ends with a desktop notification (OSC 9: iTerm2, Ghostty, WezTerm and others).
 
