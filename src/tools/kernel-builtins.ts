@@ -14,7 +14,7 @@ import { BASH_TIMEOUT_SECONDS, runBash } from "./bash"
 
 // What every kernel cell can import from "kernel" in empty-vessel (besides Effect, call and result). Everything that touches
 // the world is a service, so each Effect's requirements say what it touches: Files, Shell,
-// System One, Agents, Library, Sources (tool sources), Time, Random. `layer` provides them all when a cell's action runs.
+// System One, Agents, Library, Sources (tool sources), Media, Time, Random. `layer` provides them all when a cell's action runs.
 // Runs inside a cell's Worker: the services use Bun and the host directly (this file is empty-vessel's own code).
 
 type Answers = Readonly<Record<string, { choice: string; confidence: number }>>
@@ -59,6 +59,7 @@ type PastMessage = { readonly seq: number; readonly at: string; readonly role: "
 type PastResult = { readonly sessions: ReadonlyArray<{ readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }>; readonly summary?: string; readonly truncated?: boolean }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
+export class Media extends Context.Service<Media, { readonly image: (prompt: string) => Effect.Effect<string, Error> }>()("empty-vessel/Media") {}
 export class Time extends Context.Service<Time, { readonly now: Effect.Effect<number> }>()("empty-vessel/Time") {}
 export class Random extends Context.Service<Random, { readonly next: Effect.Effect<number> }>()("empty-vessel/Random") {}
 export { Sources }
@@ -110,7 +111,8 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     pastSessions: (args) => call("pastSessions", args) as Effect.Effect<PastResult, Error>,
     saveSkill: (edit) => call("saveSkill", edit) as Effect.Effect<string, Error>,
   }))] : []),
-) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Time | Random> // only what's granted, in fact: cells see the rest missing
+  ...(g.media ? [Layer.succeed(Media, Media.of({ image: (prompt) => call("image", prompt) as Effect.Effect<string, Error> }))] : []),
+) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Media | Time | Random> // only what's granted, in fact: cells see the rest missing
 export const layer = layerFor(ALL)
 
 // A file's text with line numbers (2,000 lines at a time: offset/limit for more). readText: the raw text.
@@ -192,6 +194,10 @@ export const pastSessions = (args: string | PastArgs, limit?: number) =>
 // one place `old` is found. Patch an existing skill before creating a near-duplicate. Project and installed skills can't
 // be changed. Saved from a run the user didn't start (a job, a sub-agent of one), it waits for the user's approval.
 export const saveSkill = (edit: SkillEdit) => Library.use((l) => l.saveSkill(edit))
+
+// image: a picture made from `prompt` by the image model the user configured (a third-party API), saved as a PNG; gives
+// its path. To show it to the user, send it with tell_user's file.
+export const image = (prompt: string) => Media.use((m) => m.image(prompt))
 
 // remember: an expensive Effect (or a function returning one) whose result is saved, so it runs once (per input, for a
 // function) across every later cell: `export const labels = remember(systemOne(…))`. Only for what can't change underneath:

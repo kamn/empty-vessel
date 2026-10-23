@@ -20,7 +20,7 @@ const recording = (reply: () => Response) => {
 
 test("defaults: voice is off, with today's model ids and the key read from OPENAI_API_KEY", () => {
   const media = Schema.decodeUnknownSync(ConfigSchema)({}).media
-  expect(media).toEqual({ baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", transcribeModel: "gpt-transcribe", speechModel: "gpt-4o-mini-tts", voice: "marin", voiceReplies: "off" })
+  expect(media).toEqual({ baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", transcribeModel: "gpt-transcribe", speechModel: "gpt-4o-mini-tts", voice: "marin", voiceReplies: "off", imageModel: "gpt-image-2" })
 })
 
 test("transcribe posts the OGG as is, multipart, with the model and the key", async () => {

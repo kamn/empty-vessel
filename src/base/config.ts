@@ -86,13 +86,14 @@ export const ConfigSchema = described({
   }, "What empty-vessel remembers across sessions"),
   // src/base/media.ts. Model ids are settings because today's retire soon (KTD25).
   media: section({
-    baseUrl: setting(Schema.String, "The OpenAI-compatible API that voice notes and spoken replies are sent to", { default: "https://api.openai.com/v1" }),
+    baseUrl: setting(Schema.String, "The OpenAI-compatible API that voice notes, spoken replies and image prompts are sent to", { default: "https://api.openai.com/v1" }),
     apiKeyEnv: setting(Schema.String, "The environment variable holding that API's key (the key itself is never kept here)", { default: "OPENAI_API_KEY" }),
     transcribeModel: setting(Schema.String, "The model that turns a voice note into text", { default: "gpt-transcribe" }),
     speechModel: setting(Schema.String, "The model that speaks a reply", { default: "gpt-4o-mini-tts" }),
     voice: setting(Schema.String, "The voice a reply is spoken in", { default: "marin" }),
     voiceReplies: setting(Schema.Literals(["off", "voice", "all"]), "Speak replies too: off, voice (only to a voice note) or all; a spoken reply says it is AI-generated", { default: "off" }),
-  }, "Voice: Telegram voice notes become text, and replies can be spoken, through a third-party API you configure"),
+    imageModel: setting(Schema.String, "The model that makes an image from a prompt (the image built-in)", { default: "gpt-image-2" }),
+  }, "Voice and images: Telegram voice notes become text, replies can be spoken, and cells can make images, through a third-party API you configure"),
   // Capabilities: a cell can't import what isn't granted, the cells' services don't
   // provide it, System Two isn't told of it, and library tools that need it aren't offered. Without a sandbox, files
   // "read-only" with shell on isn't enforced (bash can write): a warning.
@@ -104,6 +105,7 @@ export const ConfigSchema = described({
       agents: setting(Schema.Boolean, "Sub-agents from cells: spawn, wait, cancel, jobs", { default: true }),
       library: setting(Schema.Boolean, "The library in cells: promote, tools, handTools, and the learned tools", { default: true }),
       sources: setting(Schema.Boolean, "The tool sources (MCP servers) in cells", { default: true }),
+      media: setting(Schema.Boolean, "image in cells: its prompts go to the media section's third-party API", { default: true }),
     }, "The kernel's built-ins, each granted or not; default everything"),
   }, "The kernel: where cells run and the project is reached"),
   // `config` is checked by the plugin, not the core (src/plugins/<name>/config.ts says what it is).

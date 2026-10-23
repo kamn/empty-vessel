@@ -36,7 +36,7 @@ Authorized photos and documents are downloaded under `$EMPTY_VESSEL_HOME/telegra
 Their local paths enter the shared agent input flow; supported images use the same image handling
 as the TUI. Captions remain prompts rather than host commands. Files persist for session resume.
 Incoming files are limited to 20 MB; failures are reported without dispatching a partial attachment.
-`sendFile` uploads local files as documents (up to 50 MB), sharing the outbound send gate and throttle.
+`sendFile` uploads local files as documents (up to 50 MB; PNG, JPEG and WebP images up to 10 MB as photos), sharing the outbound send gate and throttle.
 Model-facing delivery uses `tell_user` with a `file` path; merely mentioning a path does not upload it.
 
 Voice notes and audio files are downloaded the same way, then transcribed (the OGG as is) and handled as text,

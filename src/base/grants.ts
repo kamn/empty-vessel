@@ -8,10 +8,11 @@ export type Grants = {
   readonly agents: boolean
   readonly library: boolean
   readonly sources: boolean
+  readonly media: boolean
 }
-export const ALL: Grants = { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true }
+export const ALL: Grants = { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true, media: true }
 
-export type Need = "read" | "write" | "shell" | "systemOne" | "agents" | "library" | "sources"
+export type Need = "read" | "write" | "shell" | "systemOne" | "agents" | "library" | "sources" | "media"
 export const has = (g: Grants, need: Need) =>
   need === "read" ? g.files !== "none" : need === "write" ? g.files === "read-write" : g[need]
 // What each of the kernel's built-ins needs (src/tools/kernel-builtins.ts): a kernel's built-ins module exports only the
@@ -23,20 +24,21 @@ export const NEEDS: Readonly<Record<string, Need>> = {
   systemOne: "systemOne", judge: "systemOne", SystemOne: "systemOne",
   spawn: "agents", wait: "agents", cancel: "agents", jobs: "agents", schedule: "agents", Agents: "agents",
   promote: "library", tools: "library", handTools: "library", memory: "library", saveSkill: "library", pastSessions: "library", Library: "library",
+  image: "media", Media: "media",
 }
 export const allows = (g: Grants, name: string) => !NEEDS[name] || has(g, NEEDS[name]!)
 
-export const allGranted =(g: Grants) => (["read", "write", "shell", "systemOne", "agents", "library", "sources"] as const).every((n) => has(g, n))
+export const allGranted =(g: Grants) => (["read", "write", "shell", "systemOne", "agents", "library", "sources", "media"] as const).every((n) => has(g, n))
 
 // A child's grants: what it asks for (names of needs, or a Grants-shaped object), never more than its parent's.
 export const narrow = (parent: Grants, wanted: Partial<Grants> | undefined): Grants => {
   if (!wanted) return parent
   const files = (["none", "read-only", "read-write"] as const)
   const rank = (f: Grants["files"]) => Math.max(0, files.indexOf(f)) // a value that isn't one is none: never more
-  const pick = (k: "shell" | "systemOne" | "agents" | "library" | "sources") => parent[k] && (wanted[k] ?? parent[k]) === true
+  const pick = (k: "shell" | "systemOne" | "agents" | "library" | "sources" | "media") => parent[k] && (wanted[k] ?? parent[k]) === true
   return {
     files: files[Math.min(rank(parent.files), rank(wanted.files ?? parent.files))]!,
-    shell: pick("shell"), systemOne: pick("systemOne"), agents: pick("agents"), library: pick("library"), sources: pick("sources"),
+    shell: pick("shell"), systemOne: pick("systemOne"), agents: pick("agents"), library: pick("library"), sources: pick("sources"), media: pick("media"),
   }
 }
 

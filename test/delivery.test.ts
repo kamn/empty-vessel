@@ -53,7 +53,7 @@ test("disabled file access blocks attachments before delivery", () => run(Effect
   let deliveryCalls = 0
   const state = newCallState(new Map(), () => 123)
   state.told = 0
-  const grants = { files: "none" as const, shell: false, systemOne: false, agents: false, library: false, sources: false }
+  const grants = { files: "none" as const, shell: false, systemOne: false, agents: false, library: false, sources: false, media: false }
 
   const result = yield* callTool("tell_user", args, { depth: 0, grants }, state).pipe(
     Effect.provideService(Delivery, {

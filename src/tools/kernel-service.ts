@@ -54,10 +54,10 @@ const localFiles: ProjectFiles = {
 // are harmless themselves: what they do goes through the built-ins above them. Tool sources ($source) go by each tool's
 // readOnlyHint; $actionGuard (bash) and $effect (write, edit) record their own.
 export const EFFECTS: Readonly<Record<string, "harmless" | "effectful">> = {
-  Files: "harmless", Shell: "harmless", SystemOne: "harmless", Agents: "harmless", Library: "harmless", Time: "harmless", Random: "harmless", Sources: "harmless", layerFor: "harmless", layer: "harmless",
+  Files: "harmless", Shell: "harmless", SystemOne: "harmless", Agents: "harmless", Library: "harmless", Time: "harmless", Random: "harmless", Sources: "harmless", Media: "harmless", layerFor: "harmless", layer: "harmless",
   read: "harmless", readText: "harmless", skill: "harmless", now: "harmless", random: "harmless", systemOne: "harmless", recheck: "harmless", fill: "harmless", judge: "harmless",
   wait: "harmless", jobs: "harmless", tools: "harmless", pastSessions: "harmless", remember: "harmless", forget: "harmless", // forget drops a cache: doing it twice is the same
-  write: "effectful", edit: "effectful", bash: "effectful", spawn: "effectful", cancel: "effectful", schedule: "effectful", promote: "effectful", handTools: "effectful", memory: "effectful", saveSkill: "effectful",
+  write: "effectful", edit: "effectful", bash: "effectful", spawn: "effectful", cancel: "effectful", schedule: "effectful", promote: "effectful", handTools: "effectful", memory: "effectful", saveSkill: "effectful", image: "effectful",
   $source: "effectful", $actionGuard: "effectful", $effect: "effectful",
 }
 export const effectful = (name: string) => EFFECTS[name] !== "harmless"

@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.11
+# empty-vessel core 0.0.12
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -170,6 +170,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
         readonly speechModel: string;
         readonly voice: string;
         readonly voiceReplies: "all" | "off" | "voice";
+        readonly imageModel: string;
     };
     readonly kernel: {
         readonly tools: {
@@ -179,6 +180,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
             readonly agents: boolean;
             readonly library: boolean;
             readonly sources: boolean;
+            readonly media: boolean;
         };
     };
     readonly plugins: {
@@ -259,6 +261,7 @@ export type Grants = {
     readonly agents: boolean;
     readonly library: boolean;
     readonly sources: boolean;
+    readonly media: boolean;
 };
 
 ## GuardVerdict (src/tools/action-guard)
@@ -327,6 +330,7 @@ export declare const loadImage: (path: string) => {
 export declare const makeMedia: (settings: MediaSettings, http?: Http) => {
     transcribe: (path: string) => Effect.Effect<string, MediaError, never>;
     speak: (text: string, path: string) => Effect.Effect<string, MediaError, never>;
+    image: (prompt: string, path: string) => Effect.Effect<string, MediaError, never>;
 };
 
 ## MediaError (src/base/media)
@@ -760,18 +764,20 @@ config.memory.use: {"type":"string","description":"The plugin that remembers (no
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
 config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}
 config.memory.userChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters the user profile may hold (who you are and how you work), shared by every agent","default":1375}
-config.media.baseUrl: {"type":"string","description":"The OpenAI-compatible API that voice notes and spoken replies are sent to","default":"https://api.openai.com/v1"}
+config.media.baseUrl: {"type":"string","description":"The OpenAI-compatible API that voice notes, spoken replies and image prompts are sent to","default":"https://api.openai.com/v1"}
 config.media.apiKeyEnv: {"type":"string","description":"The environment variable holding that API's key (the key itself is never kept here)","default":"OPENAI_API_KEY"}
 config.media.transcribeModel: {"type":"string","description":"The model that turns a voice note into text","default":"gpt-transcribe"}
 config.media.speechModel: {"type":"string","description":"The model that speaks a reply","default":"gpt-4o-mini-tts"}
 config.media.voice: {"type":"string","description":"The voice a reply is spoken in","default":"marin"}
 config.media.voiceReplies: {"type":"string","enum":["off","voice","all"],"description":"Speak replies too: off, voice (only to a voice note) or all; a spoken reply says it is AI-generated","default":"off"}
+config.media.imageModel: {"type":"string","description":"The model that makes an image from a prompt (the image built-in)","default":"gpt-image-2"}
 config.kernel.tools.files: {"type":"string","enum":["read-write","read-only","none"],"description":"Cells' access to the project's files (read, readText, write, edit), and Gather's","default":"read-write"}
 config.kernel.tools.shell: {"type":"boolean","description":"bash in cells, and System One's checks (a check is a command)","default":true}
 config.kernel.tools.systemOne: {"type":"boolean","description":"systemOne and judge in cells","default":true}
 config.kernel.tools.agents: {"type":"boolean","description":"Sub-agents from cells: spawn, wait, cancel, jobs","default":true}
 config.kernel.tools.library: {"type":"boolean","description":"The library in cells: promote, tools, handTools, and the learned tools","default":true}
 config.kernel.tools.sources: {"type":"boolean","description":"The tool sources (MCP servers) in cells","default":true}
+config.kernel.tools.media: {"type":"boolean","description":"image in cells: its prompts go to the media section's third-party API","default":true}
 config.plugins.*.enabled: {"type":"boolean","description":"Off: an outside plugin isn't loaded"}
 config.plugins.*.path: {"type":"string","description":"Where an outside plugin is (empty-vessel plugins add)"}
 config.plugins.*.from: {"type":"string","description":"Another copy of this plugin, under this section's name and with its config (\"openai\")"}

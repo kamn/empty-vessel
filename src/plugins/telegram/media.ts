@@ -12,6 +12,7 @@ export type MediaMessage = {
 }
 const DOWNLOAD = 20_000_000
 const UPLOAD = 50_000_000
+const PHOTO = 10_000_000 // Telegram's sendPhoto limit: a larger image goes as a document
 class MediaError extends Error {}
 const safeError = (error: unknown) => error instanceof MediaError ? error : new MediaError("Telegram media transfer failed")
 const local = <A>(f: () => A) => Effect.try({ try: f, catch: safeError })
@@ -114,8 +115,9 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
     Effect.map((path) => path && `${message.caption ? `${message.caption}\n` : ""}'${path}'`),
   )
 
-  // A document, or (as) a voice message: Telegram plays OGG/Opus as one.
-  const send = (path: string, chatId: string, caption?: string, as: "document" | "voice" = "document"): Effect.Effect<number | undefined, Error> => Effect.scoped(Effect.gen(function* () {
+  // A document, or (as) a voice message (Telegram plays OGG/Opus as one) or a photo. A document that is a PNG, JPEG or
+  // WebP image within sendPhoto's limit goes as a photo, so the chat shows it.
+  const send = (path: string, chatId: string, caption?: string, as: "document" | "voice" | "photo" = "document"): Effect.Effect<number | undefined, Error> => Effect.scoped(Effect.gen(function* () {
     const fd = yield* Effect.acquireRelease(local(() => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.includes("\0")) throw new MediaError("A local file path is required")
       return openSync(isAbsolute(path) ? path : resolve(path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -138,11 +140,13 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
 
       return chunks
     })
+    const size = bytes.reduce((total, chunk) => total + chunk.byteLength, 0)
+    const kind = as === "document" && [".png", ".jpg", ".jpeg", ".webp"].includes(extension(path)) && size <= PHOTO ? "photo" : as
     const body = new FormData()
     body.set("chat_id", chatId)
     if (caption !== undefined) body.set("caption", caption)
-    body.set(as, new Blob(bytes), `file${extension(path)}`)
-    const sent = yield* api.call<{ message_id?: number }>(as === "voice" ? "sendVoice" : "sendDocument", body)
+    body.set(kind, new Blob(bytes), `file${extension(path)}`)
+    const sent = yield* api.call<{ message_id?: number }>(kind === "voice" ? "sendVoice" : kind === "photo" ? "sendPhoto" : "sendDocument", body)
     return sent?.message_id
   }))
 

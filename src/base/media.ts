@@ -3,7 +3,7 @@ import { basename, dirname } from "node:path"
 import { Data, Effect } from "effect"
 import type { ConfigSchema } from "./config"
 
-// Voice through an OpenAI-compatible API (KTD25): a voice note to text, a reply to speech. What is sent goes to the
+// Voice and images through an OpenAI-compatible API (KTD25): a voice note to text, a reply to speech, a prompt to an image. What is sent goes to the
 // third-party API config.json's media section names; its key is read from the environment, never stored.
 export type MediaSettings = typeof ConfigSchema.Type["media"]
 export type Http = (url: string, init: RequestInit) => Promise<Response>
@@ -12,7 +12,7 @@ export class MediaError extends Data.TaggedError("MediaError")<{ message: string
 export const makeMedia = (settings: MediaSettings, http: Http = fetch) => {
   const post = (path: string, body: FormData | string) => Effect.gen(function* () {
     const key = process.env[settings.apiKeyEnv]
-    if (!key) return yield* new MediaError({ message: `voice needs an API key in ${settings.apiKeyEnv} (config.json's media.apiKeyEnv names it)` })
+    if (!key) return yield* new MediaError({ message: `media needs an API key in ${settings.apiKeyEnv} (config.json's media.apiKeyEnv names it)` })
 
     const headers: Record<string, string> = { authorization: `Bearer ${key}`, ...(typeof body === "string" ? { "content-type": "application/json" } : {}) }
     const response = yield* Effect.tryPromise({
@@ -37,18 +37,37 @@ export const makeMedia = (settings: MediaSettings, http: Http = fetch) => {
     return reply.text.trim()
   })
 
+  const save = (path: string, bytes: Uint8Array, what: string) => Effect.try({
+    try: () => { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); writeFileSync(path, bytes, { mode: 0o600 }); return path },
+    catch: () => new MediaError({ message: `the ${what} could not be saved` }),
+  })
+
   // ponytail: input over the API's 4096 characters is cut; chunk and join clips if long spoken replies matter.
   const speak = (text: string, path: string) => Effect.gen(function* () {
     const body = JSON.stringify({ model: settings.speechModel, voice: settings.voice, input: text.slice(0, 4096), response_format: "opus" })
     const response = yield* post("/audio/speech", body)
     const audio = yield* read(() => response.arrayBuffer())
-
-    yield* Effect.try({
-      try: () => { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); writeFileSync(path, new Uint8Array(audio), { mode: 0o600 }) },
-      catch: () => new MediaError({ message: "the spoken reply could not be saved" }),
-    })
-    return path
+    return yield* save(path, new Uint8Array(audio), "spoken reply")
   })
 
-  return { transcribe, speak }
+  // The image comes back as base64 (gpt-image) or as a short-lived link, fetched at once (without the key).
+  const image = (prompt: string, path: string) => Effect.gen(function* () {
+    const response = yield* post("/images/generations", JSON.stringify({ model: settings.imageModel, prompt, n: 1 }))
+    const reply = yield* read(() => response.json() as Promise<{ data?: ReadonlyArray<{ b64_json?: unknown; url?: unknown }> }>)
+    const first = reply?.data?.[0]
+
+    if (typeof first?.b64_json === "string") return yield* save(path, Buffer.from(first.b64_json, "base64"), "image")
+    if (typeof first?.url !== "string") return yield* new MediaError({ message: "the media API sent no image" })
+
+    const link = first.url
+    const download = yield* Effect.tryPromise({
+      try: (signal) => http(link, { method: "GET", signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]) }),
+      catch: () => new MediaError({ message: "the generated image could not be downloaded" }),
+    })
+    if (!download.ok) return yield* new MediaError({ message: `the generated image could not be downloaded (${download.status})` })
+    const bytes = yield* read(() => download.arrayBuffer())
+    return yield* save(path, new Uint8Array(bytes), "image")
+  })
+
+  return { transcribe, speak, image }
 }

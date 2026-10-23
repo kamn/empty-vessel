@@ -15,7 +15,7 @@ const FILES_AND_SHELL: ReadonlyArray<readonly [Need, string]> = [
 ]
 const OTHERS: ReadonlyArray<readonly [Need | undefined, string]> = [
   [undefined, "now() and random() (the time, a random number)"], ["systemOne", "judge(items, evidence, questions)"], ["systemOne", "systemOne(evidence, questions)"],
-  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["agents", "schedule({ at | cron, tz?, prompt, deliver? })"], ["library", "memory.add / memory.replace / memory.remove"], ["library", "saveSkill({ name, content } | { name, old, new })"], ["library", "pastSessions(query | { query, allProjects?, summarize? } | { mode, session, seq? })"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
+  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["agents", "schedule({ at | cron, tz?, prompt, deliver? })"], ["library", "memory.add / memory.replace / memory.remove"], ["library", "saveSkill({ name, content } | { name, old, new })"], ["library", "pastSessions(query | { query, allProjects?, summarize? } | { mode, session, seq? })"], ["media", "image(prompt) (makes a picture, gives its path; send it with tell_user's file)"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
 ]
 const USE: ReadonlyArray<readonly [Need | undefined, string]> = [["read", "readText"], ["shell", "bash"], [undefined, "now"], [undefined, "random"], [undefined, "Effect.sleep"]]
 const granted = (g: Grants, items: ReadonlyArray<readonly [Need | undefined, string]>) => items.filter(([n]) => !n || has(g, n)).map(([, text]) => text)
@@ -31,6 +31,7 @@ export const notGranted = (g: Grants) => [
   ...(g.shell ? [] : ["bash (no shell)"]), ...(g.systemOne ? [] : ["judge and systemOne (no System One)"]),
   ...(g.agents ? [] : ["spawn, wait, cancel and jobs (no sub-agents)"]), ...(g.library ? [] : ["promote, tools, handTools, memory, saveSkill and pastSessions (no library)"]),
   ...(g.sources ? [] : ["tool sources"]),
+  ...(g.media ? [] : ["image (no media)"]),
 ]
 
 export const kernelInstructions = (g: Grants = ALL) => {

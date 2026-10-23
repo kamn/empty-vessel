@@ -4,6 +4,7 @@ import { discoverSkills, loadSkill, saveSkill } from "../base/skills"
 import { describeFlags } from "../base/skill-scan"
 import { EMPTY_VESSEL_HOME } from "../base/home"
 import { has } from "../base/grants"
+import { makeMedia } from "../base/media"
 import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
 import { type CellResult, describeCell, type HostFunctions } from "../kernel/kernel"
@@ -173,6 +174,12 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
       const args: PastArgs = { mode, query: typeof a.query === "string" ? a.query : undefined, session: typeof a.session === "string" ? a.session : undefined, seq: num(a.seq), window: num(a.window),
         limit: num(a.limit) !== undefined && num(a.limit)! > 0 ? num(a.limit) : undefined, allProjects: a.allProjects === true, summarize: a.summarize === true }
       return pastSessions(args, { cwd: process.cwd(), exclude: ctx.session.key.split("/")[1] }).pipe(Effect.provideContext(services))
+    },
+    // An image from the configured API (src/base/media.ts), kept with this session's kernel; the cell gets its path.
+    image: (arg: unknown) => {
+      if (!has(ctx.config.kernel.tools, "media")) return Effect.fail(new Error("image requires the media grant"))
+      if (typeof arg !== "string" || !arg.trim()) return Effect.fail(new Error("image expects a prompt"))
+      return makeMedia(ctx.config.media).image(arg, `${ctx.session.dir}/kernel/images/${crypto.randomUUID()}.png`).pipe(Effect.mapError((e) => new Error(e.message)))
     },
   }
   return host

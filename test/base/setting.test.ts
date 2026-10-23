@@ -27,10 +27,10 @@ test("an empty config decodes to the same defaults as before settings were descr
     adoption: { offerSystemOne: 5, offerSystemTwo: 5, sampler: "thompson", reward: "ok", promoteTo: "pool", askAtEndOfTurn: "never", maxProposals: 1, graduateAfter: 3, dropAfter: 100, dropBelowRate: 0.2, proposals: "eager" },
     maxDepth: 2, systemOne: { use: "fake" }, systemTwo: { use: "fake", reasoning: "medium", maxRounds: 30, webSearch: true, progressMinutes: 5, scopeCheck: true, style: "i-have-adhd" },
     store: { use: "disk" }, skills: { writeApproval: false }, memory: { use: "notes", projectChars: 2200, agentChars: 2400, userChars: 1375 },
-    media: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", transcribeModel: "gpt-transcribe", speechModel: "gpt-4o-mini-tts", voice: "marin", voiceReplies: "off" },
+    media: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", transcribeModel: "gpt-transcribe", speechModel: "gpt-4o-mini-tts", voice: "marin", voiceReplies: "off", imageModel: "gpt-image-2" },
     channel: { use: "terminal" },
     actionGuard: { use: [] },
-    kernel: { tools: { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true } },
+    kernel: { tools: { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true, media: true } },
     plugins: {},
   })
   expect(() => Schema.decodeUnknownSync(ConfigSchema)({ ui: "fancy" })).toThrow() // the allowed values are still enforced
