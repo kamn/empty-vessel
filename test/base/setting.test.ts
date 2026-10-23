@@ -23,7 +23,7 @@ test("undescribed names what isn't, by path; a group's and a record's settings a
 // Defaults are explicit, and decode as before (withDecodingDefaultKey): an empty config is all defaults, unchanged.
 test("an empty config decodes to the same defaults as before settings were described", () => {
   expect(Schema.decodeUnknownSync(ConfigSchema)({})).toEqual({
-    maxSteps: 20, compactAt: 150_000, testOptions: false, learnAfterTurn: false, ui: "plain", theme: "teal", sources: {},
+    maxSteps: 20, compactAt: 150_000, testOptions: false, learnAfterTurn: false, nudges: true, ui: "plain", theme: "teal", sources: {},
     adoption: { offerSystemOne: 5, offerSystemTwo: 5, sampler: "thompson", reward: "ok", promoteTo: "pool", askAtEndOfTurn: "never", maxProposals: 1, graduateAfter: 3, dropAfter: 100, dropBelowRate: 0.2, proposals: "eager" },
     maxDepth: 2, systemOne: { use: "fake" }, systemTwo: { use: "fake", reasoning: "medium", maxRounds: 30, webSearch: true, progressMinutes: 5, scopeCheck: true, style: "i-have-adhd" },
     store: { use: "disk" }, memory: { use: "notes", projectChars: 2200, agentChars: 2400 },

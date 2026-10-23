@@ -103,3 +103,30 @@ export const report = (signals: ReadonlyArray<Signal>, flags: ReadonlyArray<Flag
   ...flags.map((f) => `flag (session …${f.session.slice(-8)}, turn ${f.turn}, ${Math.round(f.at / 1000)} s in${f.running ? ", while it worked" : ""}): ${f.note || "(no note)"}${f.before.length ? `\n  just before: ${f.before.join(" · ")}` : ""}`),
   ...signals.map((s) => `${s.kind} (session …${s.session.slice(-8)}, turn ${s.turn}, ${Math.round(s.at / 1000)} s in): ${s.text}`),
 ]
+
+// Memory nudges (KTD18): what one user turn adds to the window a review looks back over. A window closes at NUDGE_AT
+// user turns or tool calls, and is reviewed only if something in it showed a lesson: one of these signals, an env-var
+// fix, or the user correcting the agent (System One's question at the turn's end, src/loop/endturn.ts). The agent keeps
+// the window in its state.json; the plain TUI in the home's nudge.json.
+export type TurnReport = Readonly<{ userTurns: number; toolIterations: number; signals: ReadonlyArray<string>; corrected: boolean }>
+export type Window = Readonly<{ userTurns: number; toolIterations: number; signals: ReadonlyArray<string> }>
+export const NO_WINDOW: Window = { userTurns: 0, toolIterations: 0, signals: [] }
+export const NUDGE_AT = 10
+const LEARNING = new Set(["steer", "stop", "checks", "errors"])
+
+// The learning signals in a session's records, from its last message on (this turn's).
+export const learningSignals = (lines: ReadonlyArray<Line>) => {
+  const { signals, fixes } = signalsOf("", lines.slice(Math.max(0, lines.findLastIndex((l) => l.role === "user"))))
+  return [...signals.filter((s) => LEARNING.has(s.kind)).map((s) => `${s.kind}: ${s.text}`), ...fixes.map((f) => `env fix: ${f}`)]
+}
+
+// A user turn into the window. Closed: it starts over, and with a learning signal gives the review run's input (what it
+// saw). ponytail: the window keeps its last 20 signal lines.
+export const countTurn = (window: Window, report: TurnReport): { window: Window; review?: string } => {
+  const signals = [...window.signals, ...report.signals, ...(report.corrected ? ["the user corrected an earlier answer or approach"] : [])].slice(-20)
+  const next = { userTurns: window.userTurns + report.userTurns, toolIterations: window.toolIterations + report.toolIterations, signals }
+  if (next.userTurns < NUDGE_AT && next.toolIterations < NUDGE_AT) return { window: next }
+  if (!signals.length) return { window: NO_WINDOW }
+
+  return { window: NO_WINDOW, review: `Memory review after ${next.userTurns} messages (${next.toolIterations} tool calls). What showed something to learn:\n${signals.map((s) => `- ${s}`).join("\n")}` }
+}

@@ -3,7 +3,8 @@ import { emit } from "../base/events"
 import { join } from "node:path"
 import { projectDir } from "../base/project"
 import { fillTemplate, type SaveAs, saveCheck, vetCheck } from "./checks"
-import { Memory, type Scope } from "../base/memory"
+import { Memory, type Scope, SCOPES } from "../base/memory"
+import { Config } from "../base/config"
 import { appendHistory } from "../base/files"
 import { EMPTY_VESSEL_HOME } from "../base/home"
 import { Kernel } from "../tools/kernel-service"
@@ -113,4 +114,55 @@ export const applyProposals = (proposals: Proposals, passed: ReadonlyArray<strin
     for (const text of proposals.repeated_failures) yield* appendHistory(notes, { kind: "repeated failure", text, source })
 
     return results
+  })
+
+// What a memory nudge's review may do (KTD18; KTD20's memory ops): add an entry, or replace or remove the one entry
+// whose text contains `old`. Strict JSON: every field is there, `old` null for an add and `text` empty for a remove.
+const MemoryOp = Schema.Struct({
+  op: Schema.Literals(["add", "replace", "remove"]),
+  scope: Schema.Literals(["agent", "project"]),
+  old: Schema.NullOr(Schema.String),
+  text: Schema.String,
+})
+export const MemoryOps = Schema.Struct({ memory: Schema.Array(MemoryOp) })
+
+const CURATE = [
+  "You curate the memory of a coding agent (empty-vessel): short notes it reads at the start of every session, in two scopes. agent: how it works with this user (their preferences and corrections) and what holds on this computer, read in every project. project: this repo's setup, commands and conventions.",
+  "You're shown the memory as it is, what in the last messages showed something to learn (the user correcting or redirecting the agent, failing checks, errors, a command that only worked with an environment variable), and the recent conversation.",
+  "Keep only what would help a later, different task. Prefer changing what's there to adding: replace an entry that's out of date or that the new lesson refines, remove one that's wrong or no longer useful, merge near-duplicates (replace one, remove the other). Add only what's new.",
+  "replace and remove name their entry by a piece of its text in old, found in that entry only; an add has old null. text is the whole entry as it should read, one sentence; a remove's is empty.",
+  "Each scope has a size limit: when one is nearly full, merge or remove before adding. Changing nothing is a fine answer: an empty list.",
+].join("\n")
+
+// A nudge's review: the Reviewer asked for memory ops only, and those applied. Ops refused (a full scope, an entry not
+// found or not unique) go back to it once with the errors and memory as it is then, to merge instead. Gives what
+// happened to each op, one line each.
+export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly user: string; readonly answer: string }>) =>
+  Effect.gen(function* () {
+    const reviewer = yield* Reviewer
+    const memory = yield* Memory
+    const { memory: limits } = yield* Config
+    const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars }
+    const conversation = exchanges.slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
+    const said: Array<string> = []
+    let refused: Array<string> = []
+
+    for (let round = 0; round < 2 && (round === 0 || refused.length > 0); round++) {
+      const scopes = yield* Effect.forEach(SCOPES, (s) => Effect.map(memory.entries(s), (es) =>
+        `${s} (${es.reduce((n, e) => n + e.length + 1, 0)} of ${limit[s]} characters):\n${es.join("\n") || "(nothing yet)"}`))
+      const digest = [`Memory now:\n${scopes.join("\n")}`, window, `The recent conversation:\n${conversation}`,
+        ...(refused.length ? [`These changes were refused; change memory as it is now instead:\n${refused.join("\n")}`] : [])].join("\n\n")
+      const { value } = yield* reviewer.ask(CURATE, MemoryOps, digest)
+
+      refused = []
+      for (const o of value.memory) {
+        const change = o.op === "add" ? memory.add(o.scope, o.text) : o.op === "replace" ? memory.replace(o.scope, o.old ?? "", o.text) : memory.remove(o.scope, o.old ?? "")
+        const error = yield* change.pipe(Effect.as(undefined), Effect.catch((e) => Effect.succeed(e.message)))
+        const what = o.op === "remove" ? o.old : o.text
+        if (error) refused.push(`- ${o.op} (${o.scope}) "${what}": ${error}`)
+        said.push(error ? `not changed (${error}): ${o.op} ${what}` : `${o.op === "add" ? "added" : o.op === "replace" ? "replaced" : "removed"} (${o.scope}): ${what}`)
+      }
+    }
+
+    return said
   })

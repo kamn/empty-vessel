@@ -32,7 +32,7 @@ const run = (scenario: string) => {
     const { SystemTwo } = await import(root + "/system-two/systemtwo.ts");
     const { AskUser, TerminalAskUser } = await import(root + "/ui/ask.ts");
     const { reportState } = await import(root + "/integrations/herdr.ts");
-    const config = Schema.decodeUnknownSync(ConfigSchema)({ maxSteps: 1, learnAfterTurn: false, systemTwo: { scopeCheck: false }, kernel: { tools: { agents: false, library: false } } });
+    const config = Schema.decodeUnknownSync(ConfigSchema)({ maxSteps: 1, learnAfterTurn: false, nudges: false, systemTwo: { scopeCheck: false }, kernel: { tools: { agents: false, library: false } } });
     const tokens = { input: 0, output: 0 };
     const conversation = newConversation();
     conversation.briefing = "test";

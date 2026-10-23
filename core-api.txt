@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.7
+# empty-vessel core 0.0.8
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -100,6 +100,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
     readonly compactAt: number;
     readonly testOptions: boolean;
     readonly learnAfterTurn: boolean;
+    readonly nudges: boolean;
     readonly ui: "plain" | "tui";
     readonly theme: "blue" | "green" | "orange" | "teal";
     readonly sources: {
@@ -688,6 +689,7 @@ config.maxSteps: {"type":"integer","exclusiveMinimum":0,"description":"System On
 config.compactAt: {"type":"integer","exclusiveMinimum":0,"description":"Compact System Two's thread at the start of a turn once its last request was bigger than this many tokens","default":150000}
 config.testOptions: {"type":"boolean","description":"Offer System One the early toy options (countdown, echo), for testing the loop and sub-agents","default":false}
 config.learnAfterTurn: {"type":"boolean","description":"Learn after every turn (tool proposals, the notes and checks reviewer); off, empty-vessel refine does it when asked","default":false}
+config.nudges: {"type":"boolean","description":"Every 10 of your messages (or 10 tool calls) that showed something to learn (a correction, a steer, failing checks), a background review may save, update or remove memory entries","default":true}
 config.ui: {"type":"string","enum":["plain","tui"],"description":"The interactive screen: plain lines, or tui (a live input box, the current step and a status line); -p and piped input are always plain","default":"plain"}
 config.theme: {"type":"string","enum":["orange","blue","green","teal"],"description":"Terminal colour palette (restart to apply)","default":"teal"}
 config.sources.*.url: {"type":"string","description":"A remote MCP server's address"}

@@ -42,6 +42,7 @@ export class SystemOne extends Context.Service<
 // - starts with "!" → "ask": test hook for asking the user questions
 // - a question (ends with "?") → "escalate": needs real thinking
 // - otherwise, today's regex: digits → "countdown", anything else → "echo"
+// - judge: every answer no, except a memory nudge's correction question (KTD18) for a message starting "No," (a test hook)
 export const fakeChoice = (state: StepState) =>
   state.goal.startsWith("!") ? "ask"
     : state.goal.endsWith("?") ? "escalate"
@@ -51,7 +52,7 @@ export const fakeChoice = (state: StepState) =>
 // System One (or Laya) is another Layer with the same shape; `turn` won't change.
 export const FakeSystemOne = Layer.succeed(SystemOne, {
   choose: (state) => Effect.succeed({ choice: fakeChoice(state), confidence: 1, done: state.steps.length > 0 ? 1 : 0, tokens: { input: 0, output: 0 } }),
-  judge: (_state, questions) => Effect.succeed({ answers: Object.fromEntries(Object.keys(questions).map((k) => [k, 0])), tokens: { input: 0, output: 0 } }),
+  judge: (state, questions) => Effect.succeed({ answers: Object.fromEntries(Object.keys(questions).map((k) => [k, k === "corrected" && /^no,/i.test(String((state as { message?: unknown }).message)) ? 1 : 0])), tokens: { input: 0, output: 0 } }),
   relevant: (_goal, items) => Effect.succeed({ scores: items.map(() => 1), tokens: { input: 0, output: 0 } }), // every file: the budget decides
   decide: (_state, questions) => Effect.succeed({ answers: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, { choice: Object.keys(q.options)[0] ?? "", confidence: 1 }])), tokens: { input: 0, output: 0 } }), // the first option
 })

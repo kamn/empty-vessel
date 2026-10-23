@@ -6,6 +6,7 @@ import { Delivery } from "./base/delivery"
 import { Inbox, makeInbox } from "./base/inbox"
 import { writeAtomic } from "./base/files"
 import type { SessionHandle } from "./base/session"
+import { memoryCommand } from "./learning/notes"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
 import { redoCommand, undoCommand } from "./loop/checkpoint"
@@ -36,7 +37,7 @@ export interface InteractionAdapters {
 }
 
 // Injection keeps lifecycle tests independent of providers, kernels and credentials.
-export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, skillCommand, undoCommand, redoCommand }
+export const interactionOperations = { answer, modelCommand, agentCommand, firstAgent, stopped, userCommand, refineCommand, reviewCommand, memoryCommand, skillCommand, undoCommand, redoCommand }
 export const makeSessionRunner = (session: SessionHandle, conversation: Conversation, adapters: InteractionAdapters, operations = interactionOperations) =>
   Effect.gen(function* () {
     let services = yield* Effect.context<Effect.Services<ReturnType<typeof answer>> | Config | SystemOne>() // an agent or /model replaces System Two's
@@ -124,6 +125,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       const typed = resume ? "" : input
       const refine = /^\/refine(?=\s|$)/.test(typed)
       const review = /^\/review(?=\s|$)/.test(typed)
+      const memory = /^\/memory(?=\s|$)/.test(typed)
       const undo = /^\/undo\s*$/.test(typed)
       const redo = /^\/redo\s*$/.test(typed)
       const compact = /^\/compact\s*$/.test(typed)
@@ -135,6 +137,8 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         if (refine) return { reply: yield* provide(operations.refineCommand(input.slice("/refine".length))), usage: [] }
         // /review (save [n…]): look back over this project's sessions (src/loop/review.ts).
         if (review) return { reply: yield* provide(operations.reviewCommand(input.slice("/review".length))), usage: [] }
+        // /memory (remove <scope> <n>): what empty-vessel remembers (src/learning/notes.ts); edit says where the file is.
+        if (memory) return { reply: yield* provide(operations.memoryCommand(input.slice("/memory".length))), usage: [] }
 
         // /undo: the files back to before the last turn that changed them (src/loop/checkpoint.ts).
         if (undo) return { reply: yield* provide(operations.undoCommand(session, conversation)), usage: [] }
@@ -173,7 +177,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
-        if (refine || review || undo || redo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
+        if (refine || review || memory || undo || redo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
         const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
         conversation.history.push({ user: input, answer: reply })
         return { reply, usage: [] }

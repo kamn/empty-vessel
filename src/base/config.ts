@@ -16,6 +16,8 @@ export const ConfigSchema = described({
   // Off by default: in real use echo once replaced a correct answer (it looked like a fine next step when "done" was borderline).
   testOptions: setting(Schema.Boolean, "Offer System One the early toy options (countdown, echo), for testing the loop and sub-agents", { default: false }),
   learnAfterTurn: setting(Schema.Boolean, "Learn after every turn (tool proposals, the notes and checks reviewer); off, empty-vessel refine does it when asked", { default: false }),
+  // Separate from learnAfterTurn (KTD18): a review every 10 of your messages, not every turn.
+  nudges: setting(Schema.Boolean, "Every 10 of your messages (or 10 tool calls) that showed something to learn (a correction, a steer, failing checks), a background review may save, update or remove memory entries", { default: true }),
   ui: setting(Schema.Literals(["plain", "tui"]), "The interactive screen: plain lines, or tui (a live input box, the current step and a status line); -p and piped input are always plain", { default: "plain" }),
   theme: setting(Schema.Literals(["orange", "blue", "green", "teal"]), "Terminal colour palette (restart to apply)", { default: "teal" }),
   // This file is readable only by you; logins are kept in ~/.empty-vessel/auth.
