@@ -52,6 +52,26 @@ test("unfinishedTurn: a message with no answer or stop after it; its finished ca
   expect(answerOf(dir, "r1")).toBeUndefined()
 })
 
+test("unfinishedTurn counts restarts since the turn last made progress; a parked entry resets the count and parks it until the next restart", () => {
+  const user = { role: "user", text: "go", run: "r1" }, restart = { role: "restart", text: "go" }
+  const started = { role: "call", tool: "kernel", args: {}, started: true }, handedBack = { role: "call", tool: "kernel", args: {}, output: "interrupted", interrupted: true }
+  const finished = { role: "call", tool: "kernel", args: {}, output: "ok" }
+
+  // Interrupted hand-backs and started calls aren't progress; a finished call is.
+  const looping = unfinishedTurn(file([user, started, restart, handedBack, started, restart, handedBack, started]))!
+  expect([looping.restarts, looping.parked]).toEqual([2, false])
+  expect(unfinishedTurn(file([user, restart, handedBack, finished, restart]))!.restarts).toBe(1)
+  expect(unfinishedTurn(file([user]))!.restarts).toBe(0)
+
+  // An earlier turn's restarts aren't this one's (its answer was progress).
+  expect(unfinishedTurn(file([{ role: "user", text: "a" }, restart, { role: "assistant", text: "A" }, user, restart]))!.restarts).toBe(1)
+
+  const parked = unfinishedTurn(file([user, restart, restart, { role: "parked", text: "go" }]))!
+  expect([parked.restarts, parked.parked]).toEqual([0, true])
+  const retried = unfinishedTurn(file([user, restart, restart, { role: "parked", text: "go" }, restart]))!
+  expect([retried.restarts, retried.parked]).toEqual([1, false])
+})
+
 // The cut-off call settled in a session: run again or handed back, and what System Two is told.
 const settle = (lines: ReadonlyArray<object>, kernel: () => string) => Effect.runPromise(Effect.gen(function* () {
   const session = yield* makeSession(SESSIONS)

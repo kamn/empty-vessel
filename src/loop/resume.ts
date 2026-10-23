@@ -156,7 +156,9 @@ export const useSystemTwo = (session: SessionHandle, conversation: Conversation,
 // A turn a restart cut short: its message (no answer and no stop after it), System Two's calls that finished since, the
 // call a restart cut off, if one was running, with the effects it had started (src/tools/kernel-service.ts, EFFECTS), and
 // effects started outside any call (System One's step, in kernel-one) that no finished step followed. `run`: the
-// agent's run that sent the message, if it said (src/loop/turn.ts).
+// agent's run that sent the message, if it said (src/loop/turn.ts). `restarts`: how many restarts since the turn last made
+// progress (a call that finished, not handed back as interrupted) or was parked; `parked`: it was, and hasn't restarted
+// since (the agent's worker parks a turn that keeps crashing: empty-vessel-agent's core-worker.ts).
 export type Effectful = { readonly id: string; readonly text: string; outcome?: string }
 export type Unfinished = {
   readonly input: string
@@ -164,14 +166,16 @@ export type Unfinished = {
   readonly calls: ReadonlyArray<LogEntry>
   readonly cut?: { readonly tool: string; readonly args: unknown; readonly effects: ReadonlyArray<Effectful> }
   readonly step: ReadonlyArray<Effectful>
+  readonly restarts: number
+  readonly parked: boolean
 }
 
 export const unfinishedTurn = (dir: string): Unfinished | undefined => {
-  let open: { input: string; run?: string; calls: Array<LogEntry>; cut?: { tool: string; args: unknown; effects: Array<Effectful> }; step: Array<Effectful> } | undefined
+  let open: { input: string; run?: string; calls: Array<LogEntry>; cut?: { tool: string; args: unknown; effects: Array<Effectful> }; step: Array<Effectful>; restarts: number; parked: boolean } | undefined
   const intents = new Map<string, Effectful>()
 
   for (const e of logEntries(readFileSync(`${dir}/main.jsonl`, "utf8"))) {
-    if (e.role === "user") open = { input: e.text, ...(typeof e.run === "string" ? { run: e.run } : {}), calls: [], step: [] }
+    if (e.role === "user") open = { input: e.text, ...(typeof e.run === "string" ? { run: e.run } : {}), calls: [], step: [], restarts: 0, parked: false }
     else if (!open) continue
     else if (e.role === "assistant") open = undefined
     else if (e.role === "step") open.step = [] // System One's step finished
@@ -179,6 +183,15 @@ export const unfinishedTurn = (dir: string): Unfinished | undefined => {
     else if (e.role === "call") {
       open.calls.push(e)
       delete open.cut
+      if (e.interrupted !== true) open.restarts = 0
+    }
+    else if (e.role === "restart") {
+      open.restarts++
+      open.parked = false
+    }
+    else if (e.role === "parked") {
+      open.restarts = 0
+      open.parked = true
     }
     else if (e.role === "effect" && e.outcome !== undefined) { if (intents.has(e.id)) intents.get(e.id)!.outcome = String(e.outcome) }
     else if (e.role === "effect") {

@@ -26,7 +26,7 @@ export const CurrentSession = Context.Reference<SessionHandle | undefined>("empt
 // actions (System One's line for a turn), given (a file System Two was given), size (the thread's size), resumed,
 // code (a piece of code System Two declared), shown (the library tools on System One's shortlist this turn), tools (a library tool handed to System One).
 const ROLES = ["usage", "skill", "project", "resumed", "systemTwo", "agent", "user", "assistant", "spawn", "result", "decision", "step", "command", "check", "review", "compact",
-  "thread", "stash", "actions", "given", "size", "code", "shown", "tools", "steer", "scope", "flag", "memory", "forked", "checkpoint", "undone", "call", "effect", "restart"] as const
+  "thread", "stash", "actions", "given", "size", "code", "shown", "tools", "steer", "scope", "flag", "memory", "forked", "checkpoint", "undone", "call", "effect", "restart", "parked"] as const
 type Role = typeof ROLES[number]
 const known = new Set<string>(ROLES)
 // steer: what the user typed mid-run, as System Two got it; scope: the note System Two got when its changes reached
@@ -34,7 +34,8 @@ const known = new Set<string>(ROLES)
 // call: one System Two tool call and its result, saved before anything shows it (src/system-two/dispatch.ts, callTool);
 // effect: an effectful built-in a cell is about to run (`cell`, `kernel`: which cell of which kernel folder; `id`), or how
 // it went (`outcome`, same `id`): an intent with no outcome may have run (src/tools/kernel-service.ts, EFFECTS);
-// restart: a turn a restart cut short goes on (its message: src/loop/resume.ts, unfinishedTurn)
+// restart: a turn a restart cut short goes on (its message: src/loop/resume.ts, unfinishedTurn); parked: a turn that kept
+// crashing is set aside until the user retries it (empty-vessel-agent's core-worker.ts)
 
 // Extra fields per entry type: `child` on spawn/result (the sub-agent's id = subfolder name),
 // `confidence` and `done` on decision (how sure System One was; how likely the goal is already achieved),
