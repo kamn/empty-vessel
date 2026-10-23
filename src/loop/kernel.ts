@@ -6,6 +6,7 @@ import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
 import { type CellResult, describeCell, type HostFunctions } from "../kernel/kernel"
 import { Kernel } from "../tools/kernel-service"
+import { TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { Memory, type Scope, SCOPES } from "../base/memory"
@@ -79,8 +80,16 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
       const { ids, seconds } = arg as { ids: ReadonlyArray<string>; seconds: number }
       return ctx.conversation.jobs.wait(ids, seconds)
     },
-    cancel: (id: unknown) => ctx.conversation.jobs.cancel(String(id)),
-    jobs: () => Effect.sync(() => ctx.conversation.jobs.list()),
+    // A timer's id goes to the agent (its /cron jobs, the user's and the model's alike), a sub-agent's to its jobs.
+    cancel: (id: unknown) => String(id).startsWith(TIMER) ? Context.get(services, Timers).cancel(String(id)) : ctx.conversation.jobs.cancel(String(id)),
+    jobs: () => Context.get(services, Timers).list.pipe(Effect.map((timers) => ({ ...ctx.conversation.jobs.list(), ...timers }))),
+    // A reminder ({ at }) or a recurring job ({ cron, tz }) that runs `prompt` as a new turn of this session (src/loop/jobs.ts
+    // Timers). Refused in a run that a job or a detached sub-agent started: jobs can't make more jobs (R17).
+    schedule: (arg: unknown) => Effect.suspend(() => {
+      const timers = Context.get(services, Timers), origin = timers.origin()
+      if (origin === "cron" || origin === "subagent") return Effect.fail(new Error(`can't schedule from a run a ${origin === "cron" ? "scheduled job" : "detached sub-agent"} started: jobs can't make more jobs`))
+      return timers.schedule(arg)
+    }),
     // One of System Two's definitions becomes an option System One can pick (src/loop/library.ts checks it first).
     promote: (arg: unknown) => promote(libraryDir(process.cwd()), `${ctx.session.dir}/kernel`, ctx.session.id, host, arg as { name: string; description: string; example: string; for?: "systemOne" | "systemTwo"; parameters?: Record<string, string> }, ctx.config.adoption.promoteTo),
     // The library, for System Two: what each tool is for (it can import any of them from "kernel").

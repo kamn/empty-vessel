@@ -21,7 +21,7 @@ export const NEEDS: Readonly<Record<string, Need>> = {
   read: "read", readText: "read", skill: "read", Files: "read", write: "write", edit: "write",
   bash: "shell", Shell: "shell",
   systemOne: "systemOne", judge: "systemOne", SystemOne: "systemOne",
-  spawn: "agents", wait: "agents", cancel: "agents", jobs: "agents", Agents: "agents",
+  spawn: "agents", wait: "agents", cancel: "agents", jobs: "agents", schedule: "agents", Agents: "agents",
   promote: "library", tools: "library", handTools: "library", memory: "library", pastSessions: "library", Library: "library",
 }
 export const allows = (g: Grants, name: string) => !NEEDS[name] || has(g, NEEDS[name]!)

@@ -40,6 +40,7 @@ export class Agents extends Context.Service<Agents, {
   readonly wait: (ids: ReadonlyArray<string>, seconds: number) => Effect.Effect<Readonly<Record<string, JobView>>, Error>
   readonly cancel: (id: string) => Effect.Effect<string, Error>
   readonly jobs: Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>
+  readonly schedule: (args: ScheduleArgs) => Effect.Effect<string, Error>
 }>()("empty-vessel/Agents") {}
 export class Library extends Context.Service<Library, {
   readonly promote: (args: { name: string; description: string; example: string; for: "systemOne" | "systemTwo"; parameters?: Readonly<Record<string, string>> }) => Effect.Effect<string, Error>
@@ -92,6 +93,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     wait: (ids, seconds) => call("wait", { ids, seconds }) as Effect.Effect<Readonly<Record<string, JobView>>, Error>,
     cancel: (id) => call("cancel", id) as Effect.Effect<string, Error>,
     jobs: call("jobs") as Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>,
+    schedule: (args) => call("schedule", args) as Effect.Effect<string, Error>,
   }))] : []),
   ...(g.library ? [Layer.succeed(Library, Library.of({
     promote: (args) => call("promote", args) as Effect.Effect<string, Error>,
@@ -132,6 +134,12 @@ export const spawn = (task: string, options?: SpawnOptions) => Agents.use((a) =>
 export const wait = (ids: string | ReadonlyArray<string>, seconds = 300) => Agents.use((a) => a.wait(typeof ids === "string" ? [ids] : ids, seconds))
 export const cancel = (id: string) => Agents.use((a) => a.cancel(id))
 export const jobs = () => Agents.use((a) => a.jobs)
+// schedule: run `prompt` later as a new turn of this session, through the background agent: once `at` a time (an ISO
+// date, or milliseconds since 1970), or on a five-field `cron` in the IANA zone `tz` (default UTC). Its answer goes to
+// `deliver` (default the user's home: Telegram or the agent log); one starting [SILENT] isn't sent. Gives a timer id
+// that jobs() lists (with the user's /cron jobs) and cancel(id) removes. At most 10 per session, at most every 5 minutes.
+export type ScheduleArgs = { readonly prompt: string; readonly at?: string | number; readonly cron?: string; readonly tz?: string; readonly deliver?: "telegram" | "log" }
+export const schedule = (args: ScheduleArgs) => Agents.use((a) => a.schedule(args))
 
 // promote: make one of your definitions (from an earlier cell) an option System One can pick in later turns, so requests like
 // `example` are handled without you. It must be self-contained (one cell, only Effect and the built-ins), take the goal

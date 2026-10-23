@@ -1,4 +1,4 @@
-import { Cause, Effect, Fiber, Semaphore } from "effect"
+import { Cause, Context, Effect, Fiber, Semaphore } from "effect"
 
 // Sub-agents as jobs: spawn starts one and returns its id at once; it runs in the host (not in
 // the cell, whose Worker ends with the cell), at most AT_ONCE at a time, the rest queued. System Two collects answers
@@ -79,3 +79,22 @@ export const makeJobs = () => {
 }
 
 export type Jobs = ReturnType<typeof makeJobs>
+
+// Timers: reminders and recurring jobs, kept by the background agent (empty-vessel-agent) for this session; a timer's
+// run is a new turn of this session at its time. `origin`: who started the run this turn belongs to; a run that began
+// in a job (cron) or a detached sub-agent can't schedule more (R17). The worker the agent starts provides this; without
+// it (the plain TUI, -p) there are no timers.
+const NO_AGENT = "schedule needs the background agent (empty-vessel-agent): this session runs without it, so nothing could run at that time"
+export type TimerService = {
+  readonly origin: () => string | undefined
+  readonly schedule: (args: unknown) => Effect.Effect<string, Error>
+  readonly list: Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>
+  readonly cancel: (id: string) => Effect.Effect<string, Error>
+}
+export const Timers = Context.Reference<TimerService>("empty-vessel/Timers", { defaultValue: () => ({
+  origin: () => undefined,
+  schedule: () => Effect.fail(new Error(NO_AGENT)),
+  list: Effect.succeed({}),
+  cancel: () => Effect.fail(new Error(NO_AGENT)),
+}) })
+export const TIMER = "timer-" // timer ids start so; sub-agent jobs are job-N
