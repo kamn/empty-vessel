@@ -31,7 +31,7 @@ export type SkillCatalog = { readonly skills: readonly Skill[]; readonly diagnos
 export type SkillInvocation = { readonly name: string; readonly arguments?: string }
 export type SkillOrigin = "model" | "user"
 const fail = (message: string): never => { throw new SkillError({ message }) }
-const message = (error: unknown) => error instanceof Error ? error.message : String(error)
+export const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const inside = (root: string, path: string) => {
   const part = relative(root, path)
   return part === "" || (!isAbsolute(part) && part !== ".." && !part.startsWith("../"))

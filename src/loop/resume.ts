@@ -86,13 +86,18 @@ const okCells = (dir: string): ReadonlyArray<Cell> => {
 const olderCells = (dir: string) => okCells(dir).filter((c) => !underRules(c) && c.defines.length)
 export const cellsBeforeRules = (dir: string) => olderCells(dir).length
 
+// The newest of `items` that fit in `budget` characters (joined by `sep`), in order, and how many earlier ones didn't.
+const takeWithinBudget = (items: ReadonlyArray<string>, budget: number, sep: string) => {
+  const kept: Array<string> = []
+  for (const item of [...items].reverse()) { if (kept.join(sep).length + item.length > budget) break; kept.unshift(item) }
+  return { kept, left: items.length - kept.length }
+}
+
 // Cells' summaries as System Two saw them, under a heading: the latest first, if they don't all fit.
 const EACH = 400, ALL = 4000 // characters of each cell's summary, and of the whole note
 const cellsNote = (cells: ReadonlyArray<Cell>, heading: string) => {
   const lines = cells.map((c) => `cell ${c.n}:\n${c.summary.length > EACH ? `${c.summary.slice(0, EACH)}…` : c.summary}`)
-  const kept: Array<string> = []
-  for (const l of lines.reverse()) { if (kept.join("\n").length + l.length > ALL) break; kept.unshift(l) }
-  const left = cells.length - kept.length
+  const { kept, left } = takeWithinBudget(lines, ALL, "\n")
 
   return [heading, ...(left ? [`(${left} earlier cell${left === 1 ? "" : "s"} not shown)`] : []), ...kept].join("\n\n")
 }
@@ -253,9 +258,7 @@ export const resumeWork = (u: Unfinished, hooks: Hooks, state: CallState, budget
     if (u.step.length) ended.push(`System One's last step was cut off by the restart after it started: ${effectsLine(u.step)}. It wasn't run again.`)
 
     const lines = u.calls.map((c) => `${shownAs(c.tool, c.args)} ${(JSON.stringify(c.args) ?? "").slice(0, EACH_CALL)}\n→ ${String(c.output ?? c.answer ?? "").slice(-EACH_CALL)}`)
-    const kept: Array<string> = []
-    for (const l of lines.reverse()) { if (kept.join("\n\n").length + l.length > budget) break; kept.unshift(l) }
-    const left = lines.length - kept.length
+    const { kept, left } = takeWithinBudget(lines, budget, "\n\n")
 
     return [
       "(empty-vessel restarted while you worked on this message. What your tool calls did before that, as saved:)",
@@ -272,13 +275,12 @@ export const freshSession = (conversation: Conversation, dir: string, budget: nu
   if (!conversation.thread.some((t) => (t as { claudeSession?: string }).claudeSession)) return
 
   const exchanges = conversation.history.map((h) => `User: ${h.user}\nAnswer: ${h.answer}`)
-  const kept: Array<string> = []
-  for (const x of exchanges.reverse()) { if (kept.join("\n\n").length + x.length > budget) break; kept.unshift(x) }
+  const { kept, left } = takeWithinBudget(exchanges, budget, "\n\n")
   const briefing = kernelBriefing(dir)
   const note = [
     "empty-vessel restarted, so this is a new conversation: the earlier one isn't here, but its record is.",
     ...(briefing ? [briefing] : []),
-    ...(kept.length ? [`The exchanges so far${kept.length < exchanges.length ? ` (the last ${kept.length})` : ""}:\n\n${kept.join("\n\n")}`] : []),
+    ...(kept.length ? [`The exchanges so far${left ? ` (the last ${kept.length})` : ""}:\n\n${kept.join("\n\n")}`] : []),
   ].join("\n\n")
 
   conversation.thread.push({ claudeFresh: true }, userItem(note))

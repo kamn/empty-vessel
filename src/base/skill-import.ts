@@ -4,7 +4,7 @@ import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Effect } from "effect"
 import { EMPTY_VESSEL_HOME } from "./home"
-import { projectRoot, readSkillMetadata, SKILL_IMPORT_PROVENANCE, skillPaths, SkillError, validateSkillBytes } from "./skills"
+import { message, projectRoot, readSkillMetadata, SKILL_IMPORT_PROVENANCE, skillPaths, SkillError, validateSkillBytes } from "./skills"
 
 export const SKILL_IMPORT_LIMITS = Object.freeze({ entries: 1024, bytes: 64 * 1024 * 1024 })
 export { SKILL_IMPORT_PROVENANCE }
@@ -129,5 +129,5 @@ export const importSkill = (
     }
     return { name, destination, provenance }
   },
-  catch: (error) => error instanceof SkillError ? error : new SkillError({ message: `Unable to import skill: ${error instanceof Error ? error.message : String(error)}` }),
+  catch: (error) => error instanceof SkillError ? error : new SkillError({ message: `Unable to import skill: ${message(error)}` }),
 })

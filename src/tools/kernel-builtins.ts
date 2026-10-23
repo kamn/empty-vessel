@@ -51,12 +51,14 @@ export class Library extends Context.Service<Library, {
   readonly saveSkill: (edit: SkillEdit) => Effect.Effect<string, Error>
 }>()("empty-vessel/Library") {}
 export type SkillEdit = { readonly name: string; readonly content: string } | { readonly name: string; readonly old: string; readonly new: string }
-type PastArgs = {
+// pastSessions' arguments and result (src/loop/past.ts, which uses these). Types only: cells' scope lists value exports.
+export type PastArgs = {
   readonly query?: string; readonly mode?: "discover" | "scroll" | "read"; readonly limit?: number; readonly allProjects?: boolean; readonly summarize?: boolean
   readonly session?: string; readonly seq?: number; readonly window?: number
 }
-type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
-type PastResult = { readonly sessions: ReadonlyArray<{ readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }>; readonly summary?: string; readonly truncated?: boolean }
+export type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
+export type PastSession = { readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }
+export type PastResult = { readonly sessions: ReadonlyArray<PastSession>; readonly summary?: string; readonly truncated?: boolean }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
 export class Media extends Context.Service<Media, { readonly image: (prompt: string) => Effect.Effect<string, Error> }>()("empty-vessel/Media") {}

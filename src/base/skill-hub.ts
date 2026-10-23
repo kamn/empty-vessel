@@ -5,7 +5,7 @@ import { dirname, join, resolve, sep } from "node:path"
 import { Effect } from "effect"
 import { importSkill, SKILL_IMPORT_LIMITS } from "./skill-import"
 import { describeFlags, type Scan, scanSkill } from "./skill-scan"
-import { discoverSkills, SKILL_LIMITS, SkillError, validateSkillBytes } from "./skills"
+import { discoverSkills, message, SKILL_LIMITS, SkillError, validateSkillBytes } from "./skills"
 
 // The skills hub (KTD22): skills downloaded on the host (cells can't fetch), over HTTPS only, from a GitHub folder, a
 // SKILL.md URL, or an Agent Skills discovery index (/.well-known/agent-skills/index.json). What's downloaded is listed
@@ -22,7 +22,6 @@ const GITHUB = /^([\w.-]+)\/([\w.-]+)\/([^@\s]+?)\/?(?:@(\S+))?$/
 const USAGE = "Install from owner/repo/path[@ref] (GitHub), an https:// SKILL.md URL, or <index-url>#<name> (/skills browse lists them)"
 
 const fail = (message: string) => Effect.fail(new SkillError({ message }))
-const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
 const https = (url: string) => URL.canParse(url) && new URL(url).protocol === "https:"
 

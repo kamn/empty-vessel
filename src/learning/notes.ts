@@ -5,7 +5,7 @@ import { loadChecks } from "./checks"
 import { environment } from "./environment"
 import { Config } from "../base/config"
 import { EMPTY_VESSEL_HOME } from "../base/home"
-import { Memory, type Scope, SCOPES } from "../base/memory"
+import { Memory, memoryLimits, type Scope, SCOPES, usedChars } from "../base/memory"
 
 // The latest notes for this project (open items, repeated failures), to show when a session starts.
 export const recentNotes = (root: string, n = 5) =>
@@ -20,8 +20,7 @@ export const recentNotes = (root: string, n = 5) =>
 export const memoryCommand = (args: string, canEdit = false) =>
   Effect.gen(function* () {
     const memory = yield* Memory
-    const { memory: limits } = yield* Config
-    const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars, user: limits.userChars }
+    const limit = memoryLimits((yield* Config).memory)
     const [what = "", scopeArg = "", n = ""] = args.trim().split(/\s+/)
     const scope = scopeArg as Scope
     const where = (s: Scope) => Effect.map(memory.file(s), (key) => join(EMPTY_VESSEL_HOME, key))
@@ -47,8 +46,7 @@ export const memoryCommand = (args: string, canEdit = false) =>
     // The list: each scope, how full, its entries numbered (the ones remove takes).
     const parts = yield* Effect.forEach(SCOPES, (s) => Effect.gen(function* () {
       const entries = yield* memory.entries(s)
-      const used = entries.reduce((sum, l) => sum + l.length + 1, 0)
-      const head = `${s === "user" ? "user profile" : s} (${used} of ${limit[s]} characters) · ${yield* where(s)}`
+      const head = `${s === "user" ? "user profile" : s} (${usedChars(entries)} of ${limit[s]} characters) · ${yield* where(s)}`
       return [head, ...(entries.length ? entries.map((e, i) => `  ${i + 1}. ${e.replace(/^- /, "")}`) : ["  (nothing yet)"])].join("\n")
     }))
     return [...parts, "", "empty-vessel memory remove <scope> <n> · empty-vessel memory edit [scope]"].join("\n")

@@ -3,7 +3,7 @@ import { emit } from "../base/events"
 import { join } from "node:path"
 import { projectDir } from "../base/project"
 import { fillTemplate, type SaveAs, saveCheck, vetCheck } from "./checks"
-import { Memory, type Scope, SCOPES } from "../base/memory"
+import { Memory, memoryLimits, type Scope, SCOPES, usedChars } from "../base/memory"
 import { Config } from "../base/config"
 import { appendHistory } from "../base/files"
 import { EMPTY_VESSEL_HOME } from "../base/home"
@@ -156,14 +156,14 @@ export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly
     const memory = yield* Memory
     const { memory: limits, nudges } = yield* Config
     const withSkills = nudges && window.includes(SKILL_REVIEW)
-    const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars, user: limits.userChars }
+    const limit = memoryLimits(limits)
     const conversation = exchanges.slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
     const said: Array<string> = []
     let refused: Array<string> = []
 
     for (let round = 0; round < 2 && (round === 0 || refused.length > 0); round++) {
       const scopes = yield* Effect.forEach(SCOPES, (s) => Effect.map(memory.entries(s), (es) =>
-        `${s} (${es.reduce((n, e) => n + e.length + 1, 0)} of ${limit[s]} characters):\n${es.join("\n") || "(nothing yet)"}`))
+        `${s} (${usedChars(es)} of ${limit[s]} characters):\n${es.join("\n") || "(nothing yet)"}`))
       const skills = withSkills ? discoverSkills(process.cwd(), home).skills.filter((s) => s.source === "personal") : []
       const digest = [`Memory now:\n${scopes.join("\n")}`,
         ...(withSkills ? [`Personal skills now:\n${skills.map((s) => `${s.name}: ${s.description}`).join("\n") || "(none yet)"}`] : []),

@@ -61,6 +61,8 @@ export const processStart = (pid: number): string | undefined => {
   } catch { return undefined }
 }
 let ownStart: string | undefined
+// This process's start, as processStart gives it (asked once).
+export const myStart = () => (ownStart ??= processStart(process.pid) ?? "unknown")
 
 // An owner lease (KTD8): `path` names the one process that owns something, as { pid, startedAt }. Taking it succeeds
 // (undefined) when nobody holds it, or its holder is gone: its pid is dead, is this process, or now belongs to a process
@@ -75,7 +77,6 @@ export const takeLease = (path: string) =>
     const live = typeof held?.pid === "number" && held.pid !== process.pid && processStart(held.pid) === held.startedAt
     if (live) return held as Owner
 
-    ownStart ??= processStart(process.pid) ?? "unknown"
-    yield* writeAtomic(path, JSON.stringify({ pid: process.pid, startedAt: ownStart }))
+    yield* writeAtomic(path, JSON.stringify({ pid: process.pid, startedAt: myStart() }))
     return undefined
   })

@@ -94,6 +94,9 @@ export type TimerService = {
   readonly list: Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>
   readonly cancel: (id: string) => Effect.Effect<string, Error>
 }
+// Why a run `origin` names can't `verb` (start more jobs), or undefined when it can (R17).
+export const jobsRefusal = (origin: string | undefined, verb: string) =>
+  origin === "cron" || origin === "subagent" ? `can't ${verb} from a run a ${origin === "cron" ? "scheduled job" : "detached sub-agent"} started: jobs can't make more jobs` : undefined
 export const Timers = Context.Reference<TimerService>("empty-vessel/Timers", { defaultValue: () => ({
   origin: () => undefined,
   schedule: () => Effect.fail(new Error(NO_AGENT)),

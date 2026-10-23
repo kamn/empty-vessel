@@ -9,7 +9,7 @@ import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
 import { type CellResult, describeCell, type HostFunctions } from "../kernel/kernel"
 import { Kernel } from "../tools/kernel-service"
-import { DETACHED, TIMER, Timers } from "./jobs"
+import { DETACHED, jobsRefusal, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { Memory, type Scope, SCOPES } from "../base/memory"
@@ -76,7 +76,8 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
       if (detach) {
         const timers = Context.get(services, Timers), origin = timers.origin()
         if (ctx.depth > 0 || tools !== undefined || agent !== undefined) return Effect.fail("a detached sub-agent starts from the main agent only, with its session's own settings (no tools or agent)")
-        if (origin === "cron" || origin === "subagent") return Effect.fail(`can't start a detached sub-agent from a run a ${origin === "cron" ? "scheduled job" : "detached sub-agent"} started: jobs can't make more jobs`)
+        const refused = jobsRefusal(origin, "start a detached sub-agent")
+        if (refused) return Effect.fail(refused)
         return timers.detach(String(task)).pipe(Effect.mapError((e) => e.message))
       }
       return Effect.gen(function* () {
@@ -101,7 +102,8 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
     // Timers). Refused in a run that a job or a detached sub-agent started: jobs can't make more jobs (R17).
     schedule: (arg: unknown) => Effect.suspend(() => {
       const timers = Context.get(services, Timers), origin = timers.origin()
-      if (origin === "cron" || origin === "subagent") return Effect.fail(new Error(`can't schedule from a run a ${origin === "cron" ? "scheduled job" : "detached sub-agent"} started: jobs can't make more jobs`))
+      const refused = jobsRefusal(origin, "schedule")
+      if (refused) return Effect.fail(new Error(refused))
       return timers.schedule(arg)
     }),
     // One of System Two's definitions becomes an option System One can pick (src/loop/library.ts checks it first).

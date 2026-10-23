@@ -4,6 +4,7 @@ import { logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
 import { Reviewer } from "../learning/reviewer"
 import { indexSessions, numbered, said, withIndex } from "./recall"
+import type { PastArgs, PastMessage, PastResult, PastSession } from "../tools/kernel-builtins"
 
 // pastSessions: what was said in earlier sessions, for "what did we decide about X?" (Hermes's session search, beside its
 // curated memory), from the recall index (src/loop/recall.ts). Three modes:
@@ -13,13 +14,8 @@ import { indexSessions, numbered, said, withIndex } from "./recall"
 //   names; worktrees of one repo count as one) unless `allProjects: true`. `summarize: true` adds the reviewer's summary.
 // - scroll: the messages around one (`session`, `seq` from a hit, `window` either side).
 // - read: a whole session's messages, up to READ characters.
-export type PastArgs = {
-  readonly query?: string; readonly mode?: "discover" | "scroll" | "read"; readonly limit?: number; readonly allProjects?: boolean; readonly summarize?: boolean
-  readonly session?: string; readonly seq?: number; readonly window?: number
-}
-export type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
-export type PastSession = { readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }
-export type PastResult = { readonly sessions: ReadonlyArray<PastSession>; readonly summary?: string; readonly truncated?: boolean }
+// The types are the kernel's built-in's (src/tools/kernel-builtins.ts), so cells and this agree.
+export type { PastArgs, PastMessage, PastResult, PastSession } from "../tools/kernel-builtins"
 
 const FULL = 2000, READ = 60_000, PER_SESSION = 3
 
@@ -32,7 +28,7 @@ const fuller = (text: string) => {
   return `${at > 0 ? "…" : ""}${text.slice(at, at + FULL)}${at + FULL < text.length ? "…" : ""}`
 }
 
-type Hit = { session: string; started: number; role: PastMessage["role"]; seq: number; ts: number; excerpt: string; full: string }
+type Hit = { rowid: number; session: string; started: number; role: PastMessage["role"]; seq: number; ts: number; excerpt: string; full?: string }
 
 const discover = (query: string, options: { readonly cwd: string; readonly exclude?: string; readonly limit: number; readonly allProjects: boolean }) =>
   Effect.gen(function* () {
@@ -43,12 +39,19 @@ const discover = (query: string, options: { readonly cwd: string; readonly exclu
     // Every word as a quoted FTS5 term: the query's own punctuation is never FTS syntax.
     const match = words.map((w) => `"${w.replaceAll('"', '""')}"`).join(" ")
     const projects = options.allProjects ? [] : [projectDir(options.cwd), options.cwd]
+    // Only the best hit is shown whole, so only it is highlighted whole.
     const hits = yield* withIndex((db) => Effect.try({
-      try: () => db.query<Hit, Array<string>>(
-        `SELECT session, role, seq, ts, (SELECT started FROM sessions WHERE id = session) AS started,
-          snippet(entries, 0, '**', '**', '…', 24) AS excerpt, highlight(entries, 0, '**', '**') AS full
-        FROM entries WHERE entries MATCH ? AND session != ? ${projects.length ? "AND project IN (?, ?)" : ""} ORDER BY bm25(entries) LIMIT 200`,
-      ).all(match, options.exclude ?? "", ...projects),
+      try: () => {
+        const rows = db.query<Hit, Array<string>>(
+          `SELECT rowid, session, role, seq, ts, (SELECT started FROM sessions WHERE id = session) AS started,
+            snippet(entries, 0, '**', '**', '…', 24) AS excerpt
+          FROM entries WHERE entries MATCH ? AND session != ? ${projects.length ? "AND project IN (?, ?)" : ""} ORDER BY bm25(entries) LIMIT 200`,
+        ).all(match, options.exclude ?? "", ...projects)
+        const top = rows[0]
+        if (top) top.full = db.query<{ full: string }, [string, number]>(`SELECT highlight(entries, 0, '**', '**') AS full FROM entries WHERE entries MATCH ? AND rowid = ?`).get(match, top.rowid)?.full
+
+        return rows
+      },
       catch: (cause) => new Error(`searching past sessions failed: ${cause}`),
     }))
 
@@ -58,7 +61,7 @@ const discover = (query: string, options: { readonly cwd: string; readonly exclu
       if (!s || s.messages.length >= PER_SESSION) continue
 
       found.set(h.session, s)
-      s.messages.push({ seq: h.seq, at: iso(h.ts), role: h.role, text: found.size === 1 && !s.messages.length ? fuller(h.full) : h.excerpt })
+      s.messages.push({ seq: h.seq, at: iso(h.ts), role: h.role, text: found.size === 1 && !s.messages.length ? fuller(h.full ?? "") : h.excerpt })
     }
 
     return [...found.values()]

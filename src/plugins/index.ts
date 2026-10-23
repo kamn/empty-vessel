@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { ActionGuard, combineActionGuards } from "../tools/action-guard"
 import { Config, ConfigError } from "../base/config"
 import type { Plugin, Provides } from "./plugin"
-import { memoryOnStore } from "../base/memory"
+import { memoryLimits, memoryOnStore } from "../base/memory"
 import type { PluginSetup } from "../base/plugin-setup"
 import { diskStore } from "../base/store"
 import { FakeSystemOne } from "../system-one/systemone"
@@ -35,7 +35,7 @@ const fake: Plugin = {
 const disk: Plugin = { name: "disk", provides: { store: Effect.succeed(diskStore()) } }
 const notes: Plugin = { name: "notes", provides: { memory: Effect.gen(function* () {
   const { memory } = yield* Config
-  return memoryOnStore(process.cwd(), { project: memory.projectChars, agent: memory.agentChars, user: memory.userChars })
+  return memoryOnStore(process.cwd(), memoryLimits(memory))
 }) } }
 
 export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]

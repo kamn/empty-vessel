@@ -3,7 +3,7 @@ import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import { processStart, withLock, writeAtomic } from "../base/files"
+import { myStart, processStart, withLock, writeAtomic } from "../base/files"
 import type { SessionHandle } from "../base/session"
 import { runBash } from "../tools/bash"
 import { Kernel } from "../tools/kernel-service"
@@ -65,19 +65,21 @@ const ok = (out: string) => {
 // /undo's restore, which changes files, still goes through the guard.
 // `index`: a private index kept between turns (in the session's folder), so git's cache of file times holds for new
 // files too and only what changed is read again; a fresh copy each turn re-read every untracked file every turn.
+// `root`: the repo root, when it was just found (not asked of git again).
 const allowed = () => Effect.succeed({ decision: "allow" as const })
-export const snapshot = (cwd = process.cwd(), index?: string) =>
+export const snapshot = (cwd = process.cwd(), index?: string, root?: string) =>
   Effect.gen(function* () {
     const kept = index ? `[ -f ${quote(index)} ] || cp -p "$(git rev-parse --path-format=absolute --git-path index)" ${quote(index)} 2>/dev/null
 export GIT_INDEX_FILE=${quote(index)}` : PRIVATE_INDEX
-    const out = yield* runBash(`cd ${quote(cwd)} || exit 3
-root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3
+    const at = root ? `root=${quote(root)}` : `cd ${quote(cwd)} || exit 3
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 3`
+    const out = yield* runBash(`${at}
 cd "$root" || exit 3
 ${SAFE_GIT}
 ${kept}
 g add -A . && echo "$root" && g write-tree`, 60_000, allowed)
-    const [root, tree] = ok(out) ?? []
-    return root && isTree(tree) ? { root, tree } : undefined
+    const [top, tree] = ok(out) ?? []
+    return top && isTree(tree) ? { root: top, tree } : undefined
   }).pipe(Effect.orElseSucceed(() => undefined))
 
 // Around a turn: its checkpoint if it changed the project's files, else undefined.
@@ -92,7 +94,6 @@ export const checkpointOf = (input: string, before: { root: string; tree: string
 // ponytail: edits another run made during the turn are counted as the turn's own, so /undo only warns; tracking each
 // run's writes would tell them apart. Keyed by repo root, so worktrees of one repo don't see each other (they don't share files).
 type Activity = { seq: number; active: Array<{ id: string; pid: number; startedAt: string }> }
-let ownStart: string | undefined
 
 const rootOf = (cwd: string) =>
   runBash(`cd ${quote(cwd)} && git rev-parse --show-toplevel`, 10_000, allowed).pipe(
@@ -120,13 +121,14 @@ const inFolder = <A, B, E, R>(root: string | undefined, change: (activity: Activ
 export const watchTurn = (cwd = process.cwd(), index?: string) =>
   Effect.gen(function* () {
     const root = yield* rootOf(cwd)
-    const me = { id: crypto.randomUUID(), pid: process.pid, startedAt: (ownStart ??= processStart(process.pid) ?? "unknown") }
+    const me = { id: crypto.randomUUID(), pid: process.pid, startedAt: myStart() }
     const [start, before] = yield* inFolder(root, (a) => {
       const others = a.active.length > 0
       a.active.push(me)
       return { seq: ++a.seq, others }
-    }, snapshot(cwd, index))
+    }, snapshot(cwd, index, root))
 
+    // The turn may have moved the repo (git init, a removed .git), so the after snapshot finds its root again.
     const end = inFolder(root, (a) => {
       const shared = !!start?.others || a.seq !== start?.seq || a.active.some((r) => r.id !== me.id)
       a.active = a.active.filter((r) => r.id !== me.id)

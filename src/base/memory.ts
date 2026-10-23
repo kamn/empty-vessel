@@ -34,6 +34,10 @@ export const ActiveAgent = Context.Reference<string>("empty-vessel/ActiveAgent",
 
 // The default limits: about 6,000 characters, ~1,500 tokens of System Two's briefing (Hermes keeps 2,200 and 1,375).
 export const LIMITS: Limits = { agent: 2400, project: 2200, user: 1375 }
+// The limits config.json's memory section sets, and how many characters a scope's entries take (one line each).
+export const memoryLimits = (m: { readonly agentChars: number; readonly projectChars: number; readonly userChars: number }): Limits =>
+  ({ agent: m.agentChars, project: m.projectChars, user: m.userChars })
+export const usedChars = (entries: ReadonlyArray<string>) => entries.reduce((n, e) => n + e.length + 1, 0)
 
 const agentKey = (agent: string) => (agent === "root" ? "agents/memory.md" : `agents/${agent}/memory.md`)
 const PROFILE = "agents/user.md"
@@ -77,11 +81,10 @@ export const memoryOnStore = (root: string, given: Partial<Limits> = {}) =>
 
     // A scope's entries written whole, if they fit its limit, or if they're smaller than before (a file already over
     // its limit loads as it is; the next write has to make it smaller).
-    const size = (ls: ReadonlyArray<string>) => ls.reduce((n, l) => n + l.length + 1, 0)
     const write = (scope: Scope, before: ReadonlyArray<string>, after: ReadonlyArray<string>) =>
       Effect.gen(function* () {
-        if (size(after) > limits[scope] && size(after) > size(before))
-          return yield* new MemoryError({ message: `${scope} memory is full (${size(after)} of ${limits[scope]} characters): merge or remove an entry first` })
+        if (usedChars(after) > limits[scope] && usedChars(after) > usedChars(before))
+          return yield* new MemoryError({ message: `${scope} memory is full (${usedChars(after)} of ${limits[scope]} characters): merge or remove an entry first` })
         yield* store.put(yield* key(scope), after.map((l) => `${l}\n`).join(""))
       })
 
