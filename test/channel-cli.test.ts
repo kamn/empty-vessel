@@ -24,11 +24,11 @@ export default { name: "smoke", core: ${JSON.stringify(CORE_VERSION)}, provides:
   saveSession: id => Effect.sync(() => writeFileSync(state, id)),
   send: text => Effect.gen(function* () {
     appendFileSync(messages, JSON.stringify(text) + "\\n")
-    if (text === process.env.SMOKE_EXIT_AFTER && incoming) yield* incoming("/exit")
+    if (text === process.env.SMOKE_EXIT_AFTER && incoming) yield* incoming({ text: "/exit" })
   }),
   listen: receive => Effect.gen(function* () {
     incoming = receive
-    for (const text of JSON.parse(process.env.SMOKE_MESSAGES || '["/exit"]')) yield* receive(text)
+    for (const text of JSON.parse(process.env.SMOKE_MESSAGES || '["/exit"]')) yield* receive({ text })
     yield* Effect.never
   }),
 })) } }

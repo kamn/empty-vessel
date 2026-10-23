@@ -22,7 +22,7 @@ const ok = (result: unknown) => new Response(JSON.stringify({ ok: true, result }
 const fail = (status: number, retryAfter?: number) => new Response(JSON.stringify({
   ok: false, error_code: status, description: "SECRET URL/token must not escape", parameters: { retry_after: retryAfter },
 }), { status })
-const message = (update_id: number, text = "hello") => ({ update_id, message: {
+const message = (update_id: number, text = "hello") => ({ update_id, message: { message_id: 100 + update_id,
   text, from: { id: 42, is_bot: false }, chat: { id: 42, type: "private" },
 } })
 const fake = (poll: (body: any, init: RequestInit) => Response | Promise<Response>, send?: (body: any) => Response): Http =>
@@ -42,7 +42,7 @@ const aborting = (init: RequestInit, aborted: () => void) => new Promise<Respons
 // A deliberate 401 terminates a finite scripted poll without timer-based assertions.
 const runBatch = (batches: unknown[][], deps: ReturnType<typeof fixture>, seen: string[]) => Effect.scoped(Effect.gen(function* () {
   const channel = yield* makeTelegramChannel(options, { ...deps, http: fake(() => batches.length ? ok(batches.shift()) : fail(401)) })
-  yield* channel.listen((text) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
+  yield* channel.listen(({ text }) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
 }))
 
 test("exports channel plugin and validates positive string IDs and redacted token", () => {
@@ -85,10 +85,12 @@ test("auth filters sender, chat, group, bots, edits and non-text; ignores duplic
   expect(seen).toEqual(["hello", "next"])
 })))
 
-test("offset is on disk before dispatch; session survives restart and duplicates never replay", () => Effect.runPromise(Effect.gen(function* () {
+test("offset is saved only after the message is handled; session survives restart and duplicates never replay", () => Effect.runPromise(Effect.gen(function* () {
   const deps = fixture()
   const seen: string[] = []
   let polled = false
+  const dir = join(deps.home, "telegram", "state")
+  const onDisk = () => JSON.parse(readFileSync(join(dir, readdirSync(dir)[0]!), "utf8"))
   const channelRun = Effect.scoped(Effect.gen(function* () {
     const channel = yield* makeTelegramChannel(options, { ...deps, http: fake(() => {
       if (polled) return fail(401)
@@ -96,16 +98,16 @@ test("offset is on disk before dispatch; session survives restart and duplicates
       return ok([message(10)])
     }) })
     yield* channel.saveSession("session-1")
-    yield* channel.listen((text) => Effect.sync(() => {
-      const dir = join(deps.home, "telegram", "state")
-      const path = join(dir, readdirSync(dir)[0]!)
-      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ offset: 11, session: "session-1" })
-      expect(statSync(path).mode & 0o777).toBe(0o600)
-      expect(statSync(dir).mode & 0o777).toBe(0o700)
+    yield* channel.listen(({ text, requestId }) => Effect.sync(() => {
+      expect(onDisk()).toEqual({ offset: 0, session: "session-1" })
+      expect(requestId).toBe("tg:42:110")
       seen.push(text)
     })).pipe(Effect.exit)
   }))
   yield* channelRun
+  expect(onDisk()).toEqual({ offset: 11, session: "session-1" })
+  expect(statSync(join(dir, readdirSync(dir)[0]!)).mode & 0o777).toBe(0o600)
+  expect(statSync(dir).mode & 0o777).toBe(0o700)
   yield* Effect.scoped(Effect.gen(function* () {
     let first = true
     const channel = yield* makeTelegramChannel(options, { ...deps, http: fake((body) => {
@@ -115,9 +117,27 @@ test("offset is on disk before dispatch; session survives restart and duplicates
       return ok([message(10), message(11, "new")])
     }) })
     expect(yield* channel.loadSession).toBe("session-1")
-    yield* channel.listen((text) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
+    yield* channel.listen(({ text }) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
   }))
   expect(seen).toEqual(["hello", "new"])
+})))
+
+test("a message whose handling never finished is redelivered with the same requestId", () => Effect.runPromise(Effect.gen(function* () {
+  const deps = fixture()
+  const ids: Array<string | undefined> = []
+  const once = (handle: (requestId?: string) => Effect.Effect<void>) => Effect.scoped(Effect.gen(function* () {
+    let polled = false
+    const channel = yield* makeTelegramChannel(options, { ...deps, http: fake(() => {
+      if (polled) return fail(401)
+      polled = true
+      return ok([message(10)])
+    }) })
+    yield* channel.listen(({ requestId }) => handle(requestId)).pipe(Effect.exit)
+  }))
+  // The first process dies while handling it: Telegram is never told it was received.
+  yield* once((requestId) => Effect.sync(() => { ids.push(requestId) }).pipe(Effect.andThen(Effect.die("crash"))))
+  yield* once((requestId) => Effect.sync(() => { ids.push(requestId) }))
+  expect(ids).toEqual(["tg:42:110", "tg:42:110"])
 })))
 
 test("bot lock excludes other projects, chats and state directories; scope releases it", () => Effect.runPromise(Effect.gen(function* () {
@@ -294,7 +314,7 @@ test("pending sends do not block polling, and cancelling send aborts its request
   const send = yield* Effect.forkChild(channel.send("pending"))
   while (!sendStarted) yield* Effect.sleep(1)
   const seen: string[] = []
-  yield* channel.listen((text) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
+  yield* channel.listen(({ text }) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
   expect(seen).toEqual(["hello", "second"])
   yield* Fiber.interrupt(send)
   expect(sendAborted).toBe(true)

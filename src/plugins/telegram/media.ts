@@ -108,7 +108,7 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
     return `${message.caption ? `${message.caption}\n` : ""}'${path}'`
   }))
 
-  const send = (path: string, chatId: string, caption?: string): Effect.Effect<void, Error> => Effect.scoped(Effect.gen(function* () {
+  const send = (path: string, chatId: string, caption?: string): Effect.Effect<number | undefined, Error> => Effect.scoped(Effect.gen(function* () {
     const fd = yield* Effect.acquireRelease(local(() => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.includes("\0")) throw new MediaError("A local file path is required")
       return openSync(isAbsolute(path) ? path : resolve(path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -135,7 +135,8 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
     body.set("chat_id", chatId)
     if (caption !== undefined) body.set("caption", caption)
     body.set("document", new Blob(bytes), `file${extension(path)}`)
-    yield* api.call("sendDocument", body)
+    const sent = yield* api.call<{ message_id?: number }>("sendDocument", body)
+    return sent?.message_id
   }))
 
   return { receive, send }

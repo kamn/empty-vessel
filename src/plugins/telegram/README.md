@@ -15,9 +15,10 @@ Files are keyed by token hash, chat ID and canonical project working-directory p
 Directories use mode 0700; atomic, fsynced state replacements use mode 0600.
 Offsets and session IDs share a file. Corrupt state fails closed instead of resetting offsets.
 
-**At-most-once crash tradeoff:** each offset is saved before the host callback. A crash between
-that save and execution can lose a message. Uncertain executions are never automatically replayed.
-The host callback must enqueue promptly, not wait for an agent turn. Sending and polling have separate gates.
+**At-least-once delivery:** each offset is saved after the host callback's Effect completes. A crash
+before then redelivers the message with the same `requestId` (`tg:<chat_id>:<message_id>`); a host that
+must not run it twice saves the IDs it handled with what they did and skips repeats (the agent does).
+The host callback should finish promptly (save the request), not wait for an agent turn. Sending and polling have separate gates.
 Outbound transient failures are retried independently (four attempts total); an ambiguous network failure
 may duplicate a sent reply. Retries respect `retry_after`, but a delay over 60 seconds fails rather than retrying early.
 

@@ -106,7 +106,7 @@ for (const mode of ["success", "failure", "unsupported"] as const) {
         sent.push([path, caption])
         return mode === "failure" ? Effect.fail(new Error("permission denied")) : Effect.void
       } }),
-      listen: (receive: (text: string) => Effect.Effect<void>) => receive("send report").pipe(Effect.andThen(Effect.never)),
+      listen: (receive: (message: { text: string }) => Effect.Effect<void>) => receive({ text: "send report" }).pipe(Effect.andThen(Effect.never)),
     }
     const operations = { ...interactionOperations, answer: () => Effect.gen(function* () {
       const result = yield* call()

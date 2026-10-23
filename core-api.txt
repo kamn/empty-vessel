@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.6
+# empty-vessel core 0.0.7
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -66,10 +66,13 @@ declare const Channel_base: Context.ServiceClass<Channel, "empty-vessel/Channel"
     readonly hideUsageSummaries?: boolean;
     readonly loadSession: Effect.Effect<string | undefined, Error>;
     readonly saveSession: (id: string) => Effect.Effect<void, Error>;
-    readonly send: (text: string) => Effect.Effect<void, Error>;
-    readonly sendFile?: (path: string, caption?: string) => Effect.Effect<void, Error>;
+    readonly send: (text: string) => Effect.Effect<number | void, Error>;
+    readonly sendFile?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
     readonly progress?: (summary: string) => Effect.Effect<void, Error>;
-    readonly listen: (onMessage: (text: string) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>;
+    readonly listen: (onMessage: (message: {
+        text: string;
+        requestId?: string;
+    }) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>;
 }>;
 export declare class Channel extends Channel_base {
 }

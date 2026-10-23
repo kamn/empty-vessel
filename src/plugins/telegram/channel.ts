@@ -14,7 +14,7 @@ export type TelegramOptions = {
 }
 export type TelegramDependencies = { http?: Http; home?: string; project?: string; sendIntervalMs?: number }
 type Update = { update_id: number; message?: {
-  text?: string; caption?: string
+  message_id?: number; text?: string; caption?: string
   photo?: ReadonlyArray<{ file_id: string; file_size?: number; width: number; height: number }>
   document?: { file_id: string; file_name?: string; file_size?: number; mime_type?: string }
   from?: { id: number; is_bot?: boolean }; chat?: { id: number; type: string }
@@ -48,14 +48,18 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
 
   const send = (text: string) => sending.withPermits(1)(Effect.gen(function* () {
     progressMessage = undefined
+    let id: number | undefined
 
     for (const chunk of splitText(text)) {
       const wait = (dependencies.sendIntervalMs ?? 1100) - (Date.now() - lastSend)
       if (wait > 0) yield* Effect.sleep(wait)
-      yield* api.call("sendMessage", { chat_id: options.allowedChatId, text: chunk }).pipe(
+      const sent = yield* api.call<{ message_id?: number }>("sendMessage", { chat_id: options.allowedChatId, text: chunk }).pipe(
         Effect.ensuring(Effect.sync(() => { lastSend = Date.now() })),
       )
+      id = sent?.message_id
     }
+
+    return id
   }))
 
   const sendFile = (path: string, caption?: string) => sending.withPermits(1)(Effect.gen(function* () {
@@ -63,7 +67,7 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     const wait = (dependencies.sendIntervalMs ?? 1100) - (Date.now() - lastSend)
     if (wait > 0) yield* Effect.sleep(wait)
 
-    yield* media.send(path, options.allowedChatId, caption).pipe(
+    return yield* media.send(path, options.allowedChatId, caption).pipe(
       Effect.ensuring(Effect.sync(() => { lastSend = Date.now() })),
     )
   }))
@@ -103,7 +107,7 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     lastSummary = summary
   }))
 
-  const listen = (onMessage: (text: string) => Effect.Effect<void>) => listening.withPermits(1)(Effect.gen(function* () {
+  const listen = (onMessage: (message: { text: string; requestId?: string }) => Effect.Effect<void>) => listening.withPermits(1)(Effect.gen(function* () {
     while (true) {
       const updates = yield* api.call<Update[]>("getUpdates", {
         offset: state.get().offset, timeout: 25, allowed_updates: ["message"],
@@ -116,21 +120,25 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
         }
         if (update.update_id < state.get().offset) continue
 
-        // Persist BEFORE enqueueing: a crash may lose a message, but cannot auto-replay an uncertain execution.
-        yield* state.save({ offset: update.update_id + 1 })
+        // The offset is saved only AFTER the message is handled: a crash before then redelivers it (same requestId),
+        // and the receiver skips what it already handled (KTD12).
         const message = update.message
-        if (message?.chat?.type !== "private" || String(message.chat.id) !== options.allowedChatId ||
-          !message.from || message.from.is_bot !== false || String(message.from.id) !== options.allowedUserId) continue
+        if (message?.chat?.type === "private" && String(message.chat.id) === options.allowedChatId &&
+          message.from && message.from.is_bot === false && String(message.from.id) === options.allowedUserId) {
+          const requestId = Number.isSafeInteger(message.message_id) ? `tg:${options.allowedChatId}:${message.message_id}` : undefined
 
-        if (message.photo || message.document) {
-          const attached = yield* media.receive(message).pipe(Effect.catch(() =>
-            send("Could not receive attachment. Try a smaller photo or document (up to 20 MB).").pipe(Effect.as(undefined)),
-          ))
-          // Captions are prompts, never host commands such as /stop or !shell.
-          if (attached) yield* onMessage(`Attachment received:\n${attached}`)
-        } else if (typeof message.text === "string" && message.text.length > 0) {
-          yield* onMessage(message.text)
+          if (message.photo || message.document) {
+            const attached = yield* media.receive(message).pipe(Effect.catch(() =>
+              send("Could not receive attachment. Try a smaller photo or document (up to 20 MB).").pipe(Effect.as(undefined)),
+            ))
+            // Captions are prompts, never host commands such as /stop or !shell.
+            if (attached) yield* onMessage({ text: `Attachment received:\n${attached}`, requestId })
+          } else if (typeof message.text === "string" && message.text.length > 0) {
+            yield* onMessage({ text: message.text, requestId })
+          }
         }
+
+        yield* state.save({ offset: update.update_id + 1 })
       }
       // Telegram normally holds empty polls; also avoid spinning on an unexpectedly immediate response.
       if (updates.length === 0) yield* Effect.sleep(100)

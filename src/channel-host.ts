@@ -22,7 +22,7 @@ export const serveChannel = <R>(channel: Channel["Service"], sessionId: string,
   })
 
   const runner = yield* makeRunner({
-    ...(channel.sendFile ? { sendFile: (path: string, caption?: string) => channel.sendFile!(path, caption) } : {}),
+    ...(channel.sendFile ? { sendFile: (path: string, caption?: string) => channel.sendFile!(path, caption).pipe(Effect.asVoid) } : {}),
     presentQuestion: ({ question, options: offered }) => Effect.gen(function* () {
       asking = true
       options = offered
@@ -113,6 +113,6 @@ export const serveChannel = <R>(channel: Channel["Service"], sessionId: string,
   const sender = Effect.forever(Queue.take(outgoing).pipe(Effect.flatMap(({ text, progress }) =>
     progress && channel.progress ? channel.progress(text) : channel.send(text),
   )))
-  const listener = channel.listen((text) => Effect.sync(() => { Queue.offerUnsafe(incoming, { kind: "message", text }) }))
+  const listener = channel.listen(({ text }) => Effect.sync(() => { Queue.offerUnsafe(incoming, { kind: "message", text }) }))
   yield* Effect.raceFirst(actor, Effect.raceFirst(sender, listener))
 })

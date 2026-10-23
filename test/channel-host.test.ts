@@ -26,8 +26,8 @@ const harness = (overrides: Partial<typeof interactionOperations> = {}, failSend
     loadSession: Effect.succeed(undefined), saveSession: () => Effect.void,
     send: (text: string) => Effect.sync(() => { sent.push(text) }).pipe(Effect.flatMap(() =>
       failSend?.(text) ? Effect.fail(new Error("sender failed")) : Queue.offer(output, text).pipe(Effect.asVoid)), Effect.retry({ times: retrySend ? 2 : 0 })),
-    listen: (receive: (text: string) => Effect.Effect<void>) => Effect.forever(Queue.take(input).pipe(
-      Effect.flatMap((text) => text === "FAIL_LISTENER" ? Effect.fail(new Error("listener failed")) : receive(text)),
+    listen: (receive: (message: { text: string }) => Effect.Effect<void>) => Effect.forever(Queue.take(input).pipe(
+      Effect.flatMap((text) => text === "FAIL_LISTENER" ? Effect.fail(new Error("listener failed")) : receive({ text })),
     )).pipe(Effect.ensuring(Effect.sync(() => { listenerClosed = true }))),
   }
   const operations = { ...interactionOperations, answer: () => Effect.succeed(result),

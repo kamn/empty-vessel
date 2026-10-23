@@ -47,7 +47,7 @@ const receive = (batches: unknown[][], broken = false) => Effect.scoped(Effect.g
   const mock = transport(batches, broken)
   const seen: string[] = []
   const channel = yield* makeTelegramChannel(options, { ...deps, http: mock.http })
-  yield* channel.listen((text) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
+  yield* channel.listen(({ text }) => Effect.sync(() => { seen.push(text) })).pipe(Effect.exit)
   return { ...mock, ...deps, seen }
 }))
 
