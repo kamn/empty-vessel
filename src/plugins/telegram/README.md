@@ -39,4 +39,9 @@ Incoming files are limited to 20 MB; failures are reported without dispatching a
 `sendFile` uploads local files as documents (up to 50 MB), sharing the outbound send gate and throttle.
 Model-facing delivery uses `tell_user` with a `file` path; merely mentioning a path does not upload it.
 
+Voice notes and audio files are downloaded the same way, then transcribed (the OGG as is) and handled as text,
+with `voice` set on the message. Transcription goes to the **third-party API configured** in `config.json`'s `media`
+section (OpenAI by default; the key comes from the variable `media.apiKeyEnv` names). A note that can't be downloaded
+or transcribed gets a clear reply and nothing is submitted. `sendVoice` sends an OGG/Opus file as a voice message.
+
 Tests inject HTTP; no real bot credentials or live Telegram requests are used.

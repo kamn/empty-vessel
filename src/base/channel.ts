@@ -12,11 +12,14 @@ export class Channel extends Context.Service<Channel, {
   readonly send: (text: string) => Effect.Effect<number | void, Error>
   // Await actual attachment delivery; message text is supplied as the caption.
   readonly sendFile?: (path: string, caption?: string) => Effect.Effect<number | void, Error>
+  // A spoken reply (an OGG/Opus file) as a voice message.
+  readonly sendVoice?: (path: string, caption?: string) => Effect.Effect<number | void, Error>
   // Optional live progress: replace the previous summary instead of sending another message.
   // The first update after a permanent reply starts a new progress message.
   // Hosts fall back to send when a transport does not support updates.
   readonly progress?: (summary: string) => Effect.Effect<void, Error>
   // A message counts as received only once onMessage's Effect completes: one whose handling never finished (a crash) is
   // delivered again, with the same requestId (Telegram: tg:<chat_id>:<message_id>), so the receiver can skip a repeat.
-  readonly listen: (onMessage: (message: { text: string; requestId?: string }) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>
+  // voice: the text is a transcribed voice note.
+  readonly listen: (onMessage: (message: { text: string; requestId?: string; voice?: true }) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>
 }>()("empty-vessel/Channel") {}

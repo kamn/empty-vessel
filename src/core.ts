@@ -31,6 +31,8 @@ export { emit, type Kind } from "./base/events"
 export { retryIfTemporary } from "./base/retry"
 export { jsonSchemaFor } from "./base/json-schema"
 export { loadImage } from "./base/images"
+// Voice through the OpenAI-compatible API config.json's media section names.
+export { makeMedia, MediaError, type MediaSettings } from "./base/media"
 
 // The tools System Two is given (for a backend to present its own way), one call handled the same for every backend,
 // and how System Two is told to use them; the kernel's part names only what it grants (hooks.grants: config.json's

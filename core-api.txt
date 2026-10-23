@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.10
+# empty-vessel core 0.0.11
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -68,10 +68,12 @@ declare const Channel_base: Context.ServiceClass<Channel, "empty-vessel/Channel"
     readonly saveSession: (id: string) => Effect.Effect<void, Error>;
     readonly send: (text: string) => Effect.Effect<number | void, Error>;
     readonly sendFile?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
+    readonly sendVoice?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
     readonly progress?: (summary: string) => Effect.Effect<void, Error>;
     readonly listen: (onMessage: (message: {
         text: string;
         requestId?: string;
+        voice?: true;
     }) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope.Scope>;
 }>;
 export declare class Channel extends Channel_base {
@@ -160,6 +162,14 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
         readonly projectChars: number;
         readonly agentChars: number;
         readonly userChars: number;
+    };
+    readonly media: {
+        readonly baseUrl: string;
+        readonly apiKeyEnv: string;
+        readonly transcribeModel: string;
+        readonly speechModel: string;
+        readonly voice: string;
+        readonly voiceReplies: "all" | "off" | "voice";
     };
     readonly kernel: {
         readonly tools: {
@@ -312,6 +322,25 @@ export declare const loadImage: (path: string) => {
     mediaType: string;
     data: string;
 };
+
+## makeMedia (src/base/media)
+export declare const makeMedia: (settings: MediaSettings, http?: Http) => {
+    transcribe: (path: string) => Effect.Effect<string, MediaError, never>;
+    speak: (text: string, path: string) => Effect.Effect<string, MediaError, never>;
+};
+
+## MediaError (src/base/media)
+declare const MediaError_base: new <A extends Record<string, any> = {}>(args: VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => YieldableError & {
+    readonly _tag: "MediaError";
+} & Readonly<A>;
+export declare class MediaError extends MediaError_base<{
+    message: string;
+}> {
+}
+
+## MediaSettings (src/base/media)
+export type MediaSettings = typeof ConfigSchema.Type["media"];
+// names types the core doesn't export: ConfigSchema
 
 ## Memory (src/base/memory)
 declare const Memory_base: Context.ServiceClass<Memory, "empty-vessel/Memory", {
@@ -731,6 +760,12 @@ config.memory.use: {"type":"string","description":"The plugin that remembers (no
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
 config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}
 config.memory.userChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters the user profile may hold (who you are and how you work), shared by every agent","default":1375}
+config.media.baseUrl: {"type":"string","description":"The OpenAI-compatible API that voice notes and spoken replies are sent to","default":"https://api.openai.com/v1"}
+config.media.apiKeyEnv: {"type":"string","description":"The environment variable holding that API's key (the key itself is never kept here)","default":"OPENAI_API_KEY"}
+config.media.transcribeModel: {"type":"string","description":"The model that turns a voice note into text","default":"gpt-transcribe"}
+config.media.speechModel: {"type":"string","description":"The model that speaks a reply","default":"gpt-4o-mini-tts"}
+config.media.voice: {"type":"string","description":"The voice a reply is spoken in","default":"marin"}
+config.media.voiceReplies: {"type":"string","enum":["off","voice","all"],"description":"Speak replies too: off, voice (only to a voice note) or all; a spoken reply says it is AI-generated","default":"off"}
 config.kernel.tools.files: {"type":"string","enum":["read-write","read-only","none"],"description":"Cells' access to the project's files (read, readText, write, edit), and Gather's","default":"read-write"}
 config.kernel.tools.shell: {"type":"boolean","description":"bash in cells, and System One's checks (a check is a command)","default":true}
 config.kernel.tools.systemOne: {"type":"boolean","description":"systemOne and judge in cells","default":true}

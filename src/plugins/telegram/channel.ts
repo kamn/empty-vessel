@@ -12,11 +12,16 @@ export type TelegramOptions = {
   allowedChatId: string
   stateDirectory?: string
 }
-export type TelegramDependencies = { http?: Http; home?: string; project?: string; sendIntervalMs?: number }
+// transcribe: a voice note's text (src/base/media.ts); without it, voice notes are answered that voice isn't set up.
+export type TelegramDependencies = {
+  http?: Http; home?: string; project?: string; sendIntervalMs?: number
+  transcribe?: (path: string) => Effect.Effect<string, Error>
+}
 type Update = { update_id: number; message?: {
   message_id?: number; text?: string; caption?: string
   photo?: ReadonlyArray<{ file_id: string; file_size?: number; width: number; height: number }>
   document?: { file_id: string; file_name?: string; file_size?: number; mime_type?: string }
+  voice?: { file_id: string; file_size?: number }; audio?: { file_id: string; file_name?: string; file_size?: number }
   from?: { id: number; is_bot?: boolean }; chat?: { id: number; type: string }
 } }
 
@@ -62,12 +67,12 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     return id
   }))
 
-  const sendFile = (path: string, caption?: string) => sending.withPermits(1)(Effect.gen(function* () {
+  const upload = (as: "document" | "voice") => (path: string, caption?: string) => sending.withPermits(1)(Effect.gen(function* () {
     progressMessage = undefined
     const wait = (dependencies.sendIntervalMs ?? 1100) - (Date.now() - lastSend)
     if (wait > 0) yield* Effect.sleep(wait)
 
-    return yield* media.send(path, options.allowedChatId, caption).pipe(
+    return yield* media.send(path, options.allowedChatId, caption, as).pipe(
       Effect.ensuring(Effect.sync(() => { lastSend = Date.now() })),
     )
   }))
@@ -107,7 +112,14 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     lastSummary = summary
   }))
 
-  const listen = (onMessage: (message: { text: string; requestId?: string }) => Effect.Effect<void>) => listening.withPermits(1)(Effect.gen(function* () {
+  // A voice note is handled as its text; one that can't be heard is answered, and nothing is submitted.
+  const hear = (message: NonNullable<Update["message"]>) => Effect.gen(function* () {
+    if (!dependencies.transcribe) return yield* Effect.fail(new Error("voice is not set up here"))
+    const path = yield* media.download(message)
+    return path === undefined ? undefined : yield* dependencies.transcribe(path)
+  }).pipe(Effect.catch((error) => send(`Could not use the voice note: ${error.message}`).pipe(Effect.as(undefined))))
+
+  const listen = (onMessage: (message: { text: string; requestId?: string; voice?: true }) => Effect.Effect<void>) => listening.withPermits(1)(Effect.gen(function* () {
     while (true) {
       const updates = yield* api.call<Update[]>("getUpdates", {
         offset: state.get().offset, timeout: 25, allowed_updates: ["message"],
@@ -127,7 +139,10 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
           message.from && message.from.is_bot === false && String(message.from.id) === options.allowedUserId) {
           const requestId = Number.isSafeInteger(message.message_id) ? `tg:${options.allowedChatId}:${message.message_id}` : undefined
 
-          if (message.photo || message.document) {
+          if (message.voice || message.audio) {
+            const text = yield* hear(message)
+            if (text) yield* onMessage({ text, requestId, voice: true })
+          } else if (message.photo || message.document) {
             const attached = yield* media.receive(message).pipe(Effect.catch(() =>
               send("Could not receive attachment. Try a smaller photo or document (up to 20 MB).").pipe(Effect.as(undefined)),
             ))
@@ -149,7 +164,7 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     hideUsageSummaries: true,
     loadSession: Effect.sync(() => state.get().session),
     saveSession: (session) => state.save({ session }),
-    send, sendFile, progress, listen,
+    send, sendFile: upload("document"), sendVoice: upload("voice"), progress, listen,
   })
 })
 

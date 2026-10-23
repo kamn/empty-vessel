@@ -84,6 +84,15 @@ export const ConfigSchema = described({
     agentChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters each agent's memory may hold (this machine and its tools)", { default: 2400 }),
     userChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters the user profile may hold (who you are and how you work), shared by every agent", { default: 1375 }),
   }, "What empty-vessel remembers across sessions"),
+  // src/base/media.ts. Model ids are settings because today's retire soon (KTD25).
+  media: section({
+    baseUrl: setting(Schema.String, "The OpenAI-compatible API that voice notes and spoken replies are sent to", { default: "https://api.openai.com/v1" }),
+    apiKeyEnv: setting(Schema.String, "The environment variable holding that API's key (the key itself is never kept here)", { default: "OPENAI_API_KEY" }),
+    transcribeModel: setting(Schema.String, "The model that turns a voice note into text", { default: "gpt-transcribe" }),
+    speechModel: setting(Schema.String, "The model that speaks a reply", { default: "gpt-4o-mini-tts" }),
+    voice: setting(Schema.String, "The voice a reply is spoken in", { default: "marin" }),
+    voiceReplies: setting(Schema.Literals(["off", "voice", "all"]), "Speak replies too: off, voice (only to a voice note) or all; a spoken reply says it is AI-generated", { default: "off" }),
+  }, "Voice: Telegram voice notes become text, and replies can be spoken, through a third-party API you configure"),
   // Capabilities: a cell can't import what isn't granted, the cells' services don't
   // provide it, System Two isn't told of it, and library tools that need it aren't offered. Without a sandbox, files
   // "read-only" with shell on isn't enforced (bash can write): a warning.

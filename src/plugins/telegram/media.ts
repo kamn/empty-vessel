@@ -6,6 +6,8 @@ import { telegramApi, type Http } from "./http"
 export type MediaMessage = {
   photo?: readonly { file_id: string; file_size?: number; width: number; height: number }[]
   document?: { file_id: string; file_name?: string; file_size?: number; mime_type?: string }
+  voice?: { file_id: string; file_size?: number }
+  audio?: { file_id: string; file_name?: string; file_size?: number }
   caption?: string
 }
 const DOWNLOAD = 20_000_000
@@ -36,9 +38,10 @@ const pending = <A>(signal: AbortSignal, work: () => Promise<A>) => Effect.tryPr
 
 export const telegramMedia = (token: Redacted.Redacted<string>, directory: string, http: Http = fetch) => {
   const api = telegramApi(token, http)
-  const receive = (message: MediaMessage): Effect.Effect<string | undefined, Error> => Effect.scoped(Effect.gen(function* () {
+  // The saved file's path. A voice note is Telegram's OGG/Opus; ponytail: an unnamed audio file is taken for MP3.
+  const download = (message: MediaMessage): Effect.Effect<string | undefined, Error> => Effect.scoped(Effect.gen(function* () {
     const photo = message.photo?.reduce<NonNullable<MediaMessage["photo"]>[number] | undefined>((best, next) => !best || next.width * next.height > best.width * best.height ? next : best, undefined)
-    const attachment = photo ?? message.document
+    const attachment = photo ?? message.document ?? message.voice ?? message.audio
     if (!attachment) return undefined
     yield* local(() => sizeCheck(attachment.file_size, DOWNLOAD))
 
@@ -58,7 +61,7 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
       if (/[\x00-\x1f\x7f'"\\$`]/.test(canonical)) throw new MediaError("Unsupported media directory")
       return mkdtempSync(join(canonical, "attachment-"))
     }), (path, exit) => Exit.isFailure(exit) ? Effect.sync(() => rmSync(path, { recursive: true, force: true })) : Effect.void)
-    const path = join(scratch, `file${photo ? ".jpg" : extension(message.document?.file_name)}`)
+    const path = join(scratch, `file${photo ? ".jpg" : message.voice ? ".ogg" : message.audio ? extension(message.audio.file_name ?? "audio.mp3") : extension(message.document?.file_name)}`)
     const fd = yield* Effect.acquireRelease(local(() => openSync(path, "wx", 0o600)), (fd) => Effect.sync(() => closeSync(fd)))
     const controller = yield* Effect.acquireRelease(Effect.sync(() => new AbortController()), (c) => Effect.sync(() => c.abort()))
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)])
@@ -105,10 +108,14 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
       })
     }
 
-    return `${message.caption ? `${message.caption}\n` : ""}'${path}'`
+    return path
   }))
+  const receive = (message: MediaMessage) => download(message).pipe(
+    Effect.map((path) => path && `${message.caption ? `${message.caption}\n` : ""}'${path}'`),
+  )
 
-  const send = (path: string, chatId: string, caption?: string): Effect.Effect<number | undefined, Error> => Effect.scoped(Effect.gen(function* () {
+  // A document, or (as) a voice message: Telegram plays OGG/Opus as one.
+  const send = (path: string, chatId: string, caption?: string, as: "document" | "voice" = "document"): Effect.Effect<number | undefined, Error> => Effect.scoped(Effect.gen(function* () {
     const fd = yield* Effect.acquireRelease(local(() => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.includes("\0")) throw new MediaError("A local file path is required")
       return openSync(isAbsolute(path) ? path : resolve(path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -134,10 +141,10 @@ export const telegramMedia = (token: Redacted.Redacted<string>, directory: strin
     const body = new FormData()
     body.set("chat_id", chatId)
     if (caption !== undefined) body.set("caption", caption)
-    body.set("document", new Blob(bytes), `file${extension(path)}`)
-    const sent = yield* api.call<{ message_id?: number }>("sendDocument", body)
+    body.set(as, new Blob(bytes), `file${extension(path)}`)
+    const sent = yield* api.call<{ message_id?: number }>(as === "voice" ? "sendVoice" : "sendDocument", body)
     return sent?.message_id
   }))
 
-  return { receive, send }
+  return { download, receive, send }
 }
