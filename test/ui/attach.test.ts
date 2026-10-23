@@ -67,6 +67,7 @@ test("typed lines become agent requests; plain text steers (the agent starts a r
   expect(request("/retry r9")).toEqual({ type: "retry", runId: "r9" })
   expect(request("/answer yes please")).toEqual({ type: "answer", text: "yes please" })
   expect(request("/use s2")).toEqual({ type: "use", sessionId: "s2" })
+  expect(request("/new my work", "/tmp/project")).toEqual({ type: "new", name: "my work", cwd: "/tmp/project" })
   expect(request("fix the bug")).toMatchObject({ type: "steer", text: "fix the bug", requestId: expect.any(String) })
   expect(shown({ type: "event", kind: "activity", depth: 0, text: "thinking" })).toEqual([])
   expect(shown({ type: "event", kind: "step", depth: 1, text: "child step" })).toEqual(["  child step"])

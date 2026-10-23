@@ -39,7 +39,8 @@ export const shown = (m: Said): Array<string> => {
 }
 
 // What a typed line asks the agent for. Plain text is a steer: it reaches the running turn, or starts one if none is.
-export const request = (line: string): Said | "quit" | undefined => {
+// /new starts an agent session working in `cwd`: Telegram's /sessions lists it too.
+export const request = (line: string, cwd = process.cwd()): Said | "quit" | undefined => {
   const text = line.trim()
   const [command, ...rest] = text.split(/\s+/)
   const arg = rest.join(" ")
@@ -52,11 +53,12 @@ export const request = (line: string): Said | "quit" | undefined => {
   if (command === "/answer") return { type: "answer", text: arg }
   if (command === "/sessions") return { type: "sessions" }
   if (command === "/use") return { type: "use", sessionId: arg }
+  if (command === "/new") return { type: "new", name: arg, cwd }
   return { type: "steer", text, requestId: crypto.randomUUID() }
 }
 
 // Attach to `sessionId` (the agent's selected session if undefined) until the input ends, /quit, or the agent goes away.
-export const attach = (socket: string, sessionId: string | undefined, input: NodeJS.ReadableStream, print: (line: string) => void) =>
+export const attach = (socket: string, sessionId: string | undefined, input: NodeJS.ReadableStream, print: (line: string) => void, cwd = process.cwd()) =>
   Effect.callback<void, Error>((resume) => {
     const connection = createConnection(socket)
     const typed = createInterface({ input })
@@ -78,7 +80,7 @@ export const attach = (socket: string, sessionId: string | undefined, input: Nod
     connection.on("close", () => { typed.close(); resume(Effect.void) })
 
     typed.on("line", (line) => {
-      const asked = request(line)
+      const asked = request(line, cwd)
       if (asked === "quit") connection.end()
       else if (asked) send(asked)
     })
