@@ -89,6 +89,14 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
       if (plugin?.defaults) plugins[plugin.name] = { ...plugins[plugin.name], config: { ...plugin.defaults, ...plugins[plugin.name]?.config } }
     }
 
+    // The browser preset: Playwright MCP as the `browser` source (a fresh headless browser each time). Offered only while
+    // there's no `browser` source, so running setup again never duplicates it or touches one you edited.
+    const sources: Record<string, any> = { ...current.sources }
+    if (!sources.browser) {
+      const answer = (io.ask("\nLet System Two drive a browser (Playwright MCP, started with npx)? (y/N):") ?? "").trim()
+      if (/^y(es)?$/i.test(answer)) sources.browser = { command: "npx", args: ["@playwright/mcp@latest", "--isolated", "--headless"] }
+    }
+
     const systemOne = { ...current.systemOne, use: chosen.systemOne }
     const systemTwo = chosen.systemTwo === "fake" ? { ...current.systemTwo, use: "fake" } : { reasoning: "medium", ...current.systemTwo, use: chosen.systemTwo }
     const channel = current.channel || chosen.channel !== "terminal" ? { channel: { ...current.channel, use: chosen.channel } } : {}
@@ -100,7 +108,7 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
     const real = existsSync(file) ? realpathSync(file) : link ? resolve(dirname(file), readlinkSync(file)) : file
     mkdirSync(dirname(real), { recursive: true })
     const temp = `${real}.${crypto.randomUUID()}.tmp`
-    writeFileSync(temp, JSON.stringify({ ...current, systemOne, systemTwo, ...channel, ...(Object.keys(plugins).length ? { plugins } : {}) }, null, 2) + "\n", { mode: 0o600, flag: "wx" })
+    writeFileSync(temp, JSON.stringify({ ...current, systemOne, systemTwo, ...channel, ...(Object.keys(sources).length ? { sources } : {}), ...(Object.keys(plugins).length ? { plugins } : {}) }, null, 2) + "\n", { mode: 0o600, flag: "wx" })
     chmodSync(temp, 0o600) // whatever the umask
     renameSync(temp, real)
 

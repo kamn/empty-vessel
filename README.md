@@ -92,6 +92,12 @@ Point at a file with `@path` in a message (`fix the bug in @src/tools/bash.ts`):
 the request, up to 10 files and 100k characters each, with the `AGENTS.md` / `CLAUDE.md` of the folders it's in. In the
 TUI, typing `@` suggests the project's files; Tab takes one (Enter sends what you typed).
 
+Web search already works with Codex and Claude as System Two: `systemTwo.webSearch` (on by default) turns on their own
+search (Codex's `web_search`, Claude Code's WebSearch and WebFetch). The `openai` plugin has no search. To let System
+Two drive a browser, answer yes when `empty-vessel setup` offers one: it adds Playwright MCP as the `browser` source
+(`npx @playwright/mcp@latest --isolated --headless`; needs Node's `npx`). Setup only offers it while there's no
+`browser` source, so it never duplicates or overwrites one you edited.
+
 In the TUI and in channels:
 
 - `/undo` takes back what the last turn that changed files changed: it restores the files it edited or deleted and
