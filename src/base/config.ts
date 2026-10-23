@@ -74,6 +74,9 @@ export const ConfigSchema = described({
   store: section({
     use: setting(Schema.String, "The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)", { default: "disk" }),
   }, "Where empty-vessel keeps what lasts between runs"),
+  skills: section({
+    writeApproval: setting(Schema.Boolean, "Skills the agent saves in your own turns wait for /skills approve too (those from jobs, sub-agents and background reviews always do)", { default: false }),
+  }, "Skills the agent writes (saveSkill)"),
   memory: section({
     use: setting(Schema.String, "The plugin that remembers (notes: one line per entry, kept in the store)", { default: "notes" }),
     // The notes plugin's size limits (src/base/memory.ts): a write that would go over fails until entries are merged.

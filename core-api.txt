@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.9
+# empty-vessel core 0.0.10
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -151,6 +151,9 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
     };
     readonly store: {
         readonly use: string;
+    };
+    readonly skills: {
+        readonly writeApproval: boolean;
     };
     readonly memory: {
         readonly use: string;
@@ -723,6 +726,7 @@ config.systemTwo.style: {"type":"string","enum":["i-have-adhd","none"],"descript
 config.actionGuard.use: {"type":"array","items":{"type":"string"},"description":"Required action guard plugins, checked before shell execution","default":[]}
 config.channel.use: {"type":"string","description":"The conversation channel (terminal: built-in interactive routing)","default":"terminal"}
 config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
+config.skills.writeApproval: {"type":"boolean","description":"Skills the agent saves in your own turns wait for /skills approve too (those from jobs, sub-agents and background reviews always do)","default":false}
 config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
 config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}

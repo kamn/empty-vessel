@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs"
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { basename, isAbsolute, join, relative, resolve } from "node:path"
 import { Data, Effect } from "effect"
+import { withLock } from "./files"
 import { EMPTY_VESSEL_HOME } from "./home"
+import { describeFlags, type ScanFlag, scanSkill } from "./skill-scan"
 
 export class SkillError extends Data.TaggedError("SkillError")<{ message: string }> {}
 
@@ -252,4 +254,100 @@ export const loadSkill = (catalog: SkillCatalog, invocation: SkillInvocation, or
     })
   },
   catch: (error) => error instanceof SkillError ? error : new SkillError({ message: `Unable to load skill: ${message(error)}` }),
+})
+
+// Agent-written skills (KTD20). One call creates ({ name, content }: the whole SKILL.md) or patches ({ name, old, new }:
+// `old` found exactly once) a personal skill: validated and scanned (a dangerous verdict is refused), then written under
+// the skills lock. `pending`: staged in skills-pending/<name>/ (a sibling of the skills root, so never discovered) for
+// /skills approve; a staged patch applies to the staged copy if there is one. Project skills and installed ones (an
+// import receipt) are never changed: they aren't the agent's to rewrite.
+export const SKILL_IMPORT_PROVENANCE = ".empty-vessel-import.json"
+export const PENDING_SKILLS = "skills-pending"
+// In a memory review's input when its window was tool-heavy (src/loop/signals.ts): it may then write skills too.
+export const SKILL_REVIEW = "Tool-heavy: a workflow here may be worth keeping as a skill."
+export type SavedSkill = { readonly name: string; readonly path: string; readonly pending: boolean; readonly created: boolean; readonly flags: ReadonlyArray<ScanFlag> }
+type Place = { readonly cwd?: string; readonly home?: string }
+const SHAPE = "saveSkill expects { name, content } or { name, old, new }"
+
+const textOf = (path: string) => existsSync(path) ? readFileSync(path, "utf8") : undefined
+const notLinked = (path: string) => { if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) fail(`Symlinks are not allowed for saved skills: ${path}`) }
+const checkName = (name: unknown) => { if (typeof name !== "string" || !validName(name)) fail("name must be 1–64 lowercase alphanumeric characters separated by single hyphens") }
+
+export const saveSkill = (edit: unknown, options: Place & { readonly pending: boolean }): Effect.Effect<SavedSkill, SkillError> => {
+  const home = options.home ?? EMPTY_VESSEL_HOME, cwd = options.cwd ?? process.cwd()
+  return withLock(join(home, "skills"), Effect.try({
+    try: () => {
+      if (!edit || typeof edit !== "object") fail(SHAPE)
+      const { name, content, old, new: replacement } = edit as Record<string, unknown>
+      checkName(name)
+      const patch = content === undefined || content === null
+      if (patch ? typeof old !== "string" || !old || typeof replacement !== "string" : typeof content !== "string" || (old ?? undefined) !== undefined) fail(SHAPE)
+
+      // What's there now: the catalog's skill of that name (project skills win there), and any staged copy.
+      const current = discoverSkills(cwd, home).skills.find((s) => s.name === name)
+      if (current?.source === "project") fail(`${name} is a project skill (${current.path}): saveSkill changes personal skills only`)
+      const folder = current?.directory ?? join(home, "skills", name as string)
+      if (existsSync(join(folder, SKILL_IMPORT_PROVENANCE))) fail(`${name} was installed (${folder}): installed skills aren't changed; save one under another name`)
+      const staged = join(home, PENDING_SKILLS, name as string)
+      for (const path of [folder, join(folder, "SKILL.md"), staged, join(staged, "SKILL.md")]) notLinked(path)
+
+      let text = content as string
+      if (patch) {
+        const base = (options.pending ? textOf(join(staged, "SKILL.md")) : undefined) ?? (current ? readFileSync(current.path, "utf8") : undefined)
+        if (base === undefined) return fail(`no personal skill ${name} to patch; create it with { name, content }`)
+        const times = base.split(old as string).length - 1
+        if (!times) fail(`old text not found in ${name}'s SKILL.md: ${JSON.stringify(old)}`)
+        if (times > 1) fail(`old text found ${times} times in ${name}'s SKILL.md: give more of it, so it's found once`)
+        text = base.replace(old as string, () => replacement as string)
+      }
+
+      const metadata = validateSkillBytes(Buffer.from(text), name as string)
+      if (metadata.name !== name) fail(`frontmatter name ${metadata.name} doesn't match ${name}`)
+      const { verdict, flags } = scanSkill([{ path: "SKILL.md", text }])
+      if (verdict === "dangerous") fail(`refused by the skill scan: ${describeFlags(flags.filter((f) => f.severity === "dangerous"))}`)
+
+      // Whole file: a temp file renamed over it, so a load never reads half a skill.
+      const dir = options.pending ? staged : folder, path = join(dir, "SKILL.md"), temp = `${path}.${crypto.randomUUID()}.tmp`
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(temp, text)
+      renameSync(temp, path)
+      return { name: name as string, path, pending: options.pending, created: !current, flags }
+    },
+    catch: (error) => error instanceof SkillError ? error : new SkillError({ message: `Unable to save skill: ${message(error)}` }),
+  }))
+}
+
+// Staged skills, for /skills pending: each name, new or an update of a personal skill, and its description.
+export const pendingSkills = (home = EMPTY_VESSEL_HOME) => {
+  const root = join(home, PENDING_SKILLS)
+  const names = existsSync(root) ? readdirSync(root).filter((n) => validName(n) && existsSync(join(root, n, "SKILL.md"))).sort() : []
+  if (!names.length) return "No skills wait for approval."
+
+  return [`Skills waiting for approval (/skills approve <name> or /skills reject <name>):`, ...names.map((n) => {
+    const kind = existsSync(join(home, "skills", n)) ? "update" : "new"
+    try { return `${n} (${kind}) — ${readSkillMetadata(join(root, n, "SKILL.md"), n).description}\n  ${join(root, n, "SKILL.md")}` } catch (error) { return `${n} (${kind}) — unreadable: ${message(error)}` }
+  })].join("\n")
+}
+
+// Approve: the staged SKILL.md saved as a personal skill (validated and scanned again: it may have been edited since),
+// then the staged folder removed. Reject: the staged folder removed.
+export const approveSkill = (name: string, options: Place = {}) => Effect.gen(function* () {
+  const home = options.home ?? EMPTY_VESSEL_HOME
+  const staged = yield* Effect.try({
+    try: () => { checkName(name); return textOf(join(home, PENDING_SKILLS, name, "SKILL.md")) ?? fail(`no pending skill ${name}`) },
+    catch: (error) => error as SkillError,
+  })
+  const saved = yield* saveSkill({ name, content: staged }, { ...options, pending: false })
+  yield* Effect.sync(() => rmSync(join(home, PENDING_SKILLS, name), { recursive: true, force: true }))
+  return saved
+})
+
+export const rejectSkill = (name: string, home = EMPTY_VESSEL_HOME) => Effect.try({
+  try: () => {
+    checkName(name)
+    const dir = join(home, PENDING_SKILLS, name)
+    if (!existsSync(dir)) fail(`no pending skill ${name}`)
+    rmSync(dir, { recursive: true, force: true })
+  },
+  catch: (error) => error as SkillError,
 })

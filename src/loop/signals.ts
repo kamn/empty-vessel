@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { exitOf, lessonIn } from "../base/lessons"
 import { projectDir } from "../base/project"
 import { logEntries, SESSIONS } from "../base/session"
+import { SKILL_REVIEW } from "../base/skills"
 import { Store } from "../base/store"
 
 // What refine (src/loop/refine.ts) reads back from this project's sessions: the records, and the signals code finds in
@@ -128,5 +129,6 @@ export const countTurn = (window: Window, report: TurnReport): { window: Window;
   if (next.userTurns < NUDGE_AT && next.toolIterations < NUDGE_AT) return { window: next }
   if (!signals.length) return { window: NO_WINDOW }
 
-  return { window: NO_WINDOW, review: `Memory review after ${next.userTurns} messages (${next.toolIterations} tool calls). What showed something to learn:\n${signals.map((s) => `- ${s}`).join("\n")}` }
+  const heavy = next.toolIterations >= NUDGE_AT ? `\n${SKILL_REVIEW}` : ""
+  return { window: NO_WINDOW, review: `Memory review after ${next.userTurns} messages (${next.toolIterations} tool calls). What showed something to learn:\n${signals.map((s) => `- ${s}`).join("\n")}${heavy}` }
 }

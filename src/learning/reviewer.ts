@@ -8,6 +8,7 @@ import { Config } from "../base/config"
 import { appendHistory } from "../base/files"
 import { EMPTY_VESSEL_HOME } from "../base/home"
 import { Kernel } from "../tools/kernel-service"
+import { discoverSkills, saveSkill, SKILL_REVIEW } from "../base/skills"
 import { Ask, type AskError } from "../system-two/ask"
 import type { Tokens } from "../base/usage"
 
@@ -126,6 +127,10 @@ const MemoryOp = Schema.Struct({
   text: Schema.String,
 })
 export const MemoryOps = Schema.Struct({ memory: Schema.Array(MemoryOp) })
+// A tool-heavy window's review may also write skills (KTD20): a whole SKILL.md (content, old and new null), or one
+// change to a personal skill (content null). Saved as staged, for the user's approval.
+const SkillEdit = Schema.Struct({ name: Schema.String, content: Schema.NullOr(Schema.String), old: Schema.NullOr(Schema.String), new: Schema.NullOr(Schema.String) })
+const ReviewOps = Schema.Struct({ memory: Schema.Array(MemoryOp), skills: Schema.Array(SkillEdit) })
 
 const CURATE = [
   "You curate the memory of a coding agent (empty-vessel): short notes it reads at the start of every session, in three scopes, one example each. project: this repo's setup, commands and conventions, e.g. \"Tests run with pnpm test, not npm test.\" agent: this computer and its tools, in every project, e.g. \"rg isn't installed: use grep.\" user: who the user is and how they work (their preferences and corrections), never machine facts, e.g. \"Prefers plain words over jargon.\"",
@@ -134,15 +139,23 @@ const CURATE = [
   "replace and remove name their entry by a piece of its text in old, found in that entry only; an add has old null. text is the whole entry as it should read, one sentence; a remove's is empty.",
   "Each scope has a size limit: when one is nearly full, merge or remove before adding. Changing nothing is a fine answer: an empty list.",
 ].join("\n")
+const CURATE_SKILLS = [
+  CURATE,
+  "This stretch was tool-heavy, so you may also keep a workflow as a skill (skills): steps that took several tries, a dead end that led to a fix, or the way the user wanted it done, that a later task would follow again. Not a one-off fix.",
+  "Patch an existing skill before creating one: if a listed skill covers the workflow, change it with name, old (a piece of its SKILL.md found once) and new, content null. Create only what no skill covers: name (lowercase-with-hyphens) and content, the whole SKILL.md: ---, name: and description: lines, ---, then the steps; old and new null.",
+  "Every skill you write waits for the user's approval. No skill is a fine answer: an empty list.",
+].join("\n")
 
-// A nudge's review: the Reviewer asked for memory ops only, and those applied. Ops refused (a full scope, an entry not
-// found or not unique) go back to it once with the errors and memory as it is then, to merge instead. Gives what
-// happened to each op, one line each.
-export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly user: string; readonly answer: string }>) =>
+// A nudge's review: the Reviewer asked for memory ops, and those applied. A tool-heavy window (SKILL_REVIEW in its input)
+// asks for skill edits too, with nudges on: saved through saveSkill as staged (a review isn't the user's turn, R24). Ops
+// refused (a full scope, an entry not found or not unique, a skill that fails validation or the scan) go back to it once
+// with the errors and memory and skills as they are then. Gives what happened to each op, one line each.
+export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly user: string; readonly answer: string }>, home = EMPTY_VESSEL_HOME) =>
   Effect.gen(function* () {
     const reviewer = yield* Reviewer
     const memory = yield* Memory
-    const { memory: limits } = yield* Config
+    const { memory: limits, nudges } = yield* Config
+    const withSkills = nudges && window.includes(SKILL_REVIEW)
     const limit: Record<Scope, number> = { agent: limits.agentChars, project: limits.projectChars, user: limits.userChars }
     const conversation = exchanges.slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
     const said: Array<string> = []
@@ -151,9 +164,12 @@ export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly
     for (let round = 0; round < 2 && (round === 0 || refused.length > 0); round++) {
       const scopes = yield* Effect.forEach(SCOPES, (s) => Effect.map(memory.entries(s), (es) =>
         `${s} (${es.reduce((n, e) => n + e.length + 1, 0)} of ${limit[s]} characters):\n${es.join("\n") || "(nothing yet)"}`))
-      const digest = [`Memory now:\n${scopes.join("\n")}`, window, `The recent conversation:\n${conversation}`,
-        ...(refused.length ? [`These changes were refused; change memory as it is now instead:\n${refused.join("\n")}`] : [])].join("\n\n")
-      const { value } = yield* reviewer.ask(CURATE, MemoryOps, digest)
+      const skills = withSkills ? discoverSkills(process.cwd(), home).skills.filter((s) => s.source === "personal") : []
+      const digest = [`Memory now:\n${scopes.join("\n")}`,
+        ...(withSkills ? [`Personal skills now:\n${skills.map((s) => `${s.name}: ${s.description}`).join("\n") || "(none yet)"}`] : []),
+        window, `The recent conversation:\n${conversation}`,
+        ...(refused.length ? [`These changes were refused; change ${withSkills ? "memory and skills" : "memory"} as they are now instead:\n${refused.join("\n")}`] : [])].join("\n\n")
+      const { value } = withSkills ? yield* reviewer.ask(CURATE_SKILLS, ReviewOps, digest) : { value: { ...(yield* reviewer.ask(CURATE, MemoryOps, digest)).value, skills: [] } }
 
       refused = []
       for (const o of value.memory) {
@@ -162,6 +178,13 @@ export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly
         const what = o.op === "remove" ? o.old : o.text
         if (error) refused.push(`- ${o.op} (${o.scope}) "${what}": ${error}`)
         said.push(error ? `not changed (${error}): ${o.op} ${what}` : `${o.op === "add" ? "added" : o.op === "replace" ? "replaced" : "removed"} (${o.scope}): ${what}`)
+      }
+
+      for (const s of value.skills) {
+        const edit = s.content !== null ? { name: s.name, content: s.content } : { name: s.name, old: s.old, new: s.new }
+        const error = yield* saveSkill(edit, { pending: true, home }).pipe(Effect.as(undefined), Effect.catch((e) => Effect.succeed(e.message)))
+        if (error) refused.push(`- skill ${s.name}: ${error}`)
+        said.push(error ? `not saved (${error}): skill ${s.name}` : `staged skill ${s.name} for the user's approval (/skills pending)`)
       }
     }
 

@@ -26,7 +26,7 @@ test("an empty config decodes to the same defaults as before settings were descr
     maxSteps: 20, compactAt: 150_000, testOptions: false, learnAfterTurn: false, nudges: true, ui: "plain", theme: "teal", sources: {},
     adoption: { offerSystemOne: 5, offerSystemTwo: 5, sampler: "thompson", reward: "ok", promoteTo: "pool", askAtEndOfTurn: "never", maxProposals: 1, graduateAfter: 3, dropAfter: 100, dropBelowRate: 0.2, proposals: "eager" },
     maxDepth: 2, systemOne: { use: "fake" }, systemTwo: { use: "fake", reasoning: "medium", maxRounds: 30, webSearch: true, progressMinutes: 5, scopeCheck: true, style: "i-have-adhd" },
-    store: { use: "disk" }, memory: { use: "notes", projectChars: 2200, agentChars: 2400, userChars: 1375 },
+    store: { use: "disk" }, skills: { writeApproval: false }, memory: { use: "notes", projectChars: 2200, agentChars: 2400, userChars: 1375 },
     channel: { use: "terminal" },
     actionGuard: { use: [] },
     kernel: { tools: { files: "read-write", shell: true, systemOne: true, agents: true, library: true, sources: true } },

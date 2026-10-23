@@ -4,10 +4,10 @@ import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Effect } from "effect"
 import { EMPTY_VESSEL_HOME } from "./home"
-import { projectRoot, readSkillMetadata, skillPaths, SkillError, validateSkillBytes } from "./skills"
+import { projectRoot, readSkillMetadata, SKILL_IMPORT_PROVENANCE, skillPaths, SkillError, validateSkillBytes } from "./skills"
 
 export const SKILL_IMPORT_LIMITS = Object.freeze({ entries: 1024, bytes: 64 * 1024 * 1024 })
-export const SKILL_IMPORT_PROVENANCE = ".empty-vessel-import.json"
+export { SKILL_IMPORT_PROVENANCE }
 const fail = (message: string): never => { throw new SkillError({ message }) }
 const exists = (path: string) => {
   try { lstatSync(path); return true } catch (error) {

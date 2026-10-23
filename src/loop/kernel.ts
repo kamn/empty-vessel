@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs"
 import { Context, Effect } from "effect"
-import { discoverSkills, loadSkill } from "../base/skills"
+import { discoverSkills, loadSkill, saveSkill } from "../base/skills"
+import { describeFlags } from "../base/skill-scan"
+import { EMPTY_VESSEL_HOME } from "../base/home"
 import { has } from "../base/grants"
 import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
@@ -28,7 +30,8 @@ const spawned = new WeakMap<Ctx, number>() // per turn: a turn has one Ctx
 
 // What cells reach through `call`: System One, the re-check, sub-agents as jobs, and promotion into the library. Shared by
 // System Two's kernel and System One's. `services`: empty-vessel's systems, since a hook runs inside System Two's own Effect.
-export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFunctions => {
+// `home`: where personal skills are (saveSkill).
+export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPTY_VESSEL_HOME): HostFunctions => {
   const host: HostFunctions = {
     skill: (arg: unknown) => Effect.gen(function* () {
       if (!has(ctx.config.kernel.tools, "read")) return yield* Effect.fail(new Error("skill requires the files read grant"))
@@ -141,6 +144,23 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
       yield* ctx.session.record("memory", line).pipe(Effect.ignore)
       return `done: ${line}`
     }).pipe(Effect.provideContext(services)),
+    // An agent-written skill (KTD20; src/base/skills.ts saveSkill). From the user's own run it's in the catalog at once, as
+    // /skills reload does; from any other (a job, a detached sub-agent, a review, a resume), or with skills.writeApproval
+    // on, it's staged for /skills approve.
+    saveSkill: (arg: unknown) => Effect.gen(function* () {
+      const origin = Context.get(services, Timers).origin() ?? "user"
+      const pending = origin !== "user" || ctx.config.skills?.writeApproval === true
+      const saved = yield* saveSkill(arg, { pending, home })
+
+      if (!pending) {
+        ctx.conversation.skills = discoverSkills(process.cwd(), home)
+        ctx.conversation.skillCatalogPending = true
+      }
+      const warned = saved.flags.length ? `\nScan warnings: ${describeFlags(saved.flags)}` : ""
+      return pending
+        ? `staged skill ${saved.name}: it waits for the user's approval (/skills pending, /skills approve ${saved.name}) and isn't in the catalog yet: ${saved.path}${warned}`
+        : `saved skill ${saved.name} (${saved.created ? "new" : "updated"}): ${saved.path}; in the catalog now: skill({ name: "${saved.name}" })${warned}`
+    }).pipe(Effect.mapError((e) => new Error(e.message))),
     // Earlier sessions of this project, searched (src/loop/past.ts); this conversation's own session is left out.
     pastSessions: (arg: unknown) => {
       const { query, limit } = arg as { query: unknown; limit?: unknown }

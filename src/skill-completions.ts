@@ -6,6 +6,7 @@ import type { Completion } from "./ui/tui/completion"
 export const builtinCompletions: ReadonlyArray<Completion> = [
   { command: "/skills", description: "List installed skills and diagnostics" },
   { command: "/skills reload", description: "Refresh skills after creating or editing a skill" },
+  { command: "/skills pending", description: "Skills the agent saved that wait for approval (approve|reject <name>)" },
   { command: "/skills import", description: "Import a local folder: <folder> --scope project|personal" },
   { command: "/skill", description: "Choose a skill by name (also for command-name conflicts)" },
   { command: "/model", description: "Show or change the model" },

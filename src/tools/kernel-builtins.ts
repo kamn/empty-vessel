@@ -48,7 +48,9 @@ export class Library extends Context.Service<Library, {
   readonly handTools: (names: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly memory: (change: MemoryChange) => Effect.Effect<string, Error>
   readonly pastSessions: (args: { query: string; limit?: number }) => Effect.Effect<ReadonlyArray<PastMessage>, Error>
+  readonly saveSkill: (edit: SkillEdit) => Effect.Effect<string, Error>
 }>()("empty-vessel/Library") {}
+export type SkillEdit = { readonly name: string; readonly content: string } | { readonly name: string; readonly old: string; readonly new: string }
 type PastMessage = { readonly session: string; readonly at: string; readonly role: "user" | "assistant"; readonly text: string }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
@@ -101,6 +103,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     handTools: (names) => call("handTools", names) as Effect.Effect<string, Error>,
     memory: (change) => call("memory", change) as Effect.Effect<string, Error>,
     pastSessions: (args) => call("pastSessions", args) as Effect.Effect<ReadonlyArray<PastMessage>, Error>,
+    saveSkill: (edit) => call("saveSkill", edit) as Effect.Effect<string, Error>,
   }))] : []),
 ) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Time | Random> // only what's granted, in fact: cells see the rest missing
 export const layer = layerFor(ALL)
@@ -174,6 +177,12 @@ export const memory = {
 // containing every word of `query`, newest first: [{ session, at, role, text }] (text: the part around the match).
 // For "what did we decide about X?" when memory doesn't have it. `session` is the id to --resume.
 export const pastSessions = (query: string, limit = 20) => Library.use((l) => l.pastSessions({ query, limit }))
+
+// saveSkill: keep a workflow that worked as a personal skill (<home>/skills/<name>/SKILL.md), usable at once with skill().
+// { name, content }: the whole SKILL.md (frontmatter name and description, then the steps); { name, old, new }: change the
+// one place `old` is found. Patch an existing skill before creating a near-duplicate. Project and installed skills can't
+// be changed. Saved from a run the user didn't start (a job, a sub-agent of one), it waits for the user's approval.
+export const saveSkill = (edit: SkillEdit) => Library.use((l) => l.saveSkill(edit))
 
 // remember: an expensive Effect (or a function returning one) whose result is saved, so it runs once (per input, for a
 // function) across every later cell: `export const labels = remember(systemOne(…))`. Only for what can't change underneath:

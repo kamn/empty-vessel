@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { importSkill } from "../base/skill-import"
 import { parseSkillImport, type ImportRoute } from "./skill-import-command"
-import { discoverSkills, listSkills, loadSkill } from "../base/skills"
+import { approveSkill, discoverSkills, listSkills, loadSkill, pendingSkills, rejectSkill } from "../base/skills"
 import type { SessionHandle } from "../base/session"
 import type { Conversation } from "./turnkit"
 
@@ -12,7 +12,8 @@ export const skillReservedCommands = new Set([
 ])
 export type SkillRoute =
   | ImportRoute
-  | { readonly kind: "list" | "reload" }
+  | { readonly kind: "list" | "reload" | "pending" }
+  | { readonly kind: "approve" | "reject"; readonly name: string }
   | { readonly kind: "invoke"; readonly name: string; readonly arguments?: string }
   | { readonly kind: "error"; readonly message: string }
 
@@ -24,9 +25,11 @@ export const routeSkillCommand = (input: string, names: Iterable<string>): Skill
   const rest = (match[2] ?? "").trim()
   if (command === "skills") {
     if (!rest) return { kind: "list" }
-    if (rest === "reload") return { kind: "reload" }
+    if (rest === "reload" || rest === "pending") return { kind: rest }
+    const decision = rest.match(/^(approve|reject)\s+(\S+)$/)
+    if (decision) return { kind: decision[1] as "approve" | "reject", name: decision[2]! }
     if (/^import(?:\s|$)/.test(rest)) return parseSkillImport(rest.slice("import".length))
-    return { kind: "error", message: "Usage: /skills [reload] or /skills import <folder> --scope project|personal" }
+    return { kind: "error", message: "Usage: /skills [reload | pending | approve <name> | reject <name>] or /skills import <folder> --scope project|personal" }
   }
   if (command === "skill") {
     const invocation = rest.match(/^(\S+)(?:\s+([\s\S]*))?$/)
@@ -57,6 +60,18 @@ export const skillCommand = (session: SessionHandle, conversation: Conversation,
     conversation.skills = discoverSkills(cwd, home)
     conversation.skillCatalogPending = true
     return { kind: "reply", reply: listSkills(conversation.skills) } as const
+  }
+  // Skills the agent saved for approval (KTD20): approved ones join the catalog at once.
+  if (route.kind === "pending") return { kind: "reply", reply: pendingSkills(home) } as const
+  if (route.kind === "reject") {
+    yield* rejectSkill(route.name, home)
+    return { kind: "reply", reply: `Rejected ${route.name}: the staged skill is deleted.` } as const
+  }
+  if (route.kind === "approve") {
+    const saved = yield* approveSkill(route.name, { cwd, home })
+    conversation.skills = discoverSkills(cwd, home)
+    conversation.skillCatalogPending = true
+    return { kind: "reply", reply: `Approved ${saved.name}: ${saved.path}. Available now.` } as const
   }
   if (route.kind === "import") {
     const imported = yield* importSkill({ path: route.path, scope: route.scope }, cwd, home)
