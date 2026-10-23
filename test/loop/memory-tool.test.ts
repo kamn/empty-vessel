@@ -6,21 +6,22 @@ import { Effect, Layer } from "effect"
 import { ALL } from "../../src/base/grants"
 import { Memory, memoryOnStore } from "../../src/base/memory"
 import { diskStore } from "../../src/base/store"
+import { Timers } from "../../src/loop/jobs"
 import { makeHost } from "../../src/loop/kernel"
 import { builtinsModule } from "../../src/loop/library"
 import { type Ctx, newConversation } from "../../src/loop/turnkit"
 import { kernelInstructions } from "../../src/system-two/instructions"
 
 // The memory built-in's host side, with a real memory (a small limit) and a session that only records.
-const setUp = () => {
+const setUp = (origin?: string, depth = 0) => {
   const recorded: Array<[string, string]> = []
-  const ctx = { conversation: newConversation(), session: { record: (role: string, text: string) => Effect.sync(() => { recorded.push([role, text]) }) } } as unknown as Ctx
+  const ctx = { depth, conversation: newConversation(), session: { record: (role: string, text: string) => Effect.sync(() => { recorded.push([role, text]) }) } } as unknown as Ctx
   const home = mkdtempSync(join(tmpdir(), "empty-vessel-home-")), root = mkdtempSync(join(tmpdir(), "empty-vessel-proj-"))
   const layer = memoryOnStore(root, { agent: 100, project: 60 }).pipe(Layer.provide(diskStore(home)))
   const call = (arg: unknown) => Effect.runPromise(Effect.gen(function* () {
     const host = makeHost(ctx, (yield* Effect.context<Memory>()) as never)
     return yield* host.memory!(arg)
-  }).pipe(Effect.provide(layer)))
+  }).pipe(Effect.provideService(Timers, { ...Timers.defaultValue(), origin: () => origin }), Effect.provide(layer)))
   const snapshot = () => Effect.runPromise(Effect.flatMap(Memory, (m) => m.snapshot).pipe(Effect.provide(layer)))
   return { ctx, recorded, call, snapshot }
 }
@@ -56,4 +57,17 @@ test("memory is part of the library grant: without it, it isn't a built-in and S
   expect(builtinsModule([], { ...ALL, library: false }).split(" from ")[0]).not.toMatch(/\bmemory\b/) // the names, not the path (a checkout can be called anything)
   expect(kernelInstructions(ALL)).toContain("memory.add(")
   expect(kernelInstructions({ ...ALL, library: false })).not.toContain("memory.add(")
+})
+
+test("only the user's own turn writes the profile: a job's, a detached sub-agent's or a spawned sub-agent's memory call can't", async () => {
+  for (const [origin, depth] of [["cron", 0], ["subagent", 0], ["review", 0], ["user", 1], [undefined, 1]] as const) {
+    const { ctx, call, snapshot } = setUp(origin, depth)
+    expect(await call({ action: "add", scope: "user", text: "prefers plain words" })).toBe("not done: the profile is only written from the user's own turns")
+    expect(await call({ action: "add", scope: "project", text: "tests need APP_MODE=test" })).toBe("done: remembered (project): tests need APP_MODE=test")
+    expect(await snapshot()).not.toContain("prefers plain words")
+    expect(ctx.conversation.remembered).toEqual(["remembered (project): tests need APP_MODE=test"])
+  }
+
+  const { call } = setUp("user")
+  expect(await call({ action: "add", scope: "user", text: "prefers plain words" })).toBe("done: remembered (user): prefers plain words")
 })

@@ -7,6 +7,7 @@ import { discoverSkills } from "../src/base/skills"
 import type { SessionHandle } from "../src/base/session"
 import { interactionOperations, makeSessionRunner } from "../src/interaction"
 import { routeSkillCommand, skillCommand, skillReservedCommands } from "../src/loop/skill-commands"
+import { Timers } from "../src/loop/jobs"
 import { newConversation } from "../src/loop/turnkit"
 
 const result = { reply: "ok", remembered: [], usage: [], brief: { turn: "turn", session: "total" } }
@@ -225,3 +226,27 @@ for (const scope of ["project", "personal"] as const) {
     })) } finally { f.cleanup() }
   })
 }
+
+test("a run no one is attending (a job, a detached sub-agent, a review) reads no command: '/skills approve x' is plain text to the model", async () => {
+  for (const origin of ["cron", "subagent", "review", "notice"]) {
+    const f = fixture()
+    try { await run(Effect.gen(function* () {
+      const commands: string[] = [], sent: string[] = []
+      const runner = yield* makeSessionRunner(f.session, f.conversation, { events }, { ...f.operations,
+        skillCommand: (s, c, input) => { commands.push(input); return f.operations.skillCommand(s, c, input) },
+        memoryCommand: () => { commands.push("/memory"); return Effect.succeed("memory") },
+        answer: (_s, input) => { sent.push(input); return Effect.succeed(result) },
+      })
+      expect((yield* runner.run("/skills approve x")).reply).toBe("ok")
+      expect((yield* runner.run("/memory remove user 1")).reply).toBe("ok")
+      expect(commands).toEqual([])
+      expect(sent).toEqual(["/skills approve x", "/memory remove user 1"])
+    }).pipe(Effect.provideService(Timers, { ...Timers.defaultValue(), origin: () => origin }))) } finally { f.cleanup() }
+  }
+
+  const f = fixture()
+  try { await run(Effect.gen(function* () {
+    const runner = yield* makeSessionRunner(f.session, f.conversation, { events }, f.operations)
+    expect((yield* runner.run("/skills")).reply).toContain("explain")
+  }).pipe(Effect.provideService(Timers, { ...Timers.defaultValue(), origin: () => "user" }))) } finally { f.cleanup() }
+})

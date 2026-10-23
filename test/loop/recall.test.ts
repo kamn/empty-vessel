@@ -84,6 +84,10 @@ test("scroll returns the messages around a hit; read the whole session (system e
   const hit = (await run(home, "needle", here)).sessions[0]!.messages[0]!
   const around = await run(home, { mode: "scroll", session: "01", seq: hit.seq, window: 1 }, here)
   expect(around.sessions[0]!.messages.map((m) => m.text)).toEqual(["two", "three needle", "four"])
+  // A seq past the last message scrolls to the end, not to the start.
+  const past = await run(home, { mode: "scroll", session: "01", seq: 99, window: 1 }, here)
+  expect(past.sessions[0]!.messages.map((m) => m.text).at(-1)).toContain("job says hi")
+  expect(past.sessions[0]!.messages).toHaveLength(2)
 
   const all = await run(home, { mode: "read", session: "01" }, here)
   expect(all.sessions[0]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant", "user", "system"])

@@ -1,4 +1,4 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Scope, Semaphore } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Scope, Semaphore } from "effect"
 import { agentCommand, answer, firstAgent, modelCommand, stopped, userCommand, type ModelOwner } from "./answer"
 import type { Config } from "./base/config"
 import { Events } from "./base/events"
@@ -12,6 +12,7 @@ import { reviewCommand } from "./loop/review"
 import { redoCommand, undoCommand } from "./loop/checkpoint"
 import { compactCommand } from "./loop/compact"
 import { skillCommand } from "./loop/skill-commands"
+import { Timers } from "./loop/jobs"
 import type { Conversation } from "./loop/turnkit"
 import type { Unfinished } from "./loop/resume"
 import type { SystemOne } from "./system-one/systemone"
@@ -121,8 +122,11 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     const run = (input: string, resume?: Unfinished): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
       leftovers.length = 0
       conversation.inputRecorded = resume !== undefined // a stop from here on writes this message if the turn hadn't yet (src/answer.ts)
-      // A resumed turn's message is the turn's own (a command never made one): no command is read from it.
-      const typed = resume ? "" : input
+      // A resumed turn's message is the turn's own (a command never made one): no command is read from it. Nor from a
+      // run no one is attending (a job, a detached sub-agent, a review): "/skills approve x" there is only text to the model.
+      const origin = Context.get(services, Timers).origin() ?? "user"
+      const commands = !resume && origin === "user"
+      const typed = commands ? input : ""
       const refine = /^\/refine(?=\s|$)/.test(typed)
       const review = /^\/review(?=\s|$)/.test(typed)
       const memory = /^\/memory(?=\s|$)/.test(typed)
@@ -160,7 +164,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
           return { reply: chose.reply ?? "", usage: [] }
         }
 
-        const skill = resume ? undefined : yield* provide(operations.skillCommand(session, conversation, input)) // AskUser: /skills install confirms
+        const skill = !commands ? undefined : yield* provide(operations.skillCommand(session, conversation, input)) // AskUser: /skills install confirms
         if (skill?.kind === "reply") {
           skillOnly = true
           return { reply: skill.reply, usage: [] }
@@ -173,13 +177,13 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         if (picked.line) yield* events.emit({ kind: "note", depth: 0, text: picked.line })
 
         const result = yield* provide(operations.answer(session, turnInput, conversation, resume))
-        conversation.history.push({ user: input, answer: result.reply })
+        conversation.history.push({ user: input, answer: result.reply, ...(origin !== "user" ? { origin } : {}) })
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })
       const interrupted = Effect.gen(function* () {
         if (refine || review || memory || undo || redo || compact || model || named || skillOnly) return { reply: "(stopped)", usage: [] }
         const reply = yield* provide(operations.stopped(session, turnInput, conversation)).pipe(Effect.orElseSucceed(() => "(stopped)"))
-        conversation.history.push({ user: input, answer: reply })
+        conversation.history.push({ user: input, answer: reply, ...(origin !== "user" ? { origin } : {}) })
         return { reply, usage: [] }
       })
 

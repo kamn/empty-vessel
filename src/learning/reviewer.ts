@@ -149,15 +149,16 @@ const CURATE_SKILLS = [
 // A nudge's review: the Reviewer asked for memory ops, and those applied. A tool-heavy window (SKILL_REVIEW in its input)
 // asks for skill edits too, with nudges on: saved through saveSkill as staged (a review isn't the user's turn, R24). Ops
 // refused (a full scope, an entry not found or not unique, a skill that fails validation or the scan) go back to it once
-// with the errors and memory and skills as they are then. Gives what happened to each op, one line each.
-export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly user: string; readonly answer: string }>, home = EMPTY_VESSEL_HOME) =>
+// with the errors and memory and skills as they are then. Gives what happened to each op, one line each. Only the user's
+// own exchanges are shown: a job's or a detached sub-agent's words never reach the profile (as applyProposals' fromUser).
+export const curateMemory = (window: string, exchanges: ReadonlyArray<{ readonly user: string; readonly answer: string; readonly origin?: string }>, home = EMPTY_VESSEL_HOME) =>
   Effect.gen(function* () {
     const reviewer = yield* Reviewer
     const memory = yield* Memory
     const { memory: limits, nudges } = yield* Config
     const withSkills = nudges && window.includes(SKILL_REVIEW)
     const limit = memoryLimits(limits)
-    const conversation = exchanges.slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
+    const conversation = exchanges.filter((e) => (e.origin ?? "user") === "user").slice(-10).map((e) => `User: ${e.user.slice(0, 1000)}\nAgent: ${e.answer.slice(0, 1500)}`).join("\n\n")
     const said: Array<string> = []
     let refused: Array<string> = []
 

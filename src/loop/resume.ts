@@ -14,12 +14,13 @@ import type { Hooks } from "../system-two/systemtwo"
 // compaction's snapshot, then every item added after it), and the turns System Two hasn't heard about yet.
 export const loadConversation = (dir: string): Conversation => {
   const c = newConversation()
-  let user = "", lastStep: string | undefined, switched = false
+  let user = "", origin: string | undefined, lastStep: string | undefined, switched = false
 
   // A line cut short (the process killed mid-append) is skipped: one torn line mustn't make every resume fail.
   for (const e of logEntries(readFileSync(`${dir}/main.jsonl`, "utf8"))) {
     if (e.role === "user") {
       user = e.text
+      origin = typeof e.origin === "string" ? e.origin : undefined
       lastStep = undefined
     }
     else if (e.role === "step") {
@@ -27,7 +28,7 @@ export const loadConversation = (dir: string): Conversation => {
       if (!unseenBySystemTwo(lastStep)) c.unseen.length = 0 // System Two ran: it was handed them
     }
     else if (e.role === "assistant") {
-      c.history.push({ user, answer: e.text })
+      c.history.push({ user, answer: e.text, ...(origin ? { origin } : {}) })
       if (unseenBySystemTwo(lastStep) && e.text !== "(stopped)") c.unseen.push({ user, answer: e.text }) // as live: a stop isn't news
     }
     else if (e.role === "actions") c.actions.push(e.text)

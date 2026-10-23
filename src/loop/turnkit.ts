@@ -22,7 +22,8 @@ import type { Unfinished } from "./resume"
 export type Needs = SystemOne | SystemTwo | Fill | AskUser | Usage | Config | Reviewer | Background | Store | Memory
 
 // One earlier message in this conversation and empty-vessel's answer to it.
-export type Exchange = { readonly user: string; readonly answer: string }
+// `origin`: who started the run, when not the user (a job, a detached sub-agent: src/loop/turn.ts systemEntry).
+export type Exchange = { readonly user: string; readonly answer: string; readonly origin?: string }
 
 // A session's memory. System Two: its whole thread. System One: the last few exchanges, and a line per turn of what it did.
 // briefing: the project's instructions (AGENTS.md / CLAUDE.md) and what empty-vessel learned about it, worked out on the first

@@ -102,7 +102,7 @@ export const pastSessions = (args: string | PastArgs, options: { readonly cwd: s
       if (typeof a.seq !== "number") return yield* Effect.fail(new Error("scroll needs the seq of a hit (from discover)"))
       const s = yield* messagesOf(a.session)
       const window = Math.min(Math.max(a.window ?? 5, 0), 50)
-      const at = Math.max(0, s.messages.findIndex((m) => m.seq >= a.seq!))
+      const i = s.messages.findIndex((m) => m.seq >= a.seq!), at = i < 0 ? s.messages.length - 1 : i // past the last: the end
       return { sessions: [{ ...s, messages: s.messages.slice(Math.max(0, at - window), at + window + 1) }] } satisfies PastResult
     }
 

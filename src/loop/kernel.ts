@@ -136,6 +136,8 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
       const { action, scope, text = "", old = "" } = arg as { action: string; scope: Scope; text?: string; old?: string }
       if (!SCOPES.includes(scope)) return `not done: no memory scope "${scope}" (agent, project or user)`
       if (action !== "remove" && !text.trim()) return "not done: the entry is empty"
+      const fromUser = ctx.depth === 0 && (Context.get(services, Timers).origin() ?? "user") === "user" // as src/loop/endturn.ts
+      if (scope === "user" && !fromUser) return "not done: the profile is only written from the user's own turns"
 
       const m = yield* Memory
       const change = action === "add" ? m.add(scope, text.trim()) : action === "replace" ? m.replace(scope, old, text.trim()) : m.remove(scope, old)
