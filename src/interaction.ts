@@ -160,7 +160,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
           return { reply: chose.reply ?? "", usage: [] }
         }
 
-        const skill = resume ? undefined : yield* operations.skillCommand(session, conversation, input)
+        const skill = resume ? undefined : yield* provide(operations.skillCommand(session, conversation, input)) // AskUser: /skills install confirms
         if (skill?.kind === "reply") {
           skillOnly = true
           return { reply: skill.reply, usage: [] }

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { basename, isAbsolute, join, relative, resolve } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Data, Effect } from "effect"
 import { withLock } from "./files"
 import { EMPTY_VESSEL_HOME } from "./home"
@@ -21,7 +21,7 @@ export type Skill = {
   readonly directory: string
   readonly userInvocable: boolean
   readonly disableModelInvocation: boolean
-  readonly source: "personal" | "project"
+  readonly source: "agents" | "personal" | "project"
   /** Original entry and canonical root allow activation to detect symlink retargeting. */
   readonly entryPath: string
   readonly root: string
@@ -154,12 +154,21 @@ export const validateSkillBytes = (bytes: Buffer, fallback: string) => {
   return metadata
 }
 
+// Every regular file in a skill folder, for the scan; symlinks are neither read nor followed.
+// ponytail: reads whole files, fine for ~/.agents skills; a byte budget if someone keeps huge ones there.
+const skillFiles = (directory: string) => (readdirSync(directory, { recursive: true }) as string[]).slice(0, SKILL_LIMITS.entries)
+  .filter((path) => lstatSync(join(directory, path)).isFile())
+  .map((path) => ({ path, text: readFileSync(join(directory, path), "utf8") }))
+
+// Later roots shadow earlier ones: ~/.agents/skills (shared with other agents, per the Agent Skills client guide), then
+// personal, then project. ~/.agents is found next to the home (~/.empty-vessel), so a temp home has its own.
+// ponytail: a custom EMPTY_VESSEL_HOME reads the .agents next to it; a setting if that ever surprises someone.
 export const discoverSkills = (cwd: string, home = EMPTY_VESSEL_HOME): SkillCatalog => {
   const skills = new Map<string, Skill>()
   const diagnostics: string[] = []
   const seenRoots = new Set<string>()
   const seenPaths = new Set<string>()
-  const roots = [["personal", join(home, "skills")], ["project", join(projectRoot(cwd), ".empty-vessel", "skills")]] as const
+  const roots = [["agents", join(dirname(resolve(home)), ".agents", "skills")], ["personal", join(home, "skills")], ["project", join(projectRoot(cwd), ".empty-vessel", "skills")]] as const
   for (const [source, folder] of roots) {
     let root: string
     let entries: string[]
@@ -181,6 +190,16 @@ export const discoverSkills = (cwd: string, home = EMPTY_VESSEL_HOME): SkillCata
         const { directory, path } = skillPaths(root, entryPath)
         if (seenPaths.has(path)) continue
         const metadata = readSkillMetadata(path, entry)
+
+        // Not ours and not imported through a scan: scanned here, and a dangerous one is left out (KTD21).
+        if (source === "agents") {
+          const { verdict, flags } = scanSkill(skillFiles(directory))
+          if (verdict === "dangerous") {
+            diagnostics.push(`${path}: hidden by the skill scan: ${describeFlags(flags.filter((f) => f.severity === "dangerous"))}`)
+            continue
+          }
+        }
+
         const old = skills.get(metadata.name)
         if (old && old.source === source) {
           diagnostics.push(`${path}: duplicate name ${metadata.name}; retained ${old.path}`)
@@ -285,7 +304,7 @@ export const saveSkill = (edit: unknown, options: Place & { readonly pending: bo
 
       // What's there now: the catalog's skill of that name (project skills win there), and any staged copy.
       const current = discoverSkills(cwd, home).skills.find((s) => s.name === name)
-      if (current?.source === "project") fail(`${name} is a project skill (${current.path}): saveSkill changes personal skills only`)
+      if (current && current.source !== "personal") fail(`${name} is a ${current.source} skill (${current.path}): saveSkill changes personal skills only`)
       const folder = current?.directory ?? join(home, "skills", name as string)
       if (existsSync(join(folder, SKILL_IMPORT_PROVENANCE))) fail(`${name} was installed (${folder}): installed skills aren't changed; save one under another name`)
       const staged = join(home, PENDING_SKILLS, name as string)

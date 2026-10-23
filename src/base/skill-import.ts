@@ -26,9 +26,10 @@ type Entry = { path: string; mode: number; bytes?: Buffer }
 
 /** Import a local package without executing it. `path` is already unquoted by the caller.
  * Provenance is the absolute path of the JSON receipt. Scope is intentionally required.
+ * `origin`: where a downloaded package came from (the skills hub), kept in the receipt.
  */
 export const importSkill = (
-  options: { path: string; scope: "project" | "personal" },
+  options: { path: string; scope: "project" | "personal"; origin?: { url: string; sha256?: string } },
   cwd = process.cwd(), home = EMPTY_VESSEL_HOME,
 ): Effect.Effect<{ name: string; destination: string; provenance: string }, SkillError> => Effect.try({
   try: () => {
@@ -95,7 +96,7 @@ export const importSkill = (
       }
     }
     const provenance = join(destination, SKILL_IMPORT_PROVENANCE)
-    const receipt = JSON.stringify({ source, timestamp: new Date().toISOString(), name, scope: options.scope,
+    const receipt = JSON.stringify({ source, ...(options.origin ? { origin: options.origin } : {}), timestamp: new Date().toISOString(), name, scope: options.scope,
       hashes: Object.fromEntries(entries.filter((entry) => entry.bytes).map((entry) => [entry.path, createHash("sha256").update(entry.bytes!).digest("hex")])) }, null, 2) + "\n"
     mkdirSync(dirname(destination), { recursive: true })
     // Exclusive mkdir: never take ownership of, overwrite, or clean up an existing entry.
