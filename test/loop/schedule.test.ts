@@ -20,6 +20,7 @@ const fake = (origin?: string) => {
   const timers: TimerService = {
     origin: () => origin,
     schedule: (args) => Effect.sync(() => { calls.push(["schedule", args]); return "timer-1" }),
+    detach: () => Effect.fail(new Error("unused")),
     list: Effect.succeed({ "timer-1": { task: "stretch", status: "at 2026-10-23T09:00:00.000Z, by the model" } }),
     cancel: (id) => Effect.sync(() => { calls.push(["cancel", id]); return `${id} cancelled` }),
   }

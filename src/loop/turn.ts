@@ -23,6 +23,7 @@ import { type ChildOptions, childConfig, type Conversation, type Ctx, type Needs
 import { Usage } from "../base/usage"
 import { freshSession, needsSystemTwo, type Unfinished } from "./resume"
 import { ActiveAgent } from "../base/memory"
+import { Timers } from "./jobs"
 
 const DONE_AT = 0.5 // ponytail: fixed; tune from logged decisions once we have evals
 const VETO_BELOW = 0.15 // after System Two answers, the turn ends unless System One is sure it isn't done
@@ -111,14 +112,22 @@ export const turn = (session: SessionHandle, input: string, depth: number, conve
     )
   })
 
+// A message no user wrote (a job's prompt, a detached sub-agent's task or result: the agent's run origin) reaches System
+// One and System Two marked as a system entry, not as the user's words (KTD12). The session keeps it as typed, with its
+// origin, so resuming its turn finds it as any other.
+export const systemEntry = (input: string, origin: string | undefined) =>
+  origin === undefined || origin === "user" ? input : `[System entry, not from the user (origin: ${origin})]\n${input}`
+
 const runTurn = (session: SessionHandle, input: string, depth: number, conversation: Conversation, resume?: Unfinished): Effect.Effect<string, SessionError, Needs> =>
   Effect.gen(function* () {
+    const origin = depth === 0 ? (yield* Timers).origin() : undefined // a sub-agent's task is its parent's, not the run's
+
     // A resumed turn's message is recorded already: the restart is, and the user is told, once.
     if (resume) {
       yield* session.record("restart", input)
       yield* emit("note", depth, `Resumed after a restart: "${input.slice(0, 100)}${input.length > 100 ? "…" : ""}"`)
     }
-    else yield* session.record("user", input, conversation.run ? { run: conversation.run } : {})
+    else yield* session.record("user", input, { ...(conversation.run ? { run: conversation.run } : {}), ...(origin && origin !== "user" ? { origin } : {}) })
     conversation.inputRecorded = true
 
     // What the loop hands System Two with every request, worked out once: the project's AGENTS.md / CLAUDE.md, then what
@@ -133,7 +142,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     const config = yield* Config
     if (resume) freshSession(conversation, session.dir, config.compactAt * 2)
     const ctx: Ctx = {
-      session, input, depth, conversation, config,
+      session, input: systemEntry(input, origin), depth, conversation, config,
       systemOne: yield* SystemOne, systemTwo: yield* SystemTwo, usage: yield* Usage,
       spawn: (child, options) => spawn(session, child, depth + 1, options, conversation.instructions),
     }

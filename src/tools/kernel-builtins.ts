@@ -89,7 +89,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     recheck: (evidence, questions) => call("recheck", { evidence, questions }) as Effect.Effect<Readonly<Record<string, string>>, Error>,
   }))] : []),
   ...(g.agents ? [Layer.succeed(Agents, Agents.of({
-    spawn: (task, options) => call("spawn", options?.tools || options?.agent ? { task, ...options } : task) as Effect.Effect<string, Error>,
+    spawn: (task, options) => call("spawn", options?.tools || options?.agent || options?.detach ? { task, ...options } : task) as Effect.Effect<string, Error>,
     wait: (ids, seconds) => call("wait", { ids, seconds }) as Effect.Effect<Readonly<Record<string, JobView>>, Error>,
     cancel: (id) => call("cancel", id) as Effect.Effect<string, Error>,
     jobs: call("jobs") as Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>,
@@ -127,7 +127,10 @@ export const systemOne = (evidence: unknown, questions: Readonly<Record<string, 
 // its own reasoning (reading code, writing). To classify, match or rate items, use judge. `tools` narrows what the
 // sub-agent's kernel grants (e.g. { shell: false, files: "read-only" }); never more than this one's. `agent` runs it as a
 // named agent (~/.empty-vessel/agents/<name>/agent.md): its instructions, its System Two, its grants (narrowed the same way).
-export type SpawnOptions = { readonly tools?: Partial<Grants>; readonly agent?: string }
+// `detach: true` (with the background agent only): it runs on after this turn, and after a restart, as a session of its
+// own; you don't wait for it, its result comes back to this session as a new turn. jobs() lists it, cancel(id) stops it.
+// At most 3 run at once per session; not with tools or agent.
+export type SpawnOptions = { readonly tools?: Partial<Grants>; readonly agent?: string; readonly detach?: boolean }
 export const spawn = (task: string, options?: SpawnOptions) => Agents.use((a) => a.spawn(task, options))
 // Up to `seconds` (default 300) for these jobs; each comes back done (with its answer), failed, cancelled or still
 // running (then wait again). A run can't finish while jobs are uncollected.

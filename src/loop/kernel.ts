@@ -6,7 +6,7 @@ import { KERNEL_PASSTHROUGH } from "../kernel/instructions-marker"
 import { applyAgent, loadAgent } from "../base/agents"
 import { type CellResult, describeCell, type HostFunctions } from "../kernel/kernel"
 import { Kernel } from "../tools/kernel-service"
-import { TIMER, Timers } from "./jobs"
+import { DETACHED, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { Memory, type Scope, SCOPES } from "../base/memory"
@@ -63,9 +63,18 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
     // `tools`: what the sub-agent's kernel grants, narrowed from this one's (never more). `agent`: the agent it works as
     // (src/base/agents.ts), checked here, so an unknown name or settings that don't make a valid config fail this call
     // and start nothing.
+    // `detach`: the background agent runs it as a session of its own (src/loop/jobs.ts Timers), so it outlives this turn
+    // and isn't one of its jobs; its result comes back as a new turn. Only the main agent's, with its session's own
+    // settings (no tools or agent to narrow), and never from a run a job or a detached sub-agent started (R17).
     spawn: (arg: unknown) => {
-      const { task, tools, agent } = typeof arg === "object" && arg !== null ? (arg as { task: string; tools?: Partial<Grants>; agent?: string }) : { task: String(arg), tools: undefined, agent: undefined }
+      const { task, tools, agent, detach } = typeof arg === "object" && arg !== null ? (arg as { task: string; tools?: Partial<Grants>; agent?: string; detach?: boolean }) : { task: String(arg), tools: undefined, agent: undefined, detach: false }
       if (ctx.depth >= ctx.config.maxDepth) return Effect.fail(`too deep for another sub-agent (depth ${ctx.depth} of ${ctx.config.maxDepth})`)
+      if (detach) {
+        const timers = Context.get(services, Timers), origin = timers.origin()
+        if (ctx.depth > 0 || tools !== undefined || agent !== undefined) return Effect.fail("a detached sub-agent starts from the main agent only, with its session's own settings (no tools or agent)")
+        if (origin === "cron" || origin === "subagent") return Effect.fail(`can't start a detached sub-agent from a run a ${origin === "cron" ? "scheduled job" : "detached sub-agent"} started: jobs can't make more jobs`)
+        return timers.detach(String(task)).pipe(Effect.mapError((e) => e.message))
+      }
       return Effect.gen(function* () {
         const as = agent === undefined ? undefined : yield* loadAgent(agent).pipe(Effect.flatMap((a) => applyAgent(ctx.config, a).pipe(Effect.map((config) => ({ ...a, config })))))
         // Checked and counted together, with nothing in between: spawns made at once (Effect.all) can't all pass the
@@ -80,8 +89,9 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>): HostFuncti
       const { ids, seconds } = arg as { ids: ReadonlyArray<string>; seconds: number }
       return ctx.conversation.jobs.wait(ids, seconds)
     },
-    // A timer's id goes to the agent (its /cron jobs, the user's and the model's alike), a sub-agent's to its jobs.
-    cancel: (id: unknown) => String(id).startsWith(TIMER) ? Context.get(services, Timers).cancel(String(id)) : ctx.conversation.jobs.cancel(String(id)),
+    // A timer's or a detached sub-agent's id goes to the agent (its /cron jobs, the user's and the model's alike), a
+    // sub-agent's to this turn's jobs.
+    cancel: (id: unknown) => String(id).startsWith(TIMER) || String(id).startsWith(DETACHED) ? Context.get(services, Timers).cancel(String(id)) : ctx.conversation.jobs.cancel(String(id)),
     jobs: () => Context.get(services, Timers).list.pipe(Effect.map((timers) => ({ ...ctx.conversation.jobs.list(), ...timers }))),
     // A reminder ({ at }) or a recurring job ({ cron, tz }) that runs `prompt` as a new turn of this session (src/loop/jobs.ts
     // Timers). Refused in a run that a job or a detached sub-agent started: jobs can't make more jobs (R17).

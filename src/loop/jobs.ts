@@ -81,20 +81,25 @@ export const makeJobs = () => {
 export type Jobs = ReturnType<typeof makeJobs>
 
 // Timers: reminders and recurring jobs, kept by the background agent (empty-vessel-agent) for this session; a timer's
-// run is a new turn of this session at its time. `origin`: who started the run this turn belongs to; a run that began
-// in a job (cron) or a detached sub-agent can't schedule more (R17). The worker the agent starts provides this; without
-// it (the plain TUI, -p) there are no timers.
+// run is a new turn of this session at its time. Detached sub-agents too: the agent runs one as a session of its own,
+// after this turn and a restart, and its result comes back as a new turn of this session. `origin`: who started the run
+// this turn belongs to; a run that began in a job (cron) or a detached sub-agent can't schedule or detach more (R17).
+// The worker the agent starts provides this; without it (the plain TUI, -p) there are neither.
 const NO_AGENT = "schedule needs the background agent (empty-vessel-agent): this session runs without it, so nothing could run at that time"
+const NO_DETACH = "spawn({ detach: true }) needs the background agent (empty-vessel-agent): this session runs without it, so nothing could outlive this turn; use spawn and wait"
 export type TimerService = {
   readonly origin: () => string | undefined
   readonly schedule: (args: unknown) => Effect.Effect<string, Error>
+  readonly detach: (task: string) => Effect.Effect<string, Error>
   readonly list: Effect.Effect<Readonly<Record<string, { task: string; status: string }>>, Error>
   readonly cancel: (id: string) => Effect.Effect<string, Error>
 }
 export const Timers = Context.Reference<TimerService>("empty-vessel/Timers", { defaultValue: () => ({
   origin: () => undefined,
   schedule: () => Effect.fail(new Error(NO_AGENT)),
+  detach: () => Effect.fail(new Error(NO_DETACH)),
   list: Effect.succeed({}),
   cancel: () => Effect.fail(new Error(NO_AGENT)),
 }) })
 export const TIMER = "timer-" // timer ids start so; sub-agent jobs are job-N
+export const DETACHED = "detached-" // a detached sub-agent's id (the agent's)
