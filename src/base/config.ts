@@ -28,6 +28,7 @@ export const ConfigSchema = described({
     command: setting(Schema.String, "The command that starts a local MCP server", { optional: true }),
     args: setting(Schema.Array(Schema.String), "A local server's arguments", { optional: true }),
     env: setting(Schema.Record(Schema.String, Schema.String), "A local server's environment", { optional: true }),
+    ask: setting(Schema.Boolean, "Ask you before every call to this source's tools (desktop control); a turn nobody can answer (a job) is refused", { optional: true }),
   })), "Outside tools (MCP servers) that cells use by name, e.g. posthog.insights_query(…)", { default: {} }),
   // Adoption: all knobs, since the right values come from trial and error.
   adoption: section({

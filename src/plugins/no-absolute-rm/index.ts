@@ -148,7 +148,7 @@ export const noAbsoluteRm = {
   name: "no-absolute-rm",
   provides: {
     actionGuard: Effect.succeed(Layer.succeed(ActionGuard, {
-      beforeAction: (action) => Effect.succeed(noAbsoluteRmPolicy(action.command)),
+      beforeAction: (action) => Effect.succeed(action.kind === "shell" ? noAbsoluteRmPolicy(action.command) : allow),
     })),
   },
 } satisfies Plugin

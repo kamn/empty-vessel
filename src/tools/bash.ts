@@ -45,11 +45,11 @@ export const BASH_TIMEOUT_SECONDS = 120
 
 export const runBash = (command: string, timeoutMs = BASH_TIMEOUT_SECONDS * 1000, authorize: (action: Action) => Effect.Effect<unknown, unknown> = authorizeAction) =>
   Effect.gen(function* () {
-    const action: Action = Object.freeze({ kind: "shell", command, cwd: process.cwd(), timeoutMs })
+    const action = Object.freeze({ kind: "shell" as const, command, cwd: process.cwd(), timeoutMs })
     return yield* withActionGuard(action, executeBash(action), Effect.suspend(() => authorize(action)))
   })
 
-const executeBash = ({ command, timeoutMs, cwd }: Action) =>
+const executeBash = ({ command, timeoutMs, cwd }: Extract<Action, { kind: "shell" }>) =>
   // The command runs in its own process group, so a stop (Ctrl+C aborts `signal`) or the timeout kills everything it
   // started: killing only `bash` would leave its children (e.g. a `sleep`) running.
   Effect.tryPromise(async (signal) => {

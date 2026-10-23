@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { existsSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
@@ -30,6 +30,12 @@ const blockText = (b: Json, dir: string) => {
   }
   return `[${b.type}${b.mimeType ? ` ${b.mimeType}` : ""} not shown]`
 }
+
+// The images blockText saved, found again in a tool's output (a cell's value or logs), so they can go to the model as
+// images (src/system-two/loop.ts, relay-server.ts): only files of its own naming that are still there, the last 4.
+// ponytail: found by their marker, so an output System One shortened, or a value cut at 4000 characters, may lose one.
+const SAVED = /\[image [^\]]*?saved: (\/[^\s\]"]*\/empty-vessel-mcp-[0-9a-f-]{36}\.(?:png|jpg|gif|webp))\]/g
+export const savedImages = (output: string) => [...new Set([...output.matchAll(SAVED)].map((m) => m[1]!))].filter((p) => existsSync(p)).slice(-4)
 
 // An MCP tool result as a plain value: structured content if given, else the blocks as text (see blockText), parsed as
 // JSON when they are JSON. An error result (isError) fails.

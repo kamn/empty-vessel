@@ -154,3 +154,8 @@ test("a Jev winning allow still cannot override another policy's denial", async 
   const combined = combineActionGuards([guard, { beforeAction: () => Effect.succeed({ decision: "deny", reason: "Deterministic restriction" }) }])
   expect(await Effect.runPromise(combined.beforeAction(action))).toEqual({ decision: "deny", reason: "Deterministic restriction" })
 })
+
+test("an mcp action is allowed without asking Jev (commands only)", async () => {
+  const guard = await Effect.runPromise(provider(mock(() => Effect.die("must not judge an mcp action"))))
+  expect(await Effect.runPromise(guard.beforeAction({ kind: "mcp", source: "desktop", tool: "click", args: {} }))).toEqual({ decision: "allow" })
+})

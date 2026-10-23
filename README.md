@@ -98,6 +98,14 @@ Two drive a browser, answer yes when `empty-vessel setup` offers one: it adds Pl
 (`npx @playwright/mcp@latest --isolated --headless`; needs Node's `npx`). Setup only offers it while there's no
 `browser` source, so it never duplicates or overwrites one you edited.
 
+On a Mac, `empty-vessel setup` also offers desktop control (off unless you answer yes): it adds
+[macos-automator-mcp](https://github.com/steipete/macos-automator-mcp) as the `desktop` source
+(`npx -y @steipete/macos-automator-mcp@latest`) with `"ask": true`, so every call asks you first (in the TUI, or in
+Telegram through the agent); a turn nobody can answer, such as a scheduled job's, is refused. Any source can be marked
+`"ask": true` the same way. empty-vessel must run on the Mac itself, not in Docker, and macOS needs your terminal (or the
+app that runs empty-vessel) allowed under System Settings > Privacy & Security > Accessibility, and under Automation for
+the apps it controls. Screenshots a source returns are shown to System Two as images.
+
 In the TUI and in channels:
 
 - `/undo` takes back what the last turn that changed files changed: it restores the files it edited or deleted and

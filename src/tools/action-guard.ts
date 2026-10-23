@@ -1,12 +1,10 @@
 import { Context, Effect, Option } from "effect"
 import { AskUser } from "../ui/ask"
 
-export type Action = {
-  readonly kind: "shell"
-  readonly command: string
-  readonly cwd: string
-  readonly timeoutMs: number
-}
+// A command, or a call to a tool source's tool (an MCP server's): providers that only judge commands allow the other kinds.
+export type Action =
+  | { readonly kind: "shell"; readonly command: string; readonly cwd: string; readonly timeoutMs: number }
+  | { readonly kind: "mcp"; readonly source: string; readonly tool: string; readonly args: unknown }
 
 export type GuardVerdict =
   | { readonly decision: "allow" }
@@ -22,12 +20,15 @@ export const ActionGuard = Context.Reference<ActionGuardProvider>("empty-vessel/
 
 const guardTimeoutMs = 10_000
 const deny = (reason: string): GuardVerdict => ({ decision: "deny", reason })
-const freezeAction = (action: Action): Action => Object.freeze({
-  kind: action.kind,
-  command: action.command,
-  cwd: action.cwd,
-  timeoutMs: action.timeoutMs,
-})
+// An mcp action's args are copied (JSON), so a provider can't change what the call is made with.
+const freezeAction = (action: Action): Action => Object.freeze(action.kind === "mcp"
+  ? { kind: action.kind, source: action.source, tool: action.tool, args: JSON.parse(JSON.stringify(action.args ?? {})) }
+  : { kind: action.kind, command: action.command, cwd: action.cwd, timeoutMs: action.timeoutMs })
+
+// What the approval question shows of the action.
+const describeAction = (action: Action) => action.kind === "mcp"
+  ? `Tool: ${action.source}.${action.tool}\nArguments:\n${JSON.stringify(action.args, null, 1).slice(0, 2000)}`
+  : `Command:\n${action.command}\nCwd: ${action.cwd}\nTimeout: ${action.timeoutMs} ms`
 
 // Copy validated fields so providers cannot change a verdict after returning it.
 const validateVerdict = (value: unknown): GuardVerdict => {
@@ -90,16 +91,18 @@ export const evaluateAction = (action: Action): Effect.Effect<GuardVerdict> =>
     return yield* checkGuard(yield* ActionGuard, freezeAction(action))
   }).pipe(Effect.catchCause(() => Effect.succeed(deny("Policy evaluation failed"))))
 
-export const authorizeAction = (action: Action): Effect.Effect<GuardVerdict> =>
+// `alwaysAsk`: the reason a human must approve even when every provider allows (a source marked `ask`).
+export const authorizeAction = (action: Action, alwaysAsk?: string): Effect.Effect<GuardVerdict> =>
   Effect.gen(function* () {
     const proposal = freezeAction(action)
-    const verdict = yield* evaluateAction(proposal)
+    const evaluated = yield* evaluateAction(proposal)
+    const verdict: GuardVerdict = alwaysAsk && evaluated.decision === "allow" ? { decision: "ask", reason: alwaysAsk } : evaluated
     if (verdict.decision !== "ask") return verdict
 
     const user = yield* Effect.serviceOption(AskUser)
     if (Option.isNone(user)) return deny(`Approval unavailable (no UI): ${verdict.reason}`)
 
-    const question = `ActionGuard approval\nCommand:\n${proposal.command}\nCwd: ${proposal.cwd}\nTimeout: ${proposal.timeoutMs} ms\nReason: ${verdict.reason}`
+    const question = `ActionGuard approval\n${describeAction(proposal)}\nReason: ${verdict.reason}`
     const answers = yield* Effect.suspend(() => user.value.ask([{
       question,
       options: ["Allow once", "Deny"],

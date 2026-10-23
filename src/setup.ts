@@ -24,7 +24,7 @@ const has = (cmd: string) => Bun.which(cmd) !== null
 // empty-vessel setup: check what empty-vessel needs, then go through every plugin (src/plugins/<name>/setup.ts): its checks, and
 // what it asks for (a key is tried before it's saved); of each kind, the ones that are ready can be chosen. Writes
 // the config (private: it can hold keys); settings already there are kept.
-export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: SetupIo) =>
+export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: SetupIo, platform: string = process.platform) =>
   Effect.gen(function* () {
     yield* io.say("empty-vessel setup\n\nWhat empty-vessel needs:")
     for (const [good, what, fix] of [[true, `Bun ${Bun.version}`, ""], [has("git"), "git", "install git (empty-vessel finds a project's files with it)"], [has("bash"), "bash", "install bash (commands and checks run in it)"]] as const)
@@ -95,6 +95,21 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
     if (!sources.browser) {
       const answer = (io.ask("\nLet System Two drive a browser (Playwright MCP, started with npx)? (y/N):") ?? "").trim()
       if (/^y(es)?$/i.test(answer)) sources.browser = { command: "npx", args: ["@playwright/mcp@latest", "--isolated", "--headless"] }
+    }
+
+    // Desktop control: macos-automator-mcp as the `desktop` source, off unless you say yes, and only on a Mac. It can do
+    // anything on the Mac, so every call asks you first (`ask`); a turn nobody can answer (a job) is refused.
+    if (platform === "darwin" && !sources.desktop) {
+      const answer = (io.ask("\nLet System Two control this Mac's desktop (macos-automator-mcp, started with npx; it asks you before every action)? (y/N):") ?? "").trim()
+
+      if (/^y(es)?$/i.test(answer)) {
+        sources.desktop = { command: "npx", args: ["-y", "@steipete/macos-automator-mcp@latest"], ask: true }
+        yield* io.say([
+          "  Desktop control added as the `desktop` source. empty-vessel must run on this Mac itself, not in Docker.",
+          "  macOS asks for permission the first time it acts: allow your terminal (or the app that runs empty-vessel) in",
+          "  System Settings > Privacy & Security > Accessibility, and under Automation for the apps it controls.",
+        ].join("\n"))
+      }
     }
 
     const systemOne = { ...current.systemOne, use: chosen.systemOne }

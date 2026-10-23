@@ -45,3 +45,31 @@ test("a browser source you edited is left alone", async () => {
   expect(asked).not.toMatch(/browser/i)
   expect(config.sources.browser).toEqual(mine)
 })
+
+// Desktop control: macos-automator-mcp as the `desktop` source, asking before every call; only on a Mac, only on yes.
+const DESKTOP = { command: "npx", args: ["-y", "@steipete/macos-automator-mcp@latest"], ask: true }
+const desktop = async (file: string, answer: string, platform: string) => {
+  const asked: Array<string> = [], said: Array<string> = []
+  await Effect.runPromise(runSetup(file, [alpha], { ask: (q) => { asked.push(q); return /desktop/i.test(q) ? answer : "" }, say: (l) => Effect.sync(() => { said.push(l) }) }, platform))
+  return { config: JSON.parse(readFileSync(file, "utf8")), asked: asked.join("\n"), said: said.join("\n") }
+}
+
+test("desktop control: yes on a Mac adds it with ask and says what to allow; again, it isn't asked or duplicated", async () => {
+  const file = fresh()
+  const first = await desktop(file, "y", "darwin")
+  expect(first.config.sources).toEqual({ desktop: DESKTOP })
+  expect(first.said).toMatch(/Accessibility/)
+  expect(first.said).toMatch(/Docker/)
+
+  const again = await desktop(file, "y", "darwin")
+  expect(again.asked).not.toMatch(/desktop/i)
+  expect(again.config.sources).toEqual({ desktop: DESKTOP })
+})
+
+test("desktop control is off by default, and never offered off a Mac", async () => {
+  expect((await desktop(fresh(), "", "darwin")).config.sources).toBeUndefined()
+
+  const linux = await desktop(fresh(), "y", "linux")
+  expect(linux.asked).not.toMatch(/desktop/i)
+  expect(linux.config.sources).toBeUndefined()
+})

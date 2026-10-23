@@ -31,6 +31,7 @@ export const saveLogin = (name: string, l: Login, home = EMPTY_VESSEL_HOME) => {
 
 // The sources from the config. A remote one with "auth": "oauth" sends its saved login's token and refreshes it after a
 // 401 (or says to log in again); names that aren't TypeScript names are left out (cells import them by name).
+// "ask": true marks the source so every call is approved first (src/tools/kernel-service.ts).
 export const makeSources = (config: Sources, home = EMPTY_VESSEL_HOME) =>
   Object.entries(config).filter(([name]) => NAME.test(name)).flatMap(([name, c]): Array<ToolSource & { close?: () => void }> => {
     if (c.command) return [localSource({ name, command: c.command, ...(c.args ? { args: c.args } : {}), ...(c.env ? { env: c.env } : {}) })]
@@ -49,7 +50,7 @@ export const makeSources = (config: Sources, home = EMPTY_VESSEL_HOME) =>
         saveLogin(name, await refresh(saved).catch(() => { throw new Error(`${name}: the login has expired: run empty-vessel login ${name}`) }), home)
       } } : {}),
     })]
-  })
+  }).map((s) => (config[s.name]?.ask ? { ...s, ask: true } : s))
 
 // The process's sources: set once at startup (main.ts), read by every kernel. ponytail: a module-level list; pass it
 // through the loop's context if more than one set of sources is ever needed in a process.

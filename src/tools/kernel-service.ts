@@ -108,7 +108,16 @@ export const makeGuardedKernel: typeof makeKernel = (options) => {
 
         if (fn === "$source") {
           const { source, tool, args } = (arg ?? {}) as { source?: string; tool?: string; args?: unknown }
-          const tools = yield* (options.sources?.find((s) => s.name === source)?.list ?? Effect.succeed([])).pipe(Effect.orElseSucceed(() => []))
+          const found = options.sources?.find((s) => s.name === source)
+
+          // A source marked `ask` (desktop control): a human approves every call, whatever started the turn; with no
+          // one to ask (a job's turn), it's refused. Not allowed: the call isn't made, and the cell gets why.
+          if (found?.ask) {
+            const verdict = yield* authorizeAction({ kind: "mcp", source: found.name, tool: String(tool), args }, `${found.name} asks before every call`).pipe(Effect.provideContext(services))
+            if (verdict.decision !== "allow") return yield* Effect.fail(new Error(`ActionGuard ${verdict.decision}: ${verdict.reason}. The call wasn't made.`))
+          }
+
+          const tools = yield* (found?.list ?? Effect.succeed([])).pipe(Effect.orElseSucceed(() => []))
           if (tools.find((t) => t.name === tool)?.readOnlyHint === true) return
           return yield* intent(`${source}.${tool} ${(JSON.stringify(args) ?? "").slice(0, 500)}`)
         }

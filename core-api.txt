@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.12
+# empty-vessel core 0.0.13
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -7,6 +7,11 @@ export type Action = {
     readonly command: string;
     readonly cwd: string;
     readonly timeoutMs: number;
+} | {
+    readonly kind: "mcp";
+    readonly source: string;
+    readonly tool: string;
+    readonly args: unknown;
 };
 
 ## ActionGuard (src/tools/action-guard)
@@ -117,6 +122,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
             readonly env?: {
                 readonly [x: string]: string;
             } | undefined;
+            readonly ask?: boolean | undefined;
         };
     };
     readonly adoption: {
@@ -736,6 +742,7 @@ config.sources.*.auth: {"anyOf":[{"type":"string","enum":["oauth"]}],"descriptio
 config.sources.*.command: {"type":"string","description":"The command that starts a local MCP server"}
 config.sources.*.args: {"type":"array","items":{"type":"string"},"description":"A local server's arguments"}
 config.sources.*.env.*: {"type":"string"}
+config.sources.*.ask: {"type":"boolean","description":"Ask you before every call to this source's tools (desktop control); a turn nobody can answer (a job) is refused"}
 config.adoption.offerSystemOne: {"type":"integer","minimum":0,"description":"Tools on trial offered to System One each turn","default":5}
 config.adoption.offerSystemTwo: {"type":"integer","minimum":0,"description":"Tools on trial offered to System Two each turn","default":5}
 config.adoption.sampler: {"type":"string","enum":["thompson","uniform","all"],"description":"How the offered tools are chosen: thompson offers those that help more, and untried ones, more often","default":"thompson"}

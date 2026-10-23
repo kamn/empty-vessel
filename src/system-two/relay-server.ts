@@ -1,6 +1,8 @@
 import { Effect, Stream } from "effect"
 import { flush, newWire, receive, send, type Wire } from "./wire"
 import { systemTwoTools } from "./dispatch"
+import { loadImage } from "../base/images"
+import { savedImages } from "../kernel/mcp"
 
 // The MCP server an agent CLI starts to reach System Two's tools (src/system-two/relay.ts: serveTools; Claude Code is
 // the one today). Stdio, one JSON-RPC message per line. Its tools are the core's (same descriptions, same arguments as
@@ -41,12 +43,18 @@ const [flag, socketPath] = process.argv.slice(2)
 if (flag !== "--relay" || !socketPath) throw new Error("usage: bun src/system-two/relay-server.ts --relay <socket>")
 const call = relay(socketPath)
 
+// A tool's answer as MCP content: the text, then any image an MCP tool returned (a screenshot), so the model sees it.
+const content = (text: string) => [{ type: "text", text }, ...savedImages(text).map((path) => {
+  const image = loadImage(path)
+  return { type: "image", data: image.data, mimeType: image.mediaType }
+})]
+
 // One request in, its reply out (undefined for notifications, which get none).
 const handle = (m: { id?: number | string; method: string; params?: { name?: string; arguments?: object } }): Effect.Effect<object | undefined> => {
   if (m.id === undefined) return Effect.succeed(undefined)
   if (m.method === "initialize") return Effect.succeed({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "kernel", version: "0.1" } })
   if (m.method === "tools/list") return Effect.succeed({ tools: TOOLS })
-  if (m.method === "tools/call") return call(m.params?.name ?? "kernel", m.params?.arguments ?? {}).pipe(Effect.map((text) => ({ content: [{ type: "text", text }] })))
+  if (m.method === "tools/call") return call(m.params?.name ?? "kernel", m.params?.arguments ?? {}).pipe(Effect.map((text) => ({ content: content(text) })))
   return Effect.succeed({ error: { code: -32601, message: `no method ${m.method}` } })
 }
 

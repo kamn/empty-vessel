@@ -2,6 +2,7 @@ import { randomUUIDv7 } from "bun"
 import { Effect, Layer, Option } from "effect"
 import { emit } from "../base/events"
 import { imageItem } from "../base/images"
+import { savedImages } from "../kernel/mcp"
 import type { Tokens } from "../base/usage"
 import { callTool, fromUser, jobsReminder, newCallState, systemTwoTools } from "./dispatch"
 import { KERNEL_INSTRUCTIONS, kernelInstructions } from "./instructions"
@@ -106,6 +107,7 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
         // User-facing commentary alongside tools is progress, not a final reply.
         if (reply.text.trim()) yield* emit("note", hooks.depth ?? 0, reply.text)
         thread.push(...reply.keep)
+        const images: Array<string> = []
         for (const c of reply.calls) {
           const parsed = (() => { try { return JSON.parse(c.arguments) } catch { return undefined } })()
           const result = yield* callTool(c.name, parsed, hooks, state)
@@ -117,7 +119,12 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
             return { text: result.answer, tokens, done: result.done, waitingForUser: result.waitingForUser, size: reply.usage.input }
           }
           thread.push(asked, { type: "function_call_output", call_id: c.id, output: result.output })
+          images.push(...savedImages(result.output))
         }
+
+        // Images a tool returned (an MCP screenshot): a tool result is text only, so they follow it as the user's,
+        // after all of this round's results (a call's result must follow its call).
+        if (images.length) thread.push(userItem("The images the tool calls above returned:", images.map(imageItem)))
       }
     })
 

@@ -35,7 +35,8 @@ export const jevGuard = {
         // Capture the selected provider at layer construction, not at action execution.
         const one = yield* SystemOne
         return {
-          beforeAction: (action) => Effect.suspend(() => one.decide(
+          // ponytail: commands only; an mcp action is allowed (an `ask` source still asks). Judge tool calls when wanted.
+          beforeAction: (action) => action.kind !== "shell" ? Effect.succeed({ decision: "allow" }) : Effect.suspend(() => one.decide(
             { action: { kind: action.kind, command: action.command, cwd: action.cwd, timeoutMs: action.timeoutMs } },
             {
               approval: {

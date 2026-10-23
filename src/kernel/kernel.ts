@@ -31,6 +31,7 @@ export type ToolSource = {
   readonly list: Effect.Effect<ReadonlyArray<SourceTool>, Error>
   readonly call: (tool: string, args: unknown) => Effect.Effect<unknown, Error>
   readonly instructions?: () => string | undefined // how to use it, from the source itself (known once `list` has run)
+  readonly ask?: boolean // a human approves every call (the host's business: src/tools/kernel-service.ts)
 }
 export type KernelOptions = {
   readonly dir: string // where cells, scopes and results live
