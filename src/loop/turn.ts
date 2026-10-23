@@ -21,6 +21,7 @@ import { SystemTwo } from "../system-two/systemtwo"
 import { TEST_OPTIONS, TEST_STEPS } from "./test-options"
 import { type ChildOptions, childConfig, type Conversation, type Ctx, type Needs, newConversation, newTurnState, type Step, type StepResult, timed, type TurnState } from "./turnkit"
 import { Usage } from "../base/usage"
+import { freshSession, needsSystemTwo, type Unfinished } from "./resume"
 import { ActiveAgent } from "../base/memory"
 
 const DONE_AT = 0.5 // ponytail: fixed; tune from logged decisions once we have evals
@@ -99,19 +100,25 @@ const recordStep = (ctx: Ctx, state: TurnState, choice: string, result: StepResu
 
 // One agent turn, the same for the root and every sub-agent: record the input, then ask System One and run one step
 // at a time until the goal is done, then record the reply and end the turn (review gate, reviewer).
-export const turn = (session: SessionHandle, input: string, depth: number, conversation: Conversation): Effect.Effect<string, SessionError, Needs> =>
+// `resume`: the turn a restart cut short (its message is in the session file already), going on.
+export const turn = (session: SessionHandle, input: string, depth: number, conversation: Conversation, resume?: Unfinished): Effect.Effect<string, SessionError, Needs> =>
   Effect.gen(function* () {
     const systemTwo = yield* SystemTwo
-    return yield* runTurn(session, input, depth, conversation).pipe(
+    return yield* runTurn(session, input, depth, conversation, resume).pipe(
       Effect.provideService(CurrentSession, session),
       // Explicitly reset for a child using another provider; never inherit its parent's exporter.
       Effect.provideService(SessionMirror, systemTwo.sessionMirror ?? (() => Effect.void)),
     )
   })
 
-const runTurn = (session: SessionHandle, input: string, depth: number, conversation: Conversation): Effect.Effect<string, SessionError, Needs> =>
+const runTurn = (session: SessionHandle, input: string, depth: number, conversation: Conversation, resume?: Unfinished): Effect.Effect<string, SessionError, Needs> =>
   Effect.gen(function* () {
-    yield* session.record("user", input)
+    // A resumed turn's message is recorded already: the restart is, and the user is told, once.
+    if (resume) {
+      yield* session.record("restart", input)
+      yield* emit("note", depth, `Resumed after a restart: "${input.slice(0, 100)}${input.length > 100 ? "…" : ""}"`)
+    }
+    else yield* session.record("user", input, conversation.run ? { run: conversation.run } : {})
     conversation.inputRecorded = true
 
     // What the loop hands System Two with every request, worked out once: the project's AGENTS.md / CLAUDE.md, then what
@@ -124,6 +131,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     }
 
     const config = yield* Config
+    if (resume) freshSession(conversation, session.dir, config.compactAt * 2)
     const ctx: Ctx = {
       session, input, depth, conversation, config,
       systemOne: yield* SystemOne, systemTwo: yield* SystemTwo, usage: yield* Usage,
@@ -150,6 +158,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     // Pool tools on trial (adoption, src/loop/pool.ts): a few for each system, chosen by the sampler; System One's go straight
     // into its options, past the shortlist, and System Two's into its prompt. Each offer is recorded.
     const state = newTurnState()
+    if (resume) state.resume = resume
     state.cellsBefore = kernelCells(session.dir).length
 
     // Files the user pointed at with @path: for System Two's first prompt, like gathered ones (given once it's sent).
@@ -180,8 +189,9 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     delete conversation.explicitSkill
 
     while (state.steps.length < config.maxSteps) {
-      // A user explicitly chose this workflow: no library shortcut may answer instead.
-      const { choice, finished } = explicitSkill && state.escalated === 0
+      // A user explicitly chose this workflow: no library shortcut may answer instead. A resumed turn whose System Two
+      // (or System One's step) did something goes back to System Two, which hears what.
+      const { choice, finished } = (explicitSkill && state.escalated === 0) || (state.resume && needsSystemTwo(state.resume))
         ? { choice: "escalate", finished: false }
         : yield* decide(ctx, state, optionsNow(), library)
       if (finished) break

@@ -1,10 +1,13 @@
 import { isTree } from "./checkpoint"
 import { readFileSync } from "node:fs"
 import { Effect } from "effect"
-import { logEntries, type SessionHandle } from "../base/session"
+import { type LogEntry, logEntries, type SessionHandle } from "../base/session"
 import { fromSaved, toSaved } from "../base/images"
 import { type Conversation, type Ctx, newConversation, unseenBySystemTwo } from "./turnkit"
 import { type Cell, underRules } from "../kernel/kernel"
+import { type CallState, callTool, saveCall, shownAs } from "../system-two/dispatch"
+import { userItem } from "../system-two/loop"
+import type { Hooks } from "../system-two/systemtwo"
 
 // Rebuild a conversation from its session file, to resume it: System One's history (user → assistant), its action lines,
 // the files System Two was given, the stash, library tools handed to System One, System Two's thread (the last
@@ -149,3 +152,121 @@ export const useSystemTwo = (session: SessionHandle, conversation: Conversation,
     conversation.backend = use
     return from
   })
+
+// A turn a restart cut short: its message (no answer and no stop after it), System Two's calls that finished since, the
+// call a restart cut off, if one was running, with the effects it had started (src/tools/kernel-service.ts, EFFECTS), and
+// effects started outside any call (System One's step, in kernel-one) that no finished step followed. `run`: the
+// agent's run that sent the message, if it said (src/loop/turn.ts).
+export type Effectful = { readonly id: string; readonly text: string; outcome?: string }
+export type Unfinished = {
+  readonly input: string
+  readonly run?: string
+  readonly calls: ReadonlyArray<LogEntry>
+  readonly cut?: { readonly tool: string; readonly args: unknown; readonly effects: ReadonlyArray<Effectful> }
+  readonly step: ReadonlyArray<Effectful>
+}
+
+export const unfinishedTurn = (dir: string): Unfinished | undefined => {
+  let open: { input: string; run?: string; calls: Array<LogEntry>; cut?: { tool: string; args: unknown; effects: Array<Effectful> }; step: Array<Effectful> } | undefined
+  const intents = new Map<string, Effectful>()
+
+  for (const e of logEntries(readFileSync(`${dir}/main.jsonl`, "utf8"))) {
+    if (e.role === "user") open = { input: e.text, ...(typeof e.run === "string" ? { run: e.run } : {}), calls: [], step: [] }
+    else if (!open) continue
+    else if (e.role === "assistant") open = undefined
+    else if (e.role === "step") open.step = [] // System One's step finished
+    else if (e.role === "call" && e.started === true) open.cut = { tool: e.tool, args: e.args, effects: [] }
+    else if (e.role === "call") {
+      open.calls.push(e)
+      delete open.cut
+    }
+    else if (e.role === "effect" && e.outcome !== undefined) { if (intents.has(e.id)) intents.get(e.id)!.outcome = String(e.outcome) }
+    else if (e.role === "effect") {
+      const intent = { id: String(e.id), text: e.text }
+      intents.set(intent.id, intent)
+      ;(open.cut?.effects ?? open.step).push(intent)
+    }
+  }
+
+  return open
+}
+
+// What a run's finished turn answered, if one did: so a resume of a run whose answer was saved, but never reached the
+// agent, doesn't do the turn again.
+export const answerOf = (dir: string, run: string) => {
+  let mine = false
+  for (const e of logEntries(readFileSync(`${dir}/main.jsonl`, "utf8"))) {
+    if (e.role === "user") mine = e.run === run
+    else if (mine && e.role === "assistant") return e.text
+  }
+  return undefined
+}
+
+// A resume that has something to tell System Two: calls it made, a call cut off, or a step's effects. Otherwise the turn
+// just runs again (nothing it did could have changed anything yet).
+export const needsSystemTwo = (u: Unfinished) => u.calls.length > 0 || u.cut !== undefined || u.step.length > 0
+
+// The calls a restart cut off that run again: a kernel cell that started no effect (none was recorded before it: KTD3's
+// intent comes first), a question for the user (asking again is the point), a note, more output. Any other (a check
+// System One runs, waiting for the user) is handed back.
+const RERUN = new Set(["kernel", "ask_user", "tell_user", "more_output"])
+const EACH_CALL = 2000 // characters of each call's arguments and of its output, in the note
+
+const effectsLine = (effects: ReadonlyArray<Effectful>) =>
+  effects.map((e) => `${e.text}${e.outcome === undefined ? " (may have run)" : ` (ran: ${e.outcome})`}`).join("; ")
+
+// The cut-off call is settled first, as a call of this run: run again (recorded as any call), or handed back as
+// interrupted (recorded with `interrupted: true`, so it isn't counted as progress). Then what System Two is told: its calls
+// this turn, as saved, the latest first if they don't all fit in `budget` characters, and how the cut-off one ended.
+// ponytail: a turn whose earlier System Two run finished has those calls in a Codex thread already; they're listed again.
+export const resumeWork = (u: Unfinished, hooks: Hooks, state: CallState, budget: number) =>
+  Effect.gen(function* () {
+    const ended: Array<string> = []
+
+    if (u.cut) {
+      const { tool, args, effects } = u.cut
+      const shown = shownAs(tool, args)
+
+      if (!effects.length && RERUN.has(tool)) {
+        const result = yield* callTool(tool, args, hooks, state)
+        ended.push(`The last call, ${shown}, was cut off by the restart. It had started nothing with effects, so it was run again:\n${"output" in result ? result.output : result.answer}`)
+      } else {
+        const output = `interrupted: empty-vessel restarted while this ran, so it didn't finish and wasn't run again. It had started: ${effectsLine(effects) || "(nothing recorded)"}. Check what it did before redoing any of it.`
+        yield* saveCall(tool, args, { output, interrupted: true }, true)
+        ended.push(`The last call, ${shown}, was ${output}`)
+      }
+    }
+
+    if (u.step.length) ended.push(`System One's last step was cut off by the restart after it started: ${effectsLine(u.step)}. It wasn't run again.`)
+
+    const lines = u.calls.map((c) => `${shownAs(c.tool, c.args)} ${(JSON.stringify(c.args) ?? "").slice(0, EACH_CALL)}\n→ ${String(c.output ?? c.answer ?? "").slice(-EACH_CALL)}`)
+    const kept: Array<string> = []
+    for (const l of lines.reverse()) { if (kept.join("\n\n").length + l.length > budget) break; kept.unshift(l) }
+    const left = lines.length - kept.length
+
+    return [
+      "(empty-vessel restarted while you worked on this message. What your tool calls did before that, as saved:)",
+      ...(left ? [`(${left} earlier call${left === 1 ? "" : "s"} not shown)`] : []),
+      ...(kept.length ? kept : ["(no call had finished)"]),
+      ...ended,
+    ].join("\n\n")
+  })
+
+// A System Two that keeps its own conversation (Claude: the thread holds its session ids) starts a new one on resume,
+// since the old one may end mid-call. Its first prompt carries our record instead: the kernel's cells and the exchanges
+// so far, the latest first if they don't all fit in `budget` characters (src/plugins/claude/claude.ts, claudeFresh).
+export const freshSession = (conversation: Conversation, dir: string, budget: number) => {
+  if (!conversation.thread.some((t) => (t as { claudeSession?: string }).claudeSession)) return
+
+  const exchanges = conversation.history.map((h) => `User: ${h.user}\nAnswer: ${h.answer}`)
+  const kept: Array<string> = []
+  for (const x of exchanges.reverse()) { if (kept.join("\n\n").length + x.length > budget) break; kept.unshift(x) }
+  const briefing = kernelBriefing(dir)
+  const note = [
+    "empty-vessel restarted, so this is a new conversation: the earlier one isn't here, but its record is.",
+    ...(briefing ? [briefing] : []),
+    ...(kept.length ? [`The exchanges so far${kept.length < exchanges.length ? ` (the last ${kept.length})` : ""}:\n\n${kept.join("\n\n")}`] : []),
+  ].join("\n\n")
+
+  conversation.thread.push({ claudeFresh: true }, userItem(note))
+}

@@ -15,8 +15,8 @@ import { record } from "./pool"
 import { kernelSources, sourcesLine } from "./sources"
 import { makeHandoff, makeOnCommand } from "./handoff"
 import { makePrune } from "./prune"
-import { PRUNE_OVER } from "../system-two/dispatch"
-import { remember } from "./resume"
+import { newCallState, PRUNE_OVER } from "../system-two/dispatch"
+import { remember, resumeWork } from "./resume"
 import { scopeNote, watchScope } from "./scope"
 import { Inbox } from "../base/inbox"
 import { listAgents } from "../base/agents"
@@ -155,7 +155,12 @@ const escalate: Step = (ctx, state) =>
       images: attached.images, thread: ctx.conversation.thread, briefing: ctx.conversation.briefing, stash: ctx.conversation.stash, cacheKey: ctx.session.id, depth: ctx.depth, pending: () => ctx.conversation.jobs.pending(),
     }
 
-    const { result: answer } = yield* timed(ctx, "systemTwo", ctx.systemTwo.ask(prompt, hooks))
+    // A turn a restart cut short: its cut-off call settled first (run again or handed back), then System Two hears what
+    // its calls did, ahead of the prompt. Within half of compactAt (~4 characters a token), as compaction aims for.
+    const resumed = state.resume ? yield* resumeWork(state.resume, hooks, newCallState(ctx.conversation.stash), ctx.config.compactAt * 2) : undefined
+    delete state.resume
+
+    const { result: answer } = yield* timed(ctx, "systemTwo", ctx.systemTwo.ask(resumed ? `${resumed}\n\n${prompt}` : prompt, hooks))
     if (answer.size) ctx.conversation.size = answer.size // how big the thread is now: compaction's trigger
     yield* remember(ctx) // into the session file, for resuming
     const failed = answer.text.startsWith("(System Two failed")

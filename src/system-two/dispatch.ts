@@ -165,9 +165,10 @@ export const jobsReminder = (pending: ReadonlyArray<string>) =>
 export type CallResult = { readonly output: string } | Ended
 export const callTool = (name: string, parsed: unknown, hooks: Hooks, state: CallState): Effect.Effect<CallResult> =>
   Effect.gen(function* () {
+    yield* saveCall(name, parsed, { started: true })
     yield* showActivity(name, parsed, hooks)
     const result = (yield* runTool(name, parsed, hooks, state)) ?? { output: `unknown tool: ${name}` }
-    yield* saveCall(name, parsed, result)
+    yield* saveCall(name, parsed, result, true)
     if ("note" in result && result.note !== undefined) yield* emit("note", hooks.depth ?? 0, result.note)
 
     // A finishing check that passed only with a setup lesson in it (often how the lesson is found: npm test fails, then
@@ -193,12 +194,14 @@ export const callTool = (name: string, parsed: unknown, hooks: Hooks, state: Cal
 // The call and its result, into the turn's session file (on disk, synced) before anything shows it: a crash after a
 // client saw a step can't lose it. Outside a turn (no session), nothing to save. A failed write is logged, not fatal:
 // the session stops writing then (src/base/session.ts) and the run goes on.
-const saveCall = (name: string, parsed: unknown, result: CallResult) =>
+// Before it runs, the call alone (`started`, not synced: an effect intent's sync takes it to disk too), so a resume knows
+// which call a restart cut off (src/loop/resume.ts, unfinishedTurn).
+export const saveCall = (name: string, parsed: unknown, result: CallResult | { readonly started: true } | { readonly output: string; readonly interrupted: true }, sync = false) =>
   Effect.gen(function* () {
     const session = yield* CurrentSession
     if (!session) return
 
-    yield* session.record("call", shownAs(name, parsed), { tool: name, args: parsed, ...result }, { sync: true }).pipe(
+    yield* session.record("call", shownAs(name, parsed), { tool: name, args: parsed, ...result }, { sync }).pipe(
       Effect.catch((e) => Effect.logWarning(`system two call not saved ${JSON.stringify({ tool: name, cause: String(e.cause) })}`)),
     )
   })

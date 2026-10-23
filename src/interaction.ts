@@ -11,13 +11,15 @@ import { redoCommand, undoCommand } from "./loop/checkpoint"
 import { compactCommand } from "./loop/compact"
 import { skillCommand } from "./loop/skill-commands"
 import type { Conversation } from "./loop/turnkit"
+import type { Unfinished } from "./loop/resume"
 import type { SystemOne } from "./system-one/systemone"
 import { AskUser } from "./ui/ask"
 
 export type SessionReply = { readonly reply: string; readonly usage: ReadonlyArray<string>; readonly total?: string }
 export type InteractionAnswer = { readonly answer: string; readonly note?: string }
 export interface SessionRunner {
-  readonly run: (input: string) => Effect.Effect<SessionReply, string>
+  // `resume`: the turn a restart cut short, going on (its message as `input`: src/loop/resume.ts, unfinishedTurn).
+  readonly run: (input: string, resume?: Unfinished) => Effect.Effect<SessionReply, string>
   readonly shell: (command: string, share: boolean) => Effect.Effect<string, string>
   readonly stop: Effect.Effect<void>
   readonly answer: (reply: InteractionAnswer) => Effect.Effect<void>
@@ -93,16 +95,18 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         })))
       }))
 
-    const run = (input: string): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
+    const run = (input: string, resume?: Unfinished): Effect.Effect<SessionReply, string> => Effect.suspend(() => {
       leftovers.length = 0
-      conversation.inputRecorded = false // a stop from here on writes this message if the turn hadn't yet (src/answer.ts)
-      const refine = /^\/refine(?=\s|$)/.test(input)
-      const review = /^\/review(?=\s|$)/.test(input)
-      const undo = /^\/undo\s*$/.test(input)
-      const redo = /^\/redo\s*$/.test(input)
-      const compact = /^\/compact\s*$/.test(input)
-      const model = input.match(/^\/model(?=\s|$)\s*(\S*)/)
-      const named = input.match(/^\/agent(?=\s|$)\s*(\S*)/)
+      conversation.inputRecorded = resume !== undefined // a stop from here on writes this message if the turn hadn't yet (src/answer.ts)
+      // A resumed turn's message is the turn's own (a command never made one): no command is read from it.
+      const typed = resume ? "" : input
+      const refine = /^\/refine(?=\s|$)/.test(typed)
+      const review = /^\/review(?=\s|$)/.test(typed)
+      const undo = /^\/undo\s*$/.test(typed)
+      const redo = /^\/redo\s*$/.test(typed)
+      const compact = /^\/compact\s*$/.test(typed)
+      const model = typed.match(/^\/model(?=\s|$)\s*(\S*)/)
+      const named = typed.match(/^\/agent(?=\s|$)\s*(\S*)/)
       let turnInput = input
       let skillOnly = false
       const work = Effect.gen(function* () {
@@ -130,7 +134,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
           return { reply: chose.reply ?? "", usage: [] }
         }
 
-        const skill = yield* operations.skillCommand(session, conversation, input)
+        const skill = resume ? undefined : yield* operations.skillCommand(session, conversation, input)
         if (skill?.kind === "reply") {
           skillOnly = true
           return { reply: skill.reply, usage: [] }
@@ -142,7 +146,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         services = picked.services
         if (picked.line) yield* adapters.events.emit({ kind: "note", depth: 0, text: picked.line })
 
-        const result = yield* provide(operations.answer(session, turnInput, conversation))
+        const result = yield* provide(operations.answer(session, turnInput, conversation, resume))
         conversation.history.push({ user: input, answer: result.reply })
         return { reply: result.reply, usage: [...result.remembered, result.brief.turn], total: result.brief.session }
       })

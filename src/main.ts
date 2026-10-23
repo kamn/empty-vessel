@@ -16,7 +16,7 @@ import { logo } from "./ui/logo"
 import { firstLoad, playOnboarding } from "./ui/onboarding/player"
 import { memoryCommand, recentNotes } from "./learning/notes"
 import { forkSession, latestSession, listSessions, makeSession, openSession, sessionLines, SESSIONS, type SessionHandle } from "./base/session"
-import { cellsBeforeRules, loadConversation, useSystemTwo } from "./loop/resume"
+import { cellsBeforeRules, loadConversation, type Unfinished, unfinishedTurn, useSystemTwo } from "./loop/resume"
 import { redoCommand, undoCommand } from "./loop/checkpoint"
 import { compactCommand } from "./loop/compact"
 import { doctor } from "./doctor"
@@ -62,9 +62,9 @@ const showOnboarding = (prompt: Option.Option<string>) =>
 const readLine = Effect.sync(() => prompt(">"))
 
 // One message end to end: the reply, then time and tokens for this turn and the session so far (before the next prompt).
-const answerAndShow = (session: SessionHandle, input: string, conversation: Conversation) =>
+const answerAndShow = (session: SessionHandle, input: string, conversation: Conversation, resume?: Unfinished) =>
   Effect.gen(function* () {
-    const { reply, usage, remembered } = yield* answer(session, input, conversation)
+    const { reply, usage, remembered } = yield* answer(session, input, conversation, resume)
     yield* Console.log(reply)
     for (const line of [...remembered, ...usage]) yield* Console.log(line)
     return reply
@@ -72,9 +72,9 @@ const answerAndShow = (session: SessionHandle, input: string, conversation: Conv
 
 // Interactive: Ctrl+C stops the current turn, not empty-vessel. The turn runs on its own fiber and the key interrupts it
 // (a running bash command is killed with it). The thread is tidied and told what happened; the prompt comes back.
-const answerOrStop = (session: SessionHandle, input: string, conversation: Conversation) =>
+const answerOrStop = (session: SessionHandle, input: string, conversation: Conversation, resume?: Unfinished) =>
   Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild(answerAndShow(session, input, conversation))
+    const fiber = yield* Effect.forkChild(answerAndShow(session, input, conversation, resume))
     let stopped = false
     const stop = () => { stopped = true; Effect.runFork(Fiber.interrupt(fiber)) }
 
@@ -180,6 +180,13 @@ const root = (prompt: Option.Option<string>, resume: string | undefined) => Effe
     const reply = yield* answerOrStop(session, turnInput, conversation).pipe(Effect.provideContext(services))
     conversation.history.push({ user: input, answer: reply })
   }).pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false })))
+
+  // A turn a restart cut short (the process ended mid-turn) goes on first, as the agent's do (src/loop/resume.ts).
+  const unfinished = resume ? unfinishedTurn(session.dir) : undefined
+  if (unfinished) {
+    const reply = yield* answerOrStop(session, unfinished.input, conversation, unfinished).pipe(Effect.provideContext(services))
+    conversation.history.push({ user: unfinished.input, answer: reply })
+  }
 
   const background = yield* Background
   if (Option.isSome(prompt)) {

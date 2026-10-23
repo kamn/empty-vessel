@@ -10,7 +10,7 @@ import { type Totals, Usage } from "./base/usage"
 import { turn } from "./loop/turn"
 import { childConfig, type Conversation } from "./loop/turnkit"
 import { noteStop } from "./system-two/thread"
-import { saveConversation, useSystemTwo } from "./loop/resume"
+import { saveConversation, type Unfinished, useSystemTwo } from "./loop/resume"
 import { checkpointOf, watchTurn } from "./loop/checkpoint"
 import { ActiveAgent } from "./base/memory"
 
@@ -18,10 +18,11 @@ import { ActiveAgent } from "./base/memory"
 
 // One message end to end: the reply, followed by time and tokens for the turn and session.
 // Both summaries include every sub-agent and are shown regardless of the log level.
-export const answer = (session: SessionHandle, input: string, conversation: Conversation) =>
+// `resume`: the turn a restart cut short, going on (src/loop/resume.ts, unfinishedTurn); `input` is its message.
+export const answer = (session: SessionHandle, input: string, conversation: Conversation, resume?: Unfinished) =>
   Effect.gen(function* () {
     yield* reportState("working")
-    conversation.inputRecorded = false
+    conversation.inputRecorded = resume !== undefined // a resumed turn's message is in the session file already
     // For /undo: the files before and after the turn (stopped or failed too); a turn that changed them is a checkpoint,
     // recorded so a resumed session has it (src/loop/checkpoint.ts, src/loop/resume.ts).
     const index = `${session.dir}/undo.index`
@@ -38,7 +39,7 @@ export const answer = (session: SessionHandle, input: string, conversation: Conv
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is
     // cancelled, so nothing keeps working, or keeps a -p run from exiting, after the answer.
-    const [took, reply] = yield* Effect.timed(turn(session, input, 0, conversation).pipe(
+    const [took, reply] = yield* Effect.timed(turn(session, input, 0, conversation, resume).pipe(
       Effect.ensuring(conversation.jobs.cancelAll),
       Effect.ensuring(keep),
     ))

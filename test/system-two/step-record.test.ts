@@ -35,7 +35,7 @@ test("each System Two tool call is in the session file, synced, before any clien
 
   const session = await Effect.runPromise(Effect.gen(function* () {
     const session = yield* makeSession(SESSIONS)
-    const calls = () => logEntries(readFileSync(join(session.dir, "main.jsonl"), "utf8")).filter((e) => e.role === "call").length
+    const calls = () => logEntries(readFileSync(join(session.dir, "main.jsonl"), "utf8")).filter((e) => e.role === "call" && !e.started).length
     const events = { emit: (e: { kind: string }) => Effect.sync(() => { if (e.kind !== "activity") seen.push({ kind: e.kind, calls: calls() }) }) }
 
     const systemTwo = yield* SystemTwo
@@ -51,12 +51,14 @@ test("each System Two tool call is in the session file, synced, before any clien
   expect(seen).toEqual([{ kind: "system-two", calls: 1 }, { kind: "note", calls: 2 }, { kind: "system-two", calls: 3 }])
 
   const text = readFileSync(join(session.dir, "main.jsonl"), "utf8")
-  const steps = logEntries(text).filter((e) => e.role === "call")
+  const steps = logEntries(text).filter((e) => e.role === "call" && !e.started)
   expect(steps.map((e) => [e.tool, e.args, e.output])).toEqual([
     ["kernel", { code: "export default 1" }, "ran export default 1"],
     ["tell_user", { message: "halfway" }, "The user has it. Keep working."],
     ["kernel", { code: "export default 3" }, "ran export default 3"],
   ])
+  // Each started first: its arguments are in the file before it runs, so a restart knows which call it cut off.
+  expect(logEntries(text).filter((e) => e.role === "call").map((e) => e.started === true ? "started" : "done")).toEqual(["started", "done", "started", "done", "started", "done"])
   const seqs = steps.map((e) => e.seq as number)
   expect(seqs).toEqual(seqs.toSorted((a, b) => a - b))
 
@@ -77,6 +79,6 @@ test("a call that ends the run is recorded with its answer; outside a session no
     return session
   }).pipe(Effect.provide(diskStore(home))))
 
-  const [step] = logEntries(readFileSync(join(session.dir, "main.jsonl"), "utf8")).filter((e) => e.role === "call")
+  const [step] = logEntries(readFileSync(join(session.dir, "main.jsonl"), "utf8")).filter((e) => e.role === "call" && !e.started)
   expect(step).toMatchObject({ tool: "wait_for_user", args: { message: "which one?" }, answer: "which one?", done: false, waitingForUser: true })
 })

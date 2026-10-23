@@ -157,9 +157,12 @@ const claude = (args: ReadonlyArray<string>, env: Record<string, string> = {}, m
 // What empty-vessel added to the thread since Claude's last run, such as the note after Ctrl+C ("you were stopped partway;
 // files may have changed"). Claude keeps its own session and only ever gets the prompt, so without this it never saw
 // them: they go at the start of the next prompt. A session marker after them means they were sent.
-type Marker = { claudeSession?: string }
+// `claudeFresh`: the core resumed a turn a restart cut short (src/loop/resume.ts, freshSession): the next run starts a new
+// Claude session, its first prompt the record the core put after the marker.
+type Marker = { claudeSession?: string; claudeFresh?: true }
+const isMarker = (t: unknown) => Boolean((t as Marker).claudeSession || (t as Marker).claudeFresh)
 const unsent = (thread: ReadonlyArray<unknown>) =>
-  thread.slice(thread.findLastIndex((t) => (t as Marker).claudeSession) + 1)
+  thread.slice(thread.findLastIndex(isMarker) + 1)
     .flatMap((t) => ((t as { role?: string }).role === "user" ? ((t as { content?: Array<{ text?: string }> }).content ?? []).map((c) => c.text ?? "") : []))
     .filter(Boolean)
 export const withUnsent = (thread: ReadonlyArray<unknown>, prompt: string) => [...unsent(thread), prompt].join("\n\n")
@@ -195,11 +198,11 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
       : { type: "text" as const, text: `[an image that's no longer there: ${i.path}]` })
     let text = withUnsent(thread, prompt)
     for (let reminders = 0; ; reminders++) {
-      const last = thread.findLast((t) => (t as { claudeSession?: string }).claudeSession) as { claudeSession: string } | undefined
+      const last = thread.findLast(isMarker) as Marker | undefined
       // MCP_TOOL_TIMEOUT: a cell may run up to the kernel's 10 minutes.
       // Web search: Claude Code's own WebSearch and WebFetch, the only built-in tools it gets (the rest is empty-vessel's kernel).
       const web = ["--tools", webSearch ? "WebSearch,WebFetch" : ""]
-      const started = yield* claudeLive([...common(), ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])], model).pipe(Effect.timeoutOption(limit))
+      const started = yield* claudeLive([...common(), ...web, "--allowedTools", webSearch ? `${allowed(relay)},WebSearch,WebFetch` : allowed(relay), "--max-turns", String(maxRounds), ...(last?.claudeSession ? ["--resume", last.claudeSession] : [])], { MCP_TOOL_TIMEOUT: "660000" }, { ...live, busy: relay.busy }, [{ type: "text", text }, ...(reminders === 0 ? images : [])], model).pipe(Effect.timeoutOption(limit))
       if (Option.isNone(started)) return { text: `(System Two failed: claude -p hadn't finished after ${Duration.format(Duration.fromInputUnsafe(limit))} and was stopped)`, tokens }
       const first = started.value
       const reply = first.subtype === "error_max_turns" && first.session_id

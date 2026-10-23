@@ -16,6 +16,7 @@ import type { SystemOne } from "../system-one/systemone"
 import type { Tokens } from "../base/usage"
 import type { SystemTwo } from "../system-two/systemtwo"
 import type { Usage } from "../base/usage"
+import type { Unfinished } from "./resume"
 
 // What a turn and its steps may use: the services, provided once in main.ts.
 export type Needs = SystemOne | SystemTwo | Fill | AskUser | Usage | Config | Reviewer | Background | Store | Memory
@@ -54,6 +55,7 @@ export type Conversation = {
   checkpoints?: Array<Checkpoint> // the project before each turn of this run, for /undo (src/loop/checkpoint.ts)
   inputRecorded?: boolean // this turn's message is in the session file (src/loop/turn.ts): a stop before it records it
   backend?: string // the System Two (systemTwo.use) the thread belongs to, as recorded in the session; none in older sessions
+  run?: string // the agent's run this conversation's next message came from (recorded with it: src/loop/resume.ts, answerOf)
 }
 export const newConversation = (): Conversation => ({ thread: [], history: [], actions: [], files: new Set(), stash: new Map(), jobs: makeJobs(), tools: new Set(), unseen: [], remembered: [], saved: { thread: 0, stash: 0 } })
 
@@ -76,6 +78,7 @@ export type TurnState = {
   offered: { systemOne: ReadonlyArray<string>; systemTwo: ReadonlyArray<string> } // pool tools on trial this turn (src/loop/pool.ts)
   cellsBefore: number // System Two's kernel cells before this turn: the ones after are this turn's (src/loop/adopt.ts)
   turn: number // this turn's number in the session (1 = the first): the record's events for a turn share it
+  resume?: Unfinished // a turn a restart cut short, going on: System Two's first run hears what it did (src/loop/resume.ts)
 }
 export const newTurnState = (): TurnState => ({ steps: [], did: [], work: [], passed: [], gathered: "", gatheredPaths: [], escalated: 0, told: 0, answerText: undefined, systemTwoAnswered: false, offered: { systemOne: [], systemTwo: [] }, cellsBefore: 0, turn: 0 })
 
