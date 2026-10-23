@@ -6,6 +6,10 @@ import { newConversation } from "../src/loop/turnkit"
 import { AskUser } from "../src/ui/ask"
 import { Inbox } from "../src/base/inbox"
 import { Kernel } from "../src/tools/kernel-service"
+import { emit } from "../src/base/events"
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 const session = {} as SessionHandle
 const result = { reply: "ok", remembered: [], usage: [], brief: { turn: "turn", session: "total" } }
@@ -256,3 +260,30 @@ test("two questions asked at once are shown one at a time, and each answer goes 
 
   expect(got).toEqual(["rm a=Allow once", "rm b=Deny"])
 }).pipe(Effect.scoped, Effect.provideContext(Context.empty() as never)) as never))
+
+test("a turn's events so far are kept in the session's live.json (throttled, whole), for a late joiner; done when it ends", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "live-"))
+  const live = () => { try { return JSON.parse(readFileSync(join(dir, "live.json"), "utf8")) } catch { return undefined } }
+  try {
+    await run(Effect.gen(function* () {
+      const release = yield* Deferred.make<void>()
+      const runner = yield* makeSessionRunner({ dir } as SessionHandle, newConversation(), { events }, ops({ answer: () => Effect.gen(function* () {
+        for (let i = 0; i < 20; i++) yield* emit("step", 0, `step ${i}`)
+        yield* emit("activity", 0, "thinking")
+        yield* Deferred.await(release)
+        return result
+      }) }))
+      const fiber = yield* Effect.forkChild(runner.run("hello"))
+      for (let i = 0; i < 100 && live()?.events.length !== 20; i++) yield* Effect.sleep("50 millis") // one throttled write, not 20
+      const during = live()
+      expect(during.running).toBe(true)
+      expect(during.input).toBe("hello")
+      expect(during.events.map((e: { text: string }) => e.text)).toEqual(Array.from({ length: 20 }, (_, i) => `step ${i}`))
+      expect(during.activity).toBe("thinking")
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(fiber)
+    }))
+    expect(live().running).toBe(false)
+    expect(readdirSync(dir).filter(f => f.endsWith(".tmp"))).toEqual([])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})

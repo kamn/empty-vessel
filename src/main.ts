@@ -23,6 +23,7 @@ import { doctor } from "./doctor"
 import { guardPreview } from "./guard-preview"
 import { fakeWarnings, setup } from "./setup"
 import { tui } from "./tui"
+import { agentSocket, attach } from "./attach"
 import { releaseAgent, reportState } from "./integrations/herdr"
 import { agentCommand, answer, farewell, firstAgent, modelCommand, resumeAgent, stopped as noteStopped, usageLine, userCommand } from "./answer"
 import { SystemTwoLayers } from "./loop/systems"
@@ -272,11 +273,18 @@ const emptyVessel = Command.make(
     continue: Flag.Boolean("continue").pipe(Flag.withAlias("c"), Flag.withDefault(false), Flag.withDescription("Continue the newest session started in this folder")),
     resume: Flag.String("resume").pipe(Flag.withDescription("Continue this session (its id)"), Flag.optional),
     fork: Flag.Boolean("fork-session").pipe(Flag.withDefault(false), Flag.withDescription("With --continue or --resume: go on in a copy of the session, leaving the original as it was")),
+    attach: Flag.Boolean("attach").pipe(Flag.withDefault(false), Flag.withDescription("Watch and steer a session the always-on agent owns (empty-vessel-agent), instead of running one here")),
+    agentSession: Flag.String("agent-session").pipe(Flag.withDescription("With --attach: the agent's session id (default: its selected session)"), Flag.optional),
+    agentStore: Flag.String("agent-store").pipe(Flag.withDescription("With --attach: the agent's store folder (default: EMPTY_VESSEL_AGENT_STORE, else ./.sessions)"), Flag.optional),
   },
   // The systems are connected here, inside the main command, so `empty-vessel setup` (and --help) work even when the
   // config is missing, a key is wrong or the Codex login expired: those are exactly what setup fixes.
   // The first load shows the walkthrough instead (before the systems connect: there may be no keys yet).
-  ({ prompt, continue: latest, resume, fork }) => showOnboarding(prompt) ? onboarding : Effect.gen(function* () {
+  // --attach needs no systems or config here: the agent runs the turns.
+  ({ prompt, continue: latest, resume, fork, attach: attaching, agentSession, agentStore }) => attaching
+    ? attach(agentSocket(Option.getOrUndefined(agentStore) ?? process.env.EMPTY_VESSEL_AGENT_STORE ?? ".sessions"), Option.getOrUndefined(agentSession), process.stdin, (line) => console.log(line)).pipe(
+      Effect.catch((e) => Console.error(e.message)))
+    : showOnboarding(prompt) ? onboarding : Effect.gen(function* () {
       const found = Option.isSome(resume) ? `${SESSIONS}/${resume.value}` : latest ? yield* latestSession(process.cwd()) : undefined
       if (latest && !found) yield* Console.log("no earlier session in this folder: starting a new one")
       if (fork && !found && !latest) yield* Console.log("--fork-session needs --continue or --resume: starting a new session")

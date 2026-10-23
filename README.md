@@ -80,6 +80,11 @@ view: comments, cells and their results, expanded sections, scroll position, inp
 and unfinished drafts. The view is saved locally inside that session as you work.
 Restoring the view does not rerun commands or resume an interrupted operation.
 
+A session the always-on agent (`empty-vessel-agent`) owns is joined with `empty-vessel --attach --agent-store <store>`
+(add `--agent-session <id>`; the store defaults to `EMPTY_VESSEL_AGENT_STORE`, else `./.sessions`): it shows the
+conversation so far and the running turn's progress, and what you type steers it; `/stop`, `/answer`, `/retry`. A line
+client, not the full TUI; see the agent's README.
+
 Older sessions without a saved view are reconstructed from the available session records;
 visual details that were never recorded cannot be recovered.
 

@@ -4,6 +4,7 @@ import type { Config } from "./base/config"
 import { Events } from "./base/events"
 import { Delivery } from "./base/delivery"
 import { Inbox, makeInbox } from "./base/inbox"
+import { writeAtomic } from "./base/files"
 import type { SessionHandle } from "./base/session"
 import { refineCommand } from "./loop/refine"
 import { reviewCommand } from "./loop/review"
@@ -48,6 +49,27 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     const owner: ModelOwner = {}
     yield* Effect.addFinalizer(() => owner.current ? Scope.close(owner.current, Exit.void) : Effect.void)
 
+    // live.json in the session folder: the running turn's events so far, for a client that joins mid-turn (the agent's
+    // attach). Rewritten whole (writeAtomic) at most every 500 ms, and once more when the turn ends (running: false).
+    // ponytail: the last 200 events only; a joiner reads the rest from main.jsonl.
+    const live = { running: false, input: "", events: [] as Array<Omit<Parameters<InteractionAdapters["events"]["emit"]>[0], "body">>, activity: "" }
+    const writing = Semaphore.makeUnsafe(1)
+    let due = false
+    const flush = writing.withPermits(1)(Effect.suspend(() => {
+      due = false
+      return typeof session.dir === "string" ? writeAtomic(`${session.dir}/live.json`, JSON.stringify({ ...live, at: Date.now() })) : Effect.void
+    })).pipe(Effect.catchCause(() => Effect.void))
+    const events: InteractionAdapters["events"] = {
+      emit: (event) => adapters.events.emit(event).pipe(Effect.andThen(Effect.suspend(() => {
+        if (!live.running) return Effect.void
+        if (event.kind === "activity") live.activity = event.text
+        else live.events = [...live.events, { kind: event.kind, depth: event.depth, text: event.text, ...(event.summary ? { summary: event.summary } : {}) }].slice(-200)
+        if (due) return Effect.void
+        due = true
+        return Effect.forkDetach(Effect.sleep("500 millis").pipe(Effect.andThen(flush)))
+      })), Effect.asVoid),
+    }
+
     // One question at a time: sub-agents (or a guard's approval and ask_user) can ask together, and with one pending
     // answer a reply to the first ("1": allow) would go to the second. The others wait their turn, shown one by one.
     const asking = Semaphore.makeUnsafe(1)
@@ -62,7 +84,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
       }))),
     })
     const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
-      Effect.provideService(Events, adapters.events), Effect.provideService(AskUser, ask),
+      Effect.provideService(Events, events), Effect.provideService(AskUser, ask),
       Effect.provideService(Inbox, inbox),
       Effect.provideService(Delivery, adapters.sendFile ? { sendFile: adapters.sendFile } : Delivery.defaultValue()),
       Effect.provideContext(services),
@@ -144,7 +166,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         // Before the conversation's first message, System One picks its agent.
         const picked = yield* operations.firstAgent(session, conversation, turnInput, services, owner)
         services = picked.services
-        if (picked.line) yield* adapters.events.emit({ kind: "note", depth: 0, text: picked.line })
+        if (picked.line) yield* events.emit({ kind: "note", depth: 0, text: picked.line })
 
         const result = yield* provide(operations.answer(session, turnInput, conversation, resume))
         conversation.history.push({ user: input, answer: result.reply })
@@ -157,7 +179,11 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
         return { reply, usage: [] }
       })
 
-      return execute(work.pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false }))), interrupted)
+      const watched = Effect.sync(() => Object.assign(live, { running: true, input, events: [], activity: "" })).pipe(
+        Effect.andThen(flush), Effect.andThen(work),
+        Effect.ensuring(Effect.sync(() => { live.running = false }).pipe(Effect.andThen(flush))),
+      )
+      return execute(watched.pipe(Effect.ensuring(Effect.sync(() => { conversation.explicitSkill = false }))), interrupted)
     })
     const runner: SessionRunner = {
       run,
