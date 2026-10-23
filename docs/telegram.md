@@ -138,9 +138,10 @@ EMPTY_VESSEL_CHANNEL=terminal empty-vessel -p 'Explain this project'
   `~/.empty-vessel/telegram/state`); locks live under the corresponding `telegram/locks`.
   State is scoped to token, chat, and canonical project directory. Preserve it;
   changing tokens, moving projects, or deleting state changes the resume identity.
-- On a stale-lock error, first verify the old process and all other pollers have
-  stopped. Only then remove the specific stale bot lock locally. Never delete a
-  live process's lock or erase offset state just to bypass a startup error.
+- A bot lock records its owner's pid and start time in `owner.json`. A lock left by
+  a crashed poller is taken over on the next start, with no manual step; a lock
+  error means another poller for this bot is still running: stop it. Never delete
+  a live process's lock or erase offset state just to bypass a startup error.
 
 Keep model/provider credentials configured as usual; a Telegram token only grants
 access to Telegram, not to the agent's model providers.

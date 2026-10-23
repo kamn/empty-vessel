@@ -93,7 +93,8 @@ In the TUI and in channels:
   removes the ones it created. A file you changed again after that turn is kept, and so is a file the old ignore rules
   covered (e.g. a `.env` a rewritten `.gitignore` exposed). Each `/undo` goes one turn further back, also after
   `--resume`. Only in a git repo; your index and branches are not touched. It can't undo anything outside the files
-  (a sent message, a remote API call).
+  (a sent message, a remote API call). If another session worked in the same repo during that turn, `/undo` says so:
+  that session's edits then count as the turn's, so check what it restored.
 - `/redo` goes forward again after `/undo` (until a new turn changes files), keeping what you changed in between.
 - `/compact` compacts System Two's conversation when you send your next message, whatever its size.
 

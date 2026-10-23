@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import type { SessionHandle } from "../../src/base/session"
-import { checkpointOf, redoCommand, snapshot, undoCommand } from "../../src/loop/checkpoint"
+import { checkpointOf, redoCommand, snapshot, undoCommand, watchTurn } from "../../src/loop/checkpoint"
 import { newConversation } from "../../src/loop/turnkit"
 import { runBash } from "../../src/tools/bash"
 import { Kernel } from "../../src/tools/kernel-service"
@@ -232,4 +232,56 @@ test("snapshots work in a repo with a required filter (Git LFS), and a filter na
 
   expect(existsSync(ran)).toBe(false)
   expect(read(dir, "a.txt")).toBe("one\n")
+})
+
+test("two runs in one folder overlap: /undo in one warns and leaves the other's edits", async () => {
+  const { dir, run } = repo()
+  const conversation = newConversation()
+
+  const a = await run(watchTurn(dir)), b = await run(watchTurn(dir)) // B starts while A's turn runs
+  writeFileSync(join(dir, "a.txt"), "by A\n")
+  const endA = await run(a.end)
+  writeFileSync(join(dir, "b.txt"), "by B\n")
+  const endB = await run(b.end)
+  expect(endA.shared).toBe(true)
+  expect(endB.shared).toBe(true)
+
+  conversation.checkpoints = [checkpointOf("edit a", a.before, endA.after, endA.shared)!]
+  const reply = await run(undoCommand(session, conversation))
+
+  expect(reply).toContain("Another run in this folder ran during that turn")
+  expect(read(dir, "a.txt")).toBe("one\n")
+  expect(read(dir, "b.txt")).toBe("by B\n")
+})
+
+test("a turn alone in its folder doesn't warn, even after an earlier run there crashed or finished", async () => {
+  const { dir, run } = repo()
+  const { createHash } = await import("node:crypto")
+  const { mkdirSync } = await import("node:fs")
+  const root = execSync("git rev-parse --show-toplevel", { cwd: dir }).toString().trim()
+  const folders = join(tmpdir(), "empty-vessel-folders")
+  mkdirSync(folders, { recursive: true })
+  // A crashed run's leftover entry: a pid that isn't running.
+  writeFileSync(join(folders, `${createHash("sha256").update(root).digest("hex")}.json`), JSON.stringify({ seq: 7, active: [{ id: "gone", pid: Bun.spawnSync(["true"]).pid, startedAt: "never" }] }))
+
+  const earlier = await run(watchTurn(dir))
+  await run(earlier.end)
+  const alone = await run(watchTurn(dir))
+  writeFileSync(join(dir, "a.txt"), "two\n")
+  const end = await run(alone.end)
+  expect(end.shared).toBe(false)
+
+  const conversation = newConversation()
+  conversation.checkpoints = [checkpointOf("edit", alone.before, end.after, end.shared)!]
+  expect(await run(undoCommand(session, conversation))).not.toContain("Another run")
+  expect(read(dir, "a.txt")).toBe("one\n")
+})
+
+test("a resumed session keeps the shared mark on a checkpoint", async () => {
+  const { loadConversation } = await import("../../src/loop/resume")
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-undo-resume-"))
+  const line = { role: "checkpoint", text: "a".repeat(40), after: "f".repeat(40), root: "/p", input: "x", shared: true, ts: 0 }
+  writeFileSync(join(dir, "main.jsonl"), JSON.stringify({ role: "project", text: "/p", ts: 0 }) + "\n" + JSON.stringify(line) + "\n")
+
+  expect(loadConversation(dir).checkpoints?.[0]?.shared).toBe(true)
 })

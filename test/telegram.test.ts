@@ -136,6 +136,24 @@ test("bot lock excludes other projects, chats and state directories; scope relea
   expect(readdirSync(join(deps.home, "telegram", "locks"))).toEqual([])
 })))
 
+test("a crashed poller's bot lock is taken over; a live one in another process still blocks", () => Effect.runPromise(Effect.gen(function* () {
+  const deps = fixture()
+  const http = fake(() => fail(401))
+  const { processStart } = yield* Effect.promise(() => import("../src/base/files"))
+  const lock = join(deps.home, "telegram", "locks", "123")
+  mkdirSync(lock, { recursive: true })
+
+  writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: Bun.spawnSync(["true"]).pid, startedAt: "gone" }))
+  yield* Effect.scoped(makeTelegramChannel(options, { ...deps, http }))
+  expect(readdirSync(join(deps.home, "telegram", "locks"))).toEqual([])
+
+  mkdirSync(lock)
+  writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: process.ppid, startedAt: processStart(process.ppid) }))
+  const blocked = yield* Effect.scoped(makeTelegramChannel(options, { ...deps, http })).pipe(Effect.exit)
+  expect(Exit.isFailure(blocked)).toBe(true)
+  expect(JSON.parse(readFileSync(join(lock, "owner.json"), "utf8")).pid).toBe(process.ppid)
+})))
+
 test("webhook rejected without deletion; failed startup releases lock", () => Effect.runPromise(Effect.gen(function* () {
   const deps = fixture()
   const calls: string[] = []

@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.5
+# empty-vessel core 0.0.6
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -378,6 +378,12 @@ export type ModelTool = {
 ## newCallState (src/system-two/dispatch)
 export declare const newCallState: (stash?: Map<string, string>, now?: () => number) => CallState;
 
+## Owner (src/base/files)
+export type Owner = {
+    readonly pid: number;
+    readonly startedAt: string;
+};
+
 ## Plugin (src/plugins/plugin)
 export type Plugin = {
     readonly name: string;
@@ -638,6 +644,9 @@ export declare const systemTwoTools: (g?: Grants) => readonly [{
     readonly description: string;
     readonly parameters: Record<string, unknown>;
 }];
+
+## takeLease (src/base/files)
+export declare const takeLease: (path: string) => Effect.Effect<Owner | undefined, never, never>;
 
 ## Tokens (src/base/usage)
 export interface Tokens {

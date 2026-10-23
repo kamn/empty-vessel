@@ -11,7 +11,7 @@ import { turn } from "./loop/turn"
 import { childConfig, type Conversation } from "./loop/turnkit"
 import { noteStop } from "./system-two/thread"
 import { saveConversation, useSystemTwo } from "./loop/resume"
-import { checkpointOf, snapshot } from "./loop/checkpoint"
+import { checkpointOf, watchTurn } from "./loop/checkpoint"
 import { ActiveAgent } from "./base/memory"
 
 // Shared by the plain prompt (main.ts) and the TUI (tui.ts).
@@ -25,13 +25,15 @@ export const answer = (session: SessionHandle, input: string, conversation: Conv
     // For /undo: the files before and after the turn (stopped or failed too); a turn that changed them is a checkpoint,
     // recorded so a resumed session has it (src/loop/checkpoint.ts, src/loop/resume.ts).
     const index = `${session.dir}/undo.index`
-    const before = yield* snapshot(process.cwd(), index)
+    // Taken under the folder's lock, noting whether another run worked in the same folder meanwhile (src/loop/checkpoint.ts).
+    const watched = yield* watchTurn(process.cwd(), index)
     const keep = Effect.gen(function* () {
-      const checkpoint = checkpointOf(input, before, yield* snapshot(process.cwd(), index))
+      const { after, shared } = yield* watched.end
+      const checkpoint = checkpointOf(input, watched.before, after, shared)
       if (!checkpoint) return
       ;(conversation.checkpoints ??= []).push(checkpoint)
       conversation.redo = [] // a new change: what was undone can't be redone on top of it
-      yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input }).pipe(Effect.ignore)
+      yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input, ...(shared ? { shared } : {}) }).pipe(Effect.ignore)
     })
 
     // No job outlives the turn that started it (a run can't finish with uncollected jobs anyway): whatever is left is

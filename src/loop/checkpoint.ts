@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto"
 import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
+import { processStart, withLock, writeAtomic } from "../base/files"
 import type { SessionHandle } from "../base/session"
 import { runBash } from "../tools/bash"
 import { Kernel } from "../tools/kernel-service"
@@ -17,7 +19,8 @@ import type { Conversation } from "./turnkit"
 // Each checkpoint is recorded in the session (and each /undo, as how many are left), so a resumed session can undo too.
 // ponytail: the trees are unreferenced git objects, so `git gc` can drop them after two weeks (an /undo then says git
 // failed); pin them in refs/ if older undos matter.
-export type Checkpoint = { readonly root: string; readonly before: string; readonly after: string; readonly input: string }
+// `shared`: another run in the same folder ran during the turn (below), so some of what it changed may be that run's.
+export type Checkpoint = { readonly root: string; readonly before: string; readonly after: string; readonly input: string; readonly shared?: boolean }
 export const isTree = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f]{40,64}$/.test(s)
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
@@ -78,8 +81,61 @@ g add -A . && echo "$root" && g write-tree`, 60_000, allowed)
   }).pipe(Effect.orElseSucceed(() => undefined))
 
 // Around a turn: its checkpoint if it changed the project's files, else undefined.
-export const checkpointOf = (input: string, before: { root: string; tree: string } | undefined, after: { root: string; tree: string } | undefined): Checkpoint | undefined =>
-  before && after && before.root === after.root && before.tree !== after.tree ? { root: before.root, before: before.tree, after: after.tree, input } : undefined
+export const checkpointOf = (input: string, before: { root: string; tree: string } | undefined, after: { root: string; tree: string } | undefined, shared = false): Checkpoint | undefined =>
+  before && after && before.root === after.root && before.tree !== after.tree ? { root: before.root, before: before.tree, after: after.tree, input, ...(shared ? { shared } : {}) } : undefined
+
+// Several runs can work in one folder at once (the agent's sessions; all Telegram chats share one), each with its own
+// process. Per repo, a file in the temp folder (gone at reboot, with the runs) says which runs are in a turn now (pid and
+// start time, so a crashed one's entry is dropped) and counts every snapshot and /undo there; its lock keeps captures
+// and restores from overlapping. A turn shared its folder if another run was in a turn when it started or ended, or the
+// count moved past its own start in between.
+// ponytail: edits another run made during the turn are counted as the turn's own, so /undo only warns; tracking each
+// run's writes would tell them apart. Keyed by repo root, so worktrees of one repo don't see each other (they don't share files).
+type Activity = { seq: number; active: Array<{ id: string; pid: number; startedAt: string }> }
+let ownStart: string | undefined
+
+const rootOf = (cwd: string) =>
+  runBash(`cd ${quote(cwd)} && git rev-parse --show-toplevel`, 10_000, allowed).pipe(
+    Effect.map((out) => ok(out)?.[0] || undefined),
+    Effect.orElseSucceed(() => undefined),
+  )
+
+// Under the lock of `root`'s activity: `change` it (saved), then `use`. No root (not in git): just `use`.
+const inFolder = <A, B, E, R>(root: string | undefined, change: (activity: Activity) => A, use: Effect.Effect<B, E, R>): Effect.Effect<readonly [A | undefined, B], E, R> => {
+  if (!root) return Effect.map(use, (b) => [undefined, b] as const)
+  const file = join(tmpdir(), "empty-vessel-folders", `${createHash("sha256").update(root).digest("hex")}.json`)
+
+  return withLock(file, Effect.gen(function* () {
+    const read = yield* Effect.promise(() => Bun.file(file).json().catch(() => undefined)) as Effect.Effect<Partial<Activity> | undefined>
+    const activity: Activity = { seq: typeof read?.seq === "number" ? read.seq : 0, active: Array.isArray(read?.active) ? read.active : [] }
+    activity.active = activity.active.filter((r) => processStart(r.pid) === r.startedAt) // a crashed run's entry goes
+
+    const result = change(activity)
+    yield* writeAtomic(file, JSON.stringify(activity))
+    return [result, yield* use] as const
+  }))
+}
+
+// A turn's snapshots in `cwd`: the one before (now), and `end`, the one after and whether another run shared the folder.
+export const watchTurn = (cwd = process.cwd(), index?: string) =>
+  Effect.gen(function* () {
+    const root = yield* rootOf(cwd)
+    const me = { id: crypto.randomUUID(), pid: process.pid, startedAt: (ownStart ??= processStart(process.pid) ?? "unknown") }
+    const [start, before] = yield* inFolder(root, (a) => {
+      const others = a.active.length > 0
+      a.active.push(me)
+      return { seq: ++a.seq, others }
+    }, snapshot(cwd, index))
+
+    const end = inFolder(root, (a) => {
+      const shared = !!start?.others || a.seq !== start?.seq || a.active.some((r) => r.id !== me.id)
+      a.active = a.active.filter((r) => r.id !== me.id)
+      a.seq++
+      return shared
+    }, snapshot(cwd, index)).pipe(Effect.map(([shared, after]) => ({ after, shared: shared ?? false })))
+
+    return { before, end }
+  })
 
 const nul = (text: string) => text.split("\0").filter(Boolean)
 
@@ -158,7 +214,9 @@ const shift = (session: SessionHandle, conversation: Conversation, kind: "undo" 
       : "Nothing to redo: /redo goes forward after /undo, until a new turn changes files."
 
     if (checkpoint) {
-      const done: Undone = yield* (kind === "undo" ? move(checkpoint.root, checkpoint.before, checkpoint.after) : move(checkpoint.root, checkpoint.after, checkpoint.before))
+      const moved = kind === "undo" ? move(checkpoint.root, checkpoint.before, checkpoint.after) : move(checkpoint.root, checkpoint.after, checkpoint.before)
+      const [, done]: readonly [unknown, Undone] = yield* inFolder(checkpoint.root, (a) => { a.seq++ }, moved) // a run in a turn now sees it
+
       ;(done.failed ? from : to).push(checkpoint)
       const lines = [
         ...done.restored.map((p) => `- restored ${p}`), ...done.removed.map((p) => `- removed ${p}`),
@@ -167,8 +225,9 @@ const shift = (session: SessionHandle, conversation: Conversation, kind: "undo" 
         ...(done.stuck ?? []).map((p) => `- couldn't remove ${p}: remove it by hand if it shouldn't be there`),
       ]
       const what = `"${checkpoint.input.slice(0, 80)}"`
-      reply = done.failed ? `Couldn't ${kind} ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `${kind === "undo" ? "Undid" : "Redid"} what ${what} changed:\n${lines.join("\n")}`
-      if (kind === "redo" && !done.failed) yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input: checkpoint.input }).pipe(Effect.ignore)
+      const shared = checkpoint.shared ? "Another run in this folder ran during that turn, so some of these changes may be its: check them with git diff.\n" : ""
+      reply = shared + (done.failed ? `Couldn't ${kind} ${what}: ${done.failed}.${lines.length ? `\n${lines.join("\n")}` : ""}` : `${kind === "undo" ? "Undid" : "Redid"} what ${what} changed:\n${lines.join("\n")}`)
+      if (kind === "redo" && !done.failed) yield* session.record("checkpoint", checkpoint.before, { root: checkpoint.root, after: checkpoint.after, input: checkpoint.input, ...(checkpoint.shared ? { shared: true } : {}) }).pipe(Effect.ignore)
     }
 
     if (kind === "undo") yield* session.record("undone", String(checkpoints.length)).pipe(Effect.ignore) // what's left, for resume
