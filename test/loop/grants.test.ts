@@ -61,3 +61,22 @@ test("a sub-agent's grants narrow from its parent's, never widen; shell with rea
   expect(grantWarnings({ ...ALL, files: "read-only" })[0]).toContain("bash can still write")
   expect(grantWarnings({ ...ALL, files: "read-only", shell: false })).toEqual([])
 })
+
+test("in a container (EMPTY_VESSEL_CONTAINER=1), System Two is told user-level installs persist and apt installs don't", () => {
+  const saved = process.env.EMPTY_VESSEL_CONTAINER
+
+  try {
+    delete process.env.EMPTY_VESSEL_CONTAINER
+    expect(kernelInstructions(ALL)).not.toContain("You run in a container")
+
+    process.env.EMPTY_VESSEL_CONTAINER = "1"
+    const told = kernelInstructions(ALL)
+    expect(told).toContain("You run in a container")
+    expect(told).toContain("~/.local/bin")
+    expect(told).toContain("sudo apt-get install works but is lost when the container is recreated")
+    expect(kernelInstructions({ ...ALL, shell: false })).not.toContain("You run in a container")
+  } finally {
+    if (saved === undefined) delete process.env.EMPTY_VESSEL_CONTAINER
+    else process.env.EMPTY_VESSEL_CONTAINER = saved
+  }
+})

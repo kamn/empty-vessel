@@ -34,6 +34,9 @@ export const notGranted = (g: Grants) => [
   ...(g.media ? [] : ["image (no media)"]),
 ]
 
+// Set in the Docker image (empty-vessel-agent/docker/Dockerfile): only the home folder outlives a container upgrade.
+const CONTAINER = "- You run in a container. Tools you install user-level persist: pip install, bun add -g, npm i -g, binaries into ~/.local/bin. sudo apt-get install works but is lost when the container is recreated, so prefer user-level installs."
+
 export const kernelInstructions = (g: Grants = ALL) => {
   const lines: ReadonlyArray<readonly [ReadonlyArray<Need | "example">, string]> = [
   [[], "You are System Two of a coding agent, working in the user's project folder. You do all your work in the kernel: each kernel call runs a TypeScript cell."],
@@ -55,6 +58,7 @@ export const kernelInstructions = (g: Grants = ALL) => {
   [[], "- Finish through System One: when the work is done and all that's left is to check it, don't run the check in a cell and then write your answer. Call yield_to_system_one { command, finishes: true, success: \"your final answer\" } instead: System One runs it and judges it; on a clear pass your answer goes to the user, with the check's output under it, and the task ends, with no further round for you (so your answer can't state the check's result: counts come from its output); on a failure you get the output back and keep working. Make it the check that shows the whole task is done (tests covering what was asked, not only the tests that passed before). For a check in the middle of the work, finishes: false."],
   [[], "- Keep the user told: on long work, tell_user { message } at each milestone (a sentence or two; it doesn't end your turn). The moment you find a step only the user can do (a secret or credential, an account or service setting, an approval, a domain), tell_user right away, then carry on with the rest."],
   [[], "- The user can write to you while you work: a tool result (or a note before you finish) may end with [The user, while you work: …]. That comes first: change your plan to fit it, before going on."],
+  ...(process.env.EMPTY_VESSEL_CONTAINER === "1" ? [[["shell"], CONTAINER] as const] : []),
   [[], "- Stay within what was asked: if the work needs changes outside it (another package, a service, anything that ships separately), ask the user (ask_user) before changing them; if no one can answer, stop and say what's needed instead."],
   [["example"], "Example cells (sorting support tickets):"],
   [["read"], "```ts"],
