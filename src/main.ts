@@ -23,6 +23,7 @@ import { doctor } from "./doctor"
 import { guardPreview } from "./guard-preview"
 import { fakeWarnings, setup } from "./setup"
 import { listModelsHere, model, useModelHere } from "./model"
+import { checkConfigHere, configPathHere, editConfigHere, getConfigHere, setConfigHere, showConfigHere, unsetConfigHere } from "./config"
 import { tui } from "./tui"
 import { agentSocket, attach } from "./attach"
 import { releaseAgent, reportState } from "./integrations/herdr"
@@ -306,6 +307,25 @@ const emptyVessel = Command.make(
         Command.make("list", {}, () => listModelsHere).pipe(Command.withDescription("The System Two providers there are, the one in use marked *, and each one's model")),
         Command.make("use", { target: Argument.String("provider").pipe(Argument.withDescription("A provider, or provider:model (e.g. codex:gpt-6-astra, openrouter:org/some-model)")) }, ({ target }) => useModelHere(target)).pipe(
           Command.withDescription("Make this provider (and model) System Two, without asking")),
+      ]),
+    ),
+    Command.make("config", {}, () => showConfigHere).pipe(
+      Command.withDescription("Read and change ~/.empty-vessel/config.json by dotted key (secrets shown as <redacted>); alone, the same as config show"),
+      Command.withSubcommands([
+        Command.make("show", {}, () => showConfigHere).pipe(Command.withDescription("The config file, every secret shown as <redacted>")),
+        Command.make("get", {
+          key: Argument.String("key").pipe(Argument.withDescription("A dotted key, e.g. systemTwo.use or plugins.openrouter.config.model")),
+          reveal: Flag.Boolean("reveal").pipe(Flag.withDefault(false), Flag.withDescription("Print a secret's value instead of <redacted>")),
+        }, ({ key, reveal }) => getConfigHere(key, reveal)).pipe(Command.withDescription("One setting's value (JSON for an object or a list); exits 1 when it isn't set")),
+        Command.make("set", {
+          key: Argument.String("key").pipe(Argument.withDescription("A dotted key, e.g. systemTwo.use")),
+          value: Argument.String("value").pipe(Argument.withDescription("JSON when it parses (true, 5, [\"a\"]), else text; leave it out to type it unseen (a key)"), Argument.optional),
+          force: Flag.Boolean("force").pipe(Flag.withDefault(false), Flag.withDescription("Don't say when the key isn't a setting this version knows")),
+        }, ({ key, value, force }) => setConfigHere(key, Option.getOrUndefined(value), force)).pipe(Command.withDescription("Set a setting (the objects on the way made); a value that would break loading is refused")),
+        Command.make("unset", { key: Argument.String("key") }, ({ key }) => unsetConfigHere(key)).pipe(Command.withDescription("Remove a setting")),
+        Command.make("path", {}, () => configPathHere).pipe(Command.withDescription("Where the config file is")),
+        Command.make("edit", {}, () => editConfigHere).pipe(Command.withDescription("Open the config file in $VISUAL or $EDITOR (else vi), then check it")),
+        Command.make("check", {}, () => checkConfigHere).pipe(Command.withDescription("Check the config file as a session would load it; exits 1 on a problem")),
       ]),
     ),
     Command.make("guard", {

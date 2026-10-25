@@ -169,6 +169,10 @@ export const readConfigObject = (file: string): Record<string, any> | undefined 
 export const CONFIG_FILE = existsSync(`${EMPTY_VESSEL_HOME}/config.json`) ? `${EMPTY_VESSEL_HOME}/config.json` : `${DEFAULT_HOME}/config.json`
 const file = CONFIG_FILE
 
+// The settings as a session reads them (old places moved first), for Config.layer and `empty-vessel config`'s checks.
+export const decodeConfig = (raw: Record<string, any>, file: string) =>
+  Schema.decodeUnknownEffect(ConfigSchema)(movedIntoPlugins(raw)).pipe(Effect.mapError((e) => new ConfigError({ message: `${file}: ${e.message}` })))
+
 export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()("empty-vessel/Config") {
   static readonly layer = Layer.effect(
     Config,
@@ -194,9 +198,7 @@ export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()(
       if (raw.adoption?.offerJev !== undefined && raw.adoption.offerSystemOne === undefined) raw.adoption = { ...raw.adoption, offerSystemOne: raw.adoption.offerJev }
       if (process.env.EMPTY_VESSEL_CHANNEL) raw.channel = { ...raw.channel, use: process.env.EMPTY_VESSEL_CHANNEL }
       if (process.env.EMPTY_VESSEL_SYSTEM_TWO) raw.systemTwo = { ...raw.systemTwo, use: process.env.EMPTY_VESSEL_SYSTEM_TWO } // e.g. try claude for one run
-      return yield* Schema.decodeUnknownEffect(ConfigSchema)(movedIntoPlugins(raw)).pipe(
-        Effect.mapError((e) => new ConfigError({ message: `${file}: ${e.message}` })),
-      )
+      return yield* decodeConfig(raw, file)
     }),
   )
 }

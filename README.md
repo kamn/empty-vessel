@@ -56,6 +56,13 @@ empty-vessel setup                  # checks what's needed, asks for your Jev AP
 
 To change System Two later, `empty-vessel model` lists the providers (the one in use marked), lets you pick one and its model (an OpenAI-compatible server's own list; Codex's cached one), or adds an OpenAI-compatible endpoint (OpenRouter, a local server) as a copy of the openai plugin (`plugins.<name> = { "from": "openai", "config": { … } }`); its key is asked without echo and never printed. For scripts: `empty-vessel model list` and `empty-vessel model use <provider>[:<model>]`.
 
+Any other setting, by dotted key, with `empty-vessel config` (like `hermes config`); secrets (API keys, tokens) always show as `<redacted>`:
+
+- `config show` (or just `config`): the file, secrets redacted.
+- `config get <key>`: one value, e.g. `systemTwo.use` or `plugins.openrouter.config.model`; `--reveal` prints a secret; exits 1 when it isn't set.
+- `config set <key> [value]`: the value is JSON when it parses (`true`, `5`, `["a"]`), else text; leave it out to type it unseen (keys stay out of shell history). A value the setting can't be, or one that would stop the config loading (a `systemTwo.use` no plugin provides), is refused and the file left as it was. A key this version doesn't know is saved with a notice (`--force` hides it).
+- `config unset <key>`, `config path`, `config edit` (`$VISUAL`/`$EDITOR`, then checked), and `config check` (as a session would load it; exits 1 on a problem).
+
 ## Independent Codex login
 
 ```sh

@@ -183,7 +183,7 @@ export const modelUse = (file: string, target: string, io: SetupIo) =>
   })
 
 // At the terminal: questions by prompt(), the key's with echo off (stty), lines printed.
-const hidden = (question: string) => {
+export const hidden = (question: string) => {
   if (!process.stdin.isTTY) return prompt(question)
   Bun.spawnSync(["stty", "-echo"], { stdin: "inherit" })
   try { return prompt(question) } finally { Bun.spawnSync(["stty", "echo"], { stdin: "inherit" }); process.stdout.write("\n") }
