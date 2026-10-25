@@ -18,6 +18,11 @@ import { noAbsoluteRm } from "./no-absolute-rm"
 import { jevGuard } from "./jev-guard"
 import { loadOutside } from "./outside"
 
+// For `empty-vessel model`: the models an OpenAI-compatible server lists, and the ones Codex last saw on your plan.
+export { listModels } from "./openai/setup"
+export { cachedModels as codexModels } from "./codex/config"
+export { DEFAULT_BASE_URL } from "./openai/config"
+
 // The plugins bundled with empty-vessel, and which of them the config picks. The only file that
 // knows the list: the core uses the contracts (src/base/plugin.ts and the services it names), a plugin never imports
 // another. Plugins from outside (plugins.<name>.path) join them the first time a kind is chosen (src/plugins/outside.ts).

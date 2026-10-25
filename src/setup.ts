@@ -1,14 +1,13 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
 import { Console, Effect } from "effect"
-import { CONFIG_FILE, movedIntoPlugins } from "./base/config"
+import { CONFIG_FILE, movedIntoPlugins, readConfigObject, writeConfigFile } from "./base/config"
 import { EMPTY_VESSEL_HOME } from "./base/home"
 import type { PluginSetup } from "./base/plugin-setup"
 import { copies, outsideIn, SETUPS } from "./plugins/index"
 
 // Setup's own file: this home's config, never the fallback CONFIG_FILE can be (the default home's, when this home has
 // none): setting up a fresh EMPTY_VESSEL_HOME must not read or rewrite the real one.
-const SETUP_FILE = `${EMPTY_VESSEL_HOME}/config.json`
+export const SETUP_FILE = `${EMPTY_VESSEL_HOME}/config.json`
 
 const KINDS = {
   channel: "Channel: where messages are received and replies are sent",
@@ -32,8 +31,8 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
 
     // An older config comes out in today's shape (settings moved into their plugin's section).
     // A file that doesn't parse stops setup: rewriting it from nothing would drop every setting in it (other plugins' keys).
-    const parsed: unknown = existsSync(file) ? (() => { try { return JSON.parse(readFileSync(file, "utf8")) } catch { return undefined } })() : {}
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    const parsed = readConfigObject(file)
+    if (!parsed) {
       yield* io.say(`\n${file} isn't a JSON object empty-vessel can read, so setup stopped without changing it. Fix it (or move it aside) and run setup again.`)
       return
     }
@@ -115,17 +114,8 @@ export const runSetup = (file: string, setups: ReadonlyArray<PluginSetup>, io: S
     const systemOne = { ...current.systemOne, use: chosen.systemOne }
     const systemTwo = chosen.systemTwo === "fake" ? { ...current.systemTwo, use: "fake" } : { reasoning: "medium", ...current.systemTwo, use: chosen.systemTwo }
     const channel = current.channel || chosen.channel !== "terminal" ? { channel: { ...current.channel, use: chosen.channel } } : {}
-    // Private from the first byte (it can hold keys), and whole: a temp file beside it, then renamed over it. A config
-    // that's a symlink (into a dotfiles repo) is written where it points, so the link stays.
-    mkdirSync(dirname(file), { recursive: true })
-    // (A link whose target is gone or not checked out yet too: written where it points, its folder made.)
-    const link = (() => { try { return lstatSync(file).isSymbolicLink() } catch { return false } })()
-    const real = existsSync(file) ? realpathSync(file) : link ? resolve(dirname(file), readlinkSync(file)) : file
-    mkdirSync(dirname(real), { recursive: true })
-    const temp = `${real}.${crypto.randomUUID()}.tmp`
-    writeFileSync(temp, JSON.stringify({ ...current, systemOne, systemTwo, ...channel, ...(Object.keys(sources).length ? { sources } : {}), ...(Object.keys(plugins).length ? { plugins } : {}) }, null, 2) + "\n", { mode: 0o600, flag: "wx" })
-    chmodSync(temp, 0o600) // whatever the umask
-    renameSync(temp, real)
+    // Private and whole; a config that's a symlink is written where it points (src/base/config.ts).
+    writeConfigFile(file, { ...current, systemOne, systemTwo, ...channel, ...(Object.keys(sources).length ? { sources } : {}), ...(Object.keys(plugins).length ? { plugins } : {}) })
 
     yield* io.say(`\nWrote ${file} (only you can read it).`)
     for (const kind of ["systemOne", "systemTwo"] as const) {

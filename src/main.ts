@@ -22,6 +22,7 @@ import { compactCommand } from "./loop/compact"
 import { doctor } from "./doctor"
 import { guardPreview } from "./guard-preview"
 import { fakeWarnings, setup } from "./setup"
+import { listModelsHere, model, useModelHere } from "./model"
 import { tui } from "./tui"
 import { agentSocket, attach } from "./attach"
 import { releaseAgent, reportState } from "./integrations/herdr"
@@ -299,6 +300,14 @@ const emptyVessel = Command.make(
   Command.withDescription("A System One-first coding agent harness"),
   Command.withSubcommands([
     Command.make("setup", {}, () => setup).pipe(Command.withDescription("Check what empty-vessel needs, add your Jev key, and write ~/.empty-vessel/config.json")),
+    Command.make("model", {}, () => model).pipe(
+      Command.withDescription("Choose System Two's provider and model, or add an OpenAI-compatible endpoint (OpenRouter, a local server), and save it in ~/.empty-vessel/config.json"),
+      Command.withSubcommands([
+        Command.make("list", {}, () => listModelsHere).pipe(Command.withDescription("The System Two providers there are, the one in use marked *, and each one's model")),
+        Command.make("use", { target: Argument.String("provider").pipe(Argument.withDescription("A provider, or provider:model (e.g. codex:gpt-6-astra, openrouter:org/some-model)")) }, ({ target }) => useModelHere(target)).pipe(
+          Command.withDescription("Make this provider (and model) System Two, without asking")),
+      ]),
+    ),
     Command.make("guard", {
       command: Flag.String("command").pipe(Flag.withDescription("Shell command to evaluate as data; NEVER executed")),
       policy: Flag.String("policy").pipe(Flag.withDescription("Preview just this policy instead of the configured list"), Flag.optional),

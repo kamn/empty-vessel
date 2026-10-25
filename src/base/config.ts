@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 import { Context, Data, Effect, Layer, Schema } from "effect"
 import { EMPTY_VESSEL_HOME, DEFAULT_HOME } from "./home"
 import { described, section, setting } from "./setting"
@@ -141,14 +141,28 @@ export const movedIntoPlugins = (raw: Record<string, any>) => {
 }
 
 // The file as JSON, for the commands that edit it (sources, plugins): none or unreadable is {}. Written whole (a temp
-// file renamed over it, so nothing reads half a file) and private: it can hold keys.
+// file renamed over it, so nothing reads half a file) and private from the first byte: it can hold keys. A config
+// that's a symlink (into a dotfiles repo) is written where it points, so the link stays; a link whose target is gone
+// or not checked out yet too, its folder made.
 export const readConfigFile = (file: string): Record<string, any> => { try { return JSON.parse(readFileSync(file, "utf8")) } catch { return {} } }
 export const writeConfigFile = (file: string, config: Record<string, unknown>) => {
   mkdirSync(dirname(file), { recursive: true })
-  const temp = `${file}.${crypto.randomUUID()}.tmp`
-  writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-  renameSync(temp, file)
-  chmodSync(file, 0o600)
+  const link = (() => { try { return lstatSync(file).isSymbolicLink() } catch { return false } })()
+  const real = existsSync(file) ? realpathSync(file) : link ? resolve(dirname(file), readlinkSync(file)) : file
+  mkdirSync(dirname(real), { recursive: true })
+
+  const temp = `${real}.${crypto.randomUUID()}.tmp`
+  writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" })
+  chmodSync(temp, 0o600) // whatever the umask
+  renameSync(temp, real)
+}
+
+// For the commands that rewrite it from what's there (setup, model): none is {}; a file that isn't a JSON object is
+// undefined, so they stop instead of dropping every setting in it.
+export const readConfigObject = (file: string): Record<string, any> | undefined => {
+  if (!existsSync(file)) return {}
+  const parsed: unknown = (() => { try { return JSON.parse(readFileSync(file, "utf8")) } catch { return undefined } })()
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, any> : undefined
 }
 
 // A separate EMPTY_VESSEL_HOME without its own config uses the usual one (so the Jev key isn't copied around).

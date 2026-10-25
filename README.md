@@ -54,6 +54,8 @@ empty-vessel setup                  # checks what's needed, asks for your Jev AP
 
 `empty-vessel setup` writes `~/.empty-vessel/config.json` (only you can read it: it holds the key) and keeps any other settings there. Until it's done, empty-vessel runs both systems as fakes and says so when it starts. Every setting and its default: `src/base/config.ts`.
 
+To change System Two later, `empty-vessel model` lists the providers (the one in use marked), lets you pick one and its model (an OpenAI-compatible server's own list; Codex's cached one), or adds an OpenAI-compatible endpoint (OpenRouter, a local server) as a copy of the openai plugin (`plugins.<name> = { "from": "openai", "config": { … } }`); its key is asked without echo and never printed. For scripts: `empty-vessel model list` and `empty-vessel model use <provider>[:<model>]`.
+
 ## Independent Codex login
 
 ```sh
