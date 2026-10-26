@@ -2,7 +2,8 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer, Redacted, Semaphore } from "effect"
 import { Channel, PluginError } from "empty-vessel"
-import { telegramApi, splitText, type Http } from "./http"
+import { telegramApi, splitText, TelegramError, type Http } from "./http"
+import { telegramHtml } from "./format"
 import { hash, lockBot, openState } from "./state"
 import { telegramMedia } from "./media"
 
@@ -58,7 +59,14 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     for (const chunk of splitText(text)) {
       const wait = (dependencies.sendIntervalMs ?? 1100) - (Date.now() - lastSend)
       if (wait > 0) yield* Effect.sleep(wait)
-      const sent = yield* api.call<{ message_id?: number }>("sendMessage", { chat_id: options.allowedChatId, text: chunk }).pipe(
+      // Formatted when it fits; Telegram refusing the HTML (400) gets the same chunk as plain text.
+      const plain = { chat_id: options.allowedChatId, text: chunk }
+      const html = telegramHtml(chunk)
+      const sent = yield* (html && html.length <= 4096
+        ? api.call<{ message_id?: number }>("sendMessage", { ...plain, text: html, parse_mode: "HTML" }).pipe(
+          Effect.catchIf(error => error instanceof TelegramError && error.status === 400, () => api.call<{ message_id?: number }>("sendMessage", plain)),
+        )
+        : api.call<{ message_id?: number }>("sendMessage", plain)).pipe(
         Effect.ensuring(Effect.sync(() => { lastSend = Date.now() })),
       )
       id = sent?.message_id
@@ -112,6 +120,9 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     lastSummary = summary
   }))
 
+  // Outside the send pacing: a chat action is no message, and holding it behind a send would make it late.
+  const typing = () => api.call("sendChatAction", { chat_id: options.allowedChatId, action: "typing" }).pipe(Effect.asVoid)
+
   // A voice note is handled as its text; one that can't be heard is answered, and nothing is submitted.
   const hear = (message: NonNullable<Update["message"]>) => Effect.gen(function* () {
     if (!dependencies.transcribe) return yield* Effect.fail(new Error("voice is not set up here"))
@@ -164,7 +175,7 @@ export const makeTelegramChannel = (options: TelegramOptions, dependencies: Tele
     hideUsageSummaries: true,
     loadSession: Effect.sync(() => state.get().session),
     saveSession: (session) => state.save({ session }),
-    send, sendFile: upload("document"), sendVoice: upload("voice"), progress, listen,
+    send, sendFile: upload("document"), sendVoice: upload("voice"), progress, typing, listen,
   })
 })
 

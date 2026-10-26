@@ -188,7 +188,7 @@ test("webhook rejected without deletion; failed startup releases lock", () => Ef
   expect(readdirSync(join(deps.home, "telegram", "locks"))).toEqual([])
 })))
 
-test("chunks preserve emoji at UTF16 boundaries and sending uses plain authorized chat", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+test("chunks preserve emoji at UTF16 boundaries and sending uses the authorized chat, formatted", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
   const text = "a".repeat(4095) + "😀" + "b".repeat(4094) + "🦊"
   const chunks = splitText(text)
   expect(chunks.join("")).toBe(text)
@@ -200,7 +200,7 @@ test("chunks preserve emoji at UTF16 boundaries and sending uses plain authorize
     sent.push(body); return ok({})
   }) })
   yield* channel.send(text)
-  expect(sent).toEqual(chunks.map((text) => ({ chat_id: "42", text })))
+  expect(sent).toEqual(chunks.map((text) => ({ chat_id: "42", text, parse_mode: "HTML" }))) // nothing to escape here
 }))))
 
 test("429 retries are bounded and honor retry_after", () => Effect.runPromise(Effect.gen(function* () {

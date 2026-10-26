@@ -18,6 +18,8 @@ export class Channel extends Context.Service<Channel, {
   // The first update after a permanent reply starts a new progress message.
   // Hosts fall back to send when a transport does not support updates.
   readonly progress?: (summary: string) => Effect.Effect<void, Error>
+  // Optional "typing…" indicator; it fades on its own (Telegram: after ~5 s), so hosts repeat it while a run works.
+  readonly typing?: () => Effect.Effect<void, Error>
   // A message counts as received only once onMessage's Effect completes: one whose handling never finished (a crash) is
   // delivered again, with the same requestId (Telegram: tg:<chat_id>:<message_id>), so the receiver can skip a repeat.
   // voice: the text is a transcribed voice note.

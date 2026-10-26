@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.13
+# empty-vessel core 0.0.14
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -75,6 +75,7 @@ declare const Channel_base: Context.ServiceClass<Channel, "empty-vessel/Channel"
     readonly sendFile?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
     readonly sendVoice?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
     readonly progress?: (summary: string) => Effect.Effect<void, Error>;
+    readonly typing?: () => Effect.Effect<void, Error>;
     readonly listen: (onMessage: (message: {
         text: string;
         requestId?: string;
