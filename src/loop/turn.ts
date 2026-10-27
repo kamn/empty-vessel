@@ -149,6 +149,9 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       spawn: (child, options) => spawn(session, child, depth + 1, options, conversation.instructions),
     }
 
+    const tool = depth === 0 ? input.match(TOOL_COMMAND)?.[1] : undefined
+    if (tool !== undefined) return yield* toolTurn(ctx, tool)
+
     yield* compactIfNeeded(ctx)
 
     // System One's options: its own, plus the library tools on this turn's shortlist and those System Two handed it this
@@ -225,6 +228,30 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
 
     yield* session.record("assistant", reply)
     yield* endTurn(ctx, state, reply)
+    return reply
+  })
+
+// "/tool <name>": one System One tool from this project's library (or its pool), run as it is, and its value is the
+// reply: no choice by System One, no System Two, no learning after. A job's script, as a scheduled job that needs no
+// model (`/cron add … /tool <name>` in the agent); its result says why when it fails.
+const TOOL_COMMAND = /^\/tool\s+([a-z][A-Za-z0-9]*)\s*$/
+const toolTurn = (ctx: Ctx, name: string) =>
+  Effect.gen(function* () {
+    const dir = libraryDir(process.cwd())
+    const usable = usableWith(ctx.config.kernel.tools)
+    const known = [...systemOneTools(loadLibrary(dir)), ...loadPool(dir).filter((e) => e.for === "systemOne")].filter(usable)
+    const state = newTurnState()
+    state.turn = ctx.conversation.history.length + 1
+
+    const result: StepResult = known.some((e) => e.name === name)
+      ? yield* libraryStep(name, dir)(ctx, state)
+      : { reply: `no System One tool named ${name} here (${known.map((e) => e.name).join(", ") || "none"})`, outcome: "failed" }
+    yield* recordStep(ctx, state, name, result)
+    const reply = result.outcome === "ok" ? result.reply : `/tool ${name} failed: ${result.reply}`
+
+    yield* ctx.session.record("assistant", reply)
+    ctx.conversation.actions.push(`/tool ${name}`)
+    yield* ctx.session.record("actions", `/tool ${name}`).pipe(Effect.ignore)
     return reply
   })
 
