@@ -77,6 +77,14 @@ export const readWithin = <E>(stream: Stream.Stream<Uint8Array, E>, idle: Durati
 // `store: false` means the server keeps nothing, so callers resend the whole conversation each time.
 // `sessionId` goes in the `session-id` header: ChatGPT picks the server (and so the prompt cache) from it, not from
 // the body's prompt_cache_key. Without it, cached_tokens was 0 on every request.
+// The reply has to start within `idle` too: a request the server accepted but never answered (no headers) waited out
+// the whole 15-minute limit, as no stream existed yet for readWithin to watch (a LinkedIn job sat 13 minutes on round
+// 30, 2026-10-28). Failing the same way, it is tried again the same way.
+export const startWithin = <A, E, R>(request: Effect.Effect<A, E, R>, idle: Duration.Input) => {
+  const stalled = new CodexStallError({ message: `System Two's request got no reply for ${Duration.format(Duration.fromInputUnsafe(idle))}` })
+  return request.pipe(Effect.timeoutOrElse({ duration: idle, orElse: () => emit("error", 0, `${stalled.message}: retrying`).pipe(Effect.andThen(Effect.fail(stalled))) }))
+}
+
 // A stream that sends nothing for this long is stuck (a live one sends events every few seconds, even while the model
 // thinks): give up on it and try again, instead of waiting out the whole request (one run sat 8 minutes on a silent
 // request, 2026-09-28). The overall limit stays as a safety net for replies that keep streaming.
@@ -107,6 +115,7 @@ export const postCodex = (client: HttpClient.HttpClient, body: Record<string, un
       HttpClientRequest.bodyJsonUnsafe({ ...body, store: false, stream: true }),
       client.execute,
       Effect.catch(refused),
+      (request) => startWithin(request, idle),
     )
 
     if (response.status === 401 || response.status === 403) { // a client that doesn't fail on status (refused covers one that does)

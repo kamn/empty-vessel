@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { Effect, Stream } from "effect"
 import { Events } from "../../src/base/events"
 import { isTemporary } from "../../src/base/retry"
-import { readWithin, withoutCitationMarks } from "../../src/plugins/codex/codex"
+import { readWithin, startWithin, withoutCitationMarks } from "../../src/plugins/codex/codex"
 
 const bytes = (s: string) => new TextEncoder().encode(s)
 const logged: Array<string> = []
@@ -20,6 +20,14 @@ test("a reply that goes silent fails as a stall (worth a retry), and the log say
   expect(isTemporary(error)).toBe(true)
   expect(logged.at(-1)).toContain("sent nothing for")
   expect(logged.at(-1)).toContain("retrying")
+})
+
+test("a request whose reply never starts fails as a stall too (worth a retry); one that starts in time goes on", async () => {
+  const error = await Effect.runPromise(quiet(startWithin(Effect.never, "150 millis")).pipe(Effect.flip))
+  expect(error._tag).toBe("CodexStallError")
+  expect(isTemporary(error)).toBe(true)
+  expect(logged.at(-1)).toContain("got no reply for")
+  expect(await Effect.runPromise(quiet(startWithin(Effect.sleep("50 millis").pipe(Effect.as("headers")), "150 millis")))).toBe("headers")
 })
 
 test("Codex's citation marks after a web search are removed; its readable sources stay", () => {
