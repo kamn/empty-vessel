@@ -138,7 +138,7 @@ test("turn scopes auxiliary compaction, resets a mirrorless child's turn, and re
           expect(childReply).toContain("child hello")
           expect(yield* CurrentSession).toBe(parent)
           yield* parent.record("memory", "parent restored")
-          yield* options.score(["old output"])
+          yield* options.summarize([{ intent: "Read cart", glimpse: "old output" }])
           return yield* fake.compact(thread, options)
         }).pipe(Effect.provideContext(services), Effect.orDie),
       }

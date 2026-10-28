@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import type { CompactOptions } from "../../src/system-two/systemtwo"
+import { FakeFill, Fill } from "../../src/system-two/fill"
 import { discoverSkills } from "../../src/base/skills"
 import { compactCommand, compactIfNeeded } from "../../src/loop/compact"
 import { loadConversation, switchConversation } from "../../src/loop/resume"
@@ -116,6 +118,55 @@ test("actual compaction marks loaded instructions for replay even if all outputs
   expect(skillNotes(c, true, project)).toEqual([])
 })
 
+// A compaction ctx whose System Two compact asks `summarize` about `cells` and records what came back.
+const summarizing = (c: ReturnType<typeof fixture>["c"], cells: number) => {
+  const got: Array<ReadonlyArray<string | undefined>> = [], records: string[] = [], usage: string[] = []
+  const ctx = {
+    conversation: c,
+    config: { compactAt: 100 },
+    systemOne: { judge: () => Effect.die("System One isn't asked during compaction") },
+    systemTwo: { compact: (_: unknown[], { summarize }: CompactOptions) => Effect.gen(function* () {
+      got.push(yield* summarize(Array.from({ length: cells }, (_, i) => ({ intent: `Cell ${i}`, glimpse: `out ${i}` }))))
+      return { compressed: cells, stubbed: 0, reasoning: 0, summarized: 0, after: 40, tokens: { input: 0, output: 0 } }
+    }) },
+    usage: { add: (who: string) => Effect.sync(() => { usage.push(who) }) },
+    session: { record: (role: string) => Effect.sync(() => { records.push(role) }) },
+    depth: 0,
+  } as unknown as Ctx
+  return { ctx, got, records, usage }
+}
+const echoFill = (calls: Array<number>) => Layer.succeed(Fill, {
+  fill: (_name, schema, _goal) => Effect.sync(() => {
+    const keys = Object.keys((schema as any).fields)
+    calls.push(keys.length)
+    return { args: Object.fromEntries(keys.map((k) => [k, `result ${k}`])) as any, tokens: { input: 10, output: 5 } }
+  }),
+})
+
+test("compaction gets each cell's result from the fill model, 40 cells per call, metered as fill; System One isn't asked", async () => {
+  const { c } = fixture()
+  c.size = 200
+  const calls: number[] = []
+  const { ctx, got, records, usage } = summarizing(c, 90)
+
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(echoFill(calls))))
+  expect(calls).toEqual([40, 40, 10])
+  expect(got[0]).toHaveLength(90)
+  expect(got[0]![0]).toBe("result c0")
+  expect(got[0]![41]).toBe("result c1") // the second chunk's second cell
+  expect(usage.filter((u) => u === "fill")).toHaveLength(3)
+  expect(records).toContain("compact")
+})
+
+test("no fill model (or it fails): compaction still runs, the cells just get no result summary", async () => {
+  const { c } = fixture()
+  c.size = 200
+  const { ctx, got, records } = summarizing(c, 3)
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
+  expect(got[0]).toEqual([undefined, undefined, undefined])
+  expect(records).toContain("compact")
+})
+
 test("/compact: the next turn compacts even below compactAt, aiming for half the size; then it's back to the threshold", async () => {
   const { c } = fixture()
   expect(await Effect.runPromise(compactCommand(c))).toStartWith("Nothing to compact yet")
@@ -126,7 +177,7 @@ test("/compact: the next turn compacts even below compactAt, aiming for half the
     config: { compactAt: 100 },
     systemTwo: { compact: (_: unknown[], { target }: { target: number }) => {
       targets.push(target)
-      return Effect.succeed({ masked: 0, savedTokens: 0, summarized: 1, after: 25, tokens: { input: 0, output: 0 } })
+      return Effect.succeed({ compressed: 0, stubbed: 0, reasoning: 0, summarized: 1, after: 25, tokens: { input: 0, output: 0 } })
     } },
     usage: { add: () => Effect.void },
     session: { record: () => Effect.void },

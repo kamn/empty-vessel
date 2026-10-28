@@ -238,7 +238,7 @@ export const makeClaudeSystemTwo = (model?: string, maxRounds = 30, reasoning?: 
       return yield* ask(prompt, hooks, relay, model, maxRounds, reasoning, limit, { say, saw, idle }, webSearch)
     })),
   // Claude Code compacts its own conversation.
-  compact: (_thread, { size }) => Effect.succeed({ masked: 0, savedTokens: 0, summarized: 0, after: size, tokens: { input: 0, output: 0 } }),
+  compact: (_thread, { size }) => Effect.succeed({ compressed: 0, stubbed: 0, reasoning: 0, summarized: 0, after: size, tokens: { input: 0, output: 0 } }),
 })
 
 // Fill (judge's re-check, filling in arguments) as a small Claude with no tools: its reply forced into the schema.

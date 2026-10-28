@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.14
+# empty-vessel core 0.0.15
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -96,7 +96,10 @@ export declare const combineActionGuards: (guards: ReadonlyArray<ActionGuardProv
 
 ## CompactOptions (src/system-two/systemtwo)
 export type CompactOptions = {
-    readonly score: (labels: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<number>>;
+    readonly summarize: (cells: ReadonlyArray<{
+        readonly intent: string;
+        readonly glimpse: string;
+    }>) => Effect.Effect<ReadonlyArray<string | undefined>>;
     readonly stash: Map<string, string>;
     readonly size: number;
     readonly target: number;
@@ -595,7 +598,7 @@ export declare const SYSTEM_TWO_TOOLS: readonly [{
     readonly parameters: Record<string, unknown>;
 }, {
     readonly name: "more_output";
-    readonly description: "Show the full output of an earlier command whose output System One shortened (it says so, with an id)";
+    readonly description: "Show the full text behind an id: an earlier command's output that was shortened, or an old cell compacted to one line ([cell outN · …]: its code and full output), or a compacted file";
     readonly parameters: Record<string, unknown>;
 }, {
     readonly name: "ask_user";
@@ -678,7 +681,7 @@ export declare const systemTwoTools: (g?: Grants) => readonly [{
     readonly parameters: Record<string, unknown>;
 }, {
     readonly name: "more_output";
-    readonly description: "Show the full output of an earlier command whose output System One shortened (it says so, with an id)";
+    readonly description: "Show the full text behind an id: an earlier command's output that was shortened, or an old cell compacted to one line ([cell outN · …]: its code and full output), or a compacted file";
     readonly parameters: Record<string, unknown>;
 }, {
     readonly name: "ask_user";

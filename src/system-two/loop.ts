@@ -7,7 +7,7 @@ import type { Tokens } from "../base/usage"
 import { callTool, fromUser, jobsReminder, newCallState, systemTwoTools } from "./dispatch"
 import { KERNEL_INSTRUCTIONS, kernelInstructions } from "./instructions"
 import { type CompactOptions, type Hooks, SystemTwo } from "./systemtwo"
-import { lastTurnStart, maskOutput, oldOutputs, SUMMARY_REQUEST } from "./thread"
+import { compressCell, dropOldReasoning, lastTurnStart, oldCells, oldFiles, reopenIndex, stubFile, SUMMARY_REQUEST } from "./thread"
 
 // System Two from a model: the core runs the request loop,
 // like Pi's (ask, run the tool calls the model wants, send the results back, repeat until it answers), and a model plugin
@@ -128,31 +128,33 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
       }
     })
 
-  // Compaction, Pi-style funnel: first hide old tool outputs System One says aren't needed any more (cheap, nothing lost:
-  // more_output brings them back), and only if that's not enough, replace everything before the last turn with a
-  // structured summary written by the model. The last turn is always kept as it is.
-  const compact = (thread: Array<unknown>, { score, stash, size, target }: CompactOptions) =>
+  // Compaction in two tiers; the last turn is always kept as it is. Tier 1: every big kernel cell before it becomes one
+  // line (its intent and a result summary, the full text in the stash for more_output), gathered files become stubs, and
+  // old reasoning goes. Only if that's not under the target, tier 2 replaces everything before the last turn with a
+  // structured summary written by the model, ending with the ids that can still be reopened.
+  const compact = (thread: Array<unknown>, { summarize, stash, size, target }: CompactOptions) =>
     Effect.gen(function* () {
+      const cells = oldCells(thread, lastTurnStart(thread))
+      const results = cells.length ? yield* summarize(cells) : []
+
+      let saved = 0
+      cells.forEach((cell, i) => { saved += compressCell(thread, cell, results[i], stash) })
+      const files = oldFiles(thread, lastTurnStart(thread))
+      for (const file of files) saved += stubFile(thread, file, stash)
+      // ponytail: old reasoning isn't counted as saved; the input sizes Codex reports suggest it doesn't count them either
+      const reasoning = dropOldReasoning(thread, lastTurnStart(thread))
       const keepFrom = lastTurnStart(thread)
-      const found = oldOutputs(thread, keepFrom).sort((a, b) => b.chars - a.chars).slice(0, 60) // the biggest, one System One call
-      const scores = found.length ? yield* score(found.map((f) => f.label)) : []
+      const tier1 = { compressed: cells.length, stubbed: files.length, reasoning, summarized: 0, after: size - Math.round(saved / 4), tokens: { input: 0, output: 0 } }
+      if (tier1.after <= target || keepFrom === 0) return tier1
 
-      let saved = 0, masked = 0
-      found.forEach((f, i) => {
-        if ((scores[i] ?? 1) >= 0.3) return // conservative: hide only what System One is fairly sure isn't needed
-        saved += maskOutput(thread, f, stash)
-        masked++
-      })
-      const savedTokens = Math.round(saved / 4) // ~4 characters per token; the next request reports the exact size
-      if (size - savedTokens <= target || keepFrom === 0) return { masked, savedTokens, summarized: 0, after: size - savedTokens, tokens: { input: 0, output: 0 } }
-
-      // If the summary request fails, keep what hiding outputs achieved: compaction must never break a turn.
+      // If the summary request fails, keep what tier 1 achieved: compaction must never break a turn.
       const asked = yield* Effect.option(model.complete({ instructions: KERNEL_INSTRUCTIONS, thread: [...thread.slice(0, keepFrom), userItem(SUMMARY_REQUEST)], tools: [], cacheKey: defaultKey }))
-      if (Option.isNone(asked)) return { masked, savedTokens, summarized: 0, after: size - savedTokens, tokens: { input: 0, output: 0 } }
+      if (Option.isNone(asked)) return tier1
       const reply = asked.value
-      thread.splice(0, keepFrom, userItem(`Summary of the conversation so far (older messages were compacted):\n\n${reply.text}`))
+      const reopen = reopenIndex(thread.slice(0, keepFrom))
+      thread.splice(0, keepFrom, userItem(`Summary of the conversation so far (older messages were compacted):\n\n${reply.text}${reopen}`))
       const after = Math.round(JSON.stringify(thread).length / 4)
-      return { masked, savedTokens, summarized: keepFrom, after, tokens: { input: reply.usage.input, output: reply.usage.output, cached: reply.usage.cached } }
+      return { ...tier1, summarized: keepFrom, after, tokens: { input: reply.usage.input, output: reply.usage.output, cached: reply.usage.cached } }
     })
 
   return Layer.succeed(SystemTwo, SystemTwo.of({

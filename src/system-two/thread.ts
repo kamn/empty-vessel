@@ -1,6 +1,8 @@
 // System Two's thread is a list of Codex items: messages ({ role, content }), and { type: "function_call" |
 // "function_call_output" | "reasoning" | "message", … }. These plain functions read and shorten it for compaction.
 
+import { codeTitle } from "./dispatch"
+
 type Item = { readonly type?: string; readonly role?: string; readonly call_id?: string; readonly name?: string; readonly arguments?: string; output?: unknown; content?: Array<{ type: string; text?: string }> }
 
 // Where the last turn starts: the last message from the user. Everything from there on is kept as it is.
@@ -9,59 +11,109 @@ export const lastTurnStart = (thread: ReadonlyArray<unknown>) => {
   return 0
 }
 
-const STUB = "[hidden by System One"
+const STUB = "[compacted"
+const CELL = "[cell "
 
 // Files gather put in a user message: <file path="…">…</file>.
 const FILE_BLOCK = /<file path="([^"]+)">\n([\s\S]*?)\n<\/file>/g
-const describeText = (text: string) => `${text.split("\n").length} lines, starting:\n${text.split("\n").slice(0, 3).join("\n")}`
 
-// Old content worth hiding, from before the last turn: long tool outputs, and files gather put in user messages
-// (empty-vessel's biggest content). Not already a stub. The label is what System One reads: what it is, how long, how it starts.
-// `file`: which file block in a user message (by path); absent for a tool output.
-export type Old = { readonly index: number; readonly label: string; readonly chars: number; readonly file?: string }
-export const oldOutputs = (thread: ReadonlyArray<unknown>, before: number, minChars = 500) => {
-  const calls = new Map((thread as ReadonlyArray<Item>).filter((t) => t.type === "function_call").map((t) => [t.call_id, t]))
-  const found: Array<Old> = []
+// Files gather put in user messages before the last turn (empty-vessel's biggest content), long and not already a stub.
+export type OldFile = { readonly index: number; readonly file: string }
+export const oldFiles = (thread: ReadonlyArray<unknown>, before: number, minChars = 500) =>
+  thread.slice(0, before).flatMap((raw, index) =>
+    [...((raw as Item).role === "user" ? ((raw as Item).content?.[0]?.text ?? "") : "").matchAll(FILE_BLOCK)]
+      .filter(([, , text]) => text!.length >= minChars && !text!.startsWith(STUB))
+      .map(([, path]): OldFile => ({ index, file: path! })))
 
-  thread.slice(0, before).forEach((raw, index) => {
+// Swap one gathered file for a one-line stub; the full text goes in `stash` so more_output can bring it back.
+// Returns how many characters that took out of the thread.
+export const stubFile = (thread: Array<unknown>, old: OldFile, stash: Map<string, string>) => {
+  const item = thread[old.index] as Item
+  const id = `out${stash.size + 1}`
+  let saved = 0
+
+  const text = (item.content?.[0]?.text ?? "").replace(FILE_BLOCK, (block, path: string, full: string) => {
+    if (path !== old.file || full.startsWith(STUB)) return block
+    const stub = `${STUB}: ${full.split("\n").length} lines. If you need it: more_output { id: "${id}" }]`
+    stash.set(id, full)
+    saved = full.length - stub.length
+    return `<file path="${path}">\n${stub}\n</file>`
+  })
+  thread[old.index] = { ...item, content: [{ ...item.content![0]!, text }, ...item.content!.slice(1)] }
+  return saved
+}
+
+// A kernel cell before the last turn, big enough to compress: its call and output (by index), what it was for (its
+// summary, else its code's first line), and a glimpse of the output (first and last lines) for the result summary.
+export type OldCell = { readonly call: number; readonly output: number; readonly intent: string; readonly glimpse: string }
+export const oldCells = (thread: ReadonlyArray<unknown>, before: number, minChars = 500) => {
+  const outputs = new Map(thread.slice(0, before).flatMap((raw, i) => (raw as Item).type === "function_call_output" ? [[(raw as Item).call_id, i] as const] : []))
+  const found: Array<OldCell> = []
+
+  thread.slice(0, before).forEach((raw, call) => {
     const item = raw as Item
-    if (item.role === "user")
-      for (const [, path, text] of (item.content?.[0]?.text ?? "").matchAll(FILE_BLOCK))
-        if (text!.length >= minChars && !text!.startsWith(STUB)) found.push({ index, file: path!, label: `file ${path} (gathered) → ${describeText(text!)}`, chars: text!.length })
-    if (item.type !== "function_call_output" || typeof item.output !== "string") return
-    if (item.output.length < minChars || item.output.startsWith(STUB)) return
-    const call = calls.get(item.call_id)
-    const lines = item.output.split("\n")
-    const label = `${call?.name ?? "tool"} ${(call?.arguments ?? "").slice(0, 200)} → ${lines.length} lines, starting:\n${lines.slice(0, 3).join("\n")}`
-    found.push({ index, label, chars: item.output.length })
+    const output = outputs.get(item.call_id)
+    if (item.type !== "function_call" || item.name !== "kernel" || output === undefined) return
+    const args = parse(item.arguments)
+    const out = String((thread[output] as Item).output ?? "")
+    if (typeof args.code !== "string" || out.startsWith(CELL) || args.code.length + out.length < minChars) return
+    found.push({ call, output, intent: intentOf(args), glimpse: glimpseOf(out) })
   })
 
   return found
 }
 
-// Swap a tool output (or one gathered file) for a one-line stub; the full text goes in `stash` so more_output can
-// bring it back. Returns how many characters that took out of the thread.
-export const maskOutput = (thread: Array<unknown>, old: Old, stash: Map<string, string>) => {
-  const item = thread[old.index] as Item
-  const stub = (full: string, id: string) => `${STUB} (no longer needed): ${full.split("\n").length} lines. If you need it: more_output { id: "${id}" }]`
+// Rewrite one cell to a line: its call keeps call_id and summary (its code points at the stash), its output becomes
+// "[cell outN · intent · lines · result: …]". `result`: the fill model's summary, else the output's first line.
+// Source and output go in `stash` under the id. Returns how many characters that took out of the thread.
+export const compressCell = (thread: Array<unknown>, cell: OldCell, result: string | undefined, stash: Map<string, string>) => {
+  const call = thread[cell.call] as Item, output = thread[cell.output] as Item
+  const code = String(parse(call.arguments).code), out = String(output.output ?? "")
   const id = `out${stash.size + 1}`
 
-  if (old.file === undefined) {
-    const full = String(item.output)
-    stash.set(id, full)
-    thread[old.index] = { ...item, output: stub(full, id) }
-    return full.length - stub(full, id).length
-  }
+  const args = JSON.stringify({ summary: cell.intent, code: `[compacted: more_output { id: "${id}" }]` })
+  const said = (result ?? out.split("\n").find((l) => l.trim()) ?? "(no output)").replace(/\s+/g, " ").trim().slice(0, 200)
+  const line = `${CELL}${id} · ${cell.intent} · ${out.split("\n").length} lines · result: ${said}]`
+  stash.set(id, `${code}\n── result ──\n${out}`)
+  thread[cell.call] = { ...call, arguments: args }
+  thread[cell.output] = { ...output, output: line }
 
-  let saved = 0
-  const text = (item.content?.[0]?.text ?? "").replace(FILE_BLOCK, (block, path: string, full: string) => {
-    if (path !== old.file || full.startsWith(STUB)) return block
-    stash.set(id, full)
-    saved = full.length - stub(full, id).length
-    return `<file path="${path}">\n${stub(full, id)}\n</file>`
-  })
-  thread[old.index] = { ...item, content: [{ ...item.content![0]!, text }, ...item.content!.slice(1)] }
-  return saved
+  return String(call.arguments ?? "").length + out.length - args.length - line.length
+}
+
+// Reasoning items (Codex's encrypted thinking) before the last turn: it only needs the ones in the current chain of
+// tool calls. Removes them in place; returns how many.
+export const dropOldReasoning = (thread: Array<unknown>, before: number) => {
+  const kept = thread.slice(0, before).filter((t) => (t as Item).type !== "reasoning")
+  const dropped = before - kept.length
+  thread.splice(0, before, ...kept)
+  return dropped
+}
+
+// What a summary leaves reopenable: compressed cells, stubbed files and an earlier summary's own list, in `items`.
+// "- outN: what it is" lines, newest first, at most `max` (older ids stay in the stash and the session's records).
+export const reopenIndex = (items: ReadonlyArray<unknown>, max = 100) => {
+  const text = JSON.stringify(items).replaceAll("\\n", "\n").replaceAll('\\"', '"')
+  const found = new Map<number, string>()
+
+  for (const [, n, what] of text.matchAll(/\[cell out(\d+) · ([^·\]]+?) ·/g)) found.set(Number(n), what!)
+  for (const [, path, n] of text.matchAll(/<file path="([^"]+)">\n\[compacted: [^\]]*?id: "out(\d+)"/g)) found.set(Number(n!), `file ${path}`)
+  for (const [, n, what] of text.matchAll(/^- out(\d+): (.+)$/gm)) found.set(Number(n), what!)
+
+  const lines = [...found].sort(([a], [b]) => b - a).slice(0, max).map(([n, what]) => `- out${n}: ${what}`)
+  return lines.length ? `\n\nStill reopenable with more_output (newest first):\n${lines.join("\n")}` : ""
+}
+
+const parse = (args: string | undefined): { code?: unknown; summary?: unknown } => {
+  try { return JSON.parse(args ?? "{}") ?? {} } catch { return {} }
+}
+const intentOf = (args: { code?: unknown; summary?: unknown }) =>
+  (typeof args.summary === "string" && args.summary.trim() ? args.summary.replace(/\s+/g, " ").trim() : codeTitle(String(args.code))).slice(0, 100)
+// First and last 4 lines, at most 600 characters: where a command's start and its verdict are.
+const glimpseOf = (out: string) => {
+  const lines = out.split("\n")
+  const shown = lines.length <= 8 ? lines : [...lines.slice(0, 4), `[… ${lines.length - 8} lines …]`, ...lines.slice(-4)]
+  return shown.join("\n").slice(0, 600)
 }
 
 // Pi's compaction summary: what the model needs to carry on, in a fixed shape.

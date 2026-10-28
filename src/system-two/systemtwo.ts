@@ -18,11 +18,11 @@ export const ASK_USER_DESCRIPTION =
 export const WaitForUserArgs = Schema.Struct({
   message: Schema.String.annotate({ description: "The question or checkpoint to show the user before pausing" }),
 })
-// Output System One shortened (pruning, compaction) comes back by the id it gave.
+// Output that was shortened (pruning) or compacted (old cells, gathered files) comes back by its id.
 export const MoreOutputArgs = Schema.Struct({
-  id: Schema.String.annotate({ description: "The id System One gave, e.g. out1" }),
+  id: Schema.String.annotate({ description: "The id it was shown with, e.g. out1" }),
 })
-export const MORE_OUTPUT_DESCRIPTION = "Show the full output of an earlier command whose output System One shortened (it says so, with an id)"
+export const MORE_OUTPUT_DESCRIPTION = "Show the full text behind an id: an earlier command's output that was shortened, or an old cell compacted to one line ([cell outN · …]: its code and full output), or a compacted file"
 export const WAIT_FOR_USER_DESCRIPTION =
   "Pause and return control to the user when you need their answer before continuing, including required quiz checkpoints. " +
   "Send the full user-facing message. This ends the current turn, not the task; it does not claim completion."
@@ -69,7 +69,7 @@ export const YIELD_DESCRIPTION =
 // Optional for old callers; new LLM calls should supply a concise intent for every cell.
 export const CellSummary = Schema.String
 export const KernelArgs = Schema.Struct({
-  summary: Schema.optionalKey(CellSummary.annotate({ description: "Summarize this cell’s intent concisely. Aim for 1–6 words, e.g. Read TUI renderer or Check notebook click targets. Supply for every code and text cell. Used as its display title and saved for future context/compaction; do not claim a result before execution." })),
+  summary: Schema.optionalKey(CellSummary.annotate({ description: "Summarize this cell’s intent concisely. Aim for 1–6 words, e.g. Read TUI renderer or Check notebook click targets. Supply for every code and text cell. Used as its display title, and it is what you see of this cell once it is compacted; do not claim a result before execution." })),
   code: Schema.optionalKey(Schema.String.annotate({ description: "A code cell: a TypeScript module. Import what you need from \"kernel\". Its top level only defines things (no work, no await); named exports are definitions kept for later cells; the default export is the action, run once (an Effect, a function or a value), and its value comes back as $N" })),
   name: Schema.optionalKey(Schema.String.annotate({ description: "A text cell's name (letters, digits, _), e.g. reportPy: later code cells import it from \"kernel\" as a string" })),
   text: Schema.optionalKey(Schema.String.annotate({ description: "A text cell: any text kept exactly as given (Python, Markdown, a prompt, a rubric, a template), never escaped into TypeScript. Give name too" })),
@@ -146,15 +146,16 @@ export type Hooks = {
   readonly grants?: Grants
 }
 
-// How to compact: System One's scores for old tool outputs ("still needed?", 0–1), where hidden outputs go, the thread's
-// size now, and the size to get under (a summary is written only if hiding outputs isn't enough).
+// How to compact: a result summary for each old cell (by its intent and a glimpse of its output; none: the output's
+// first line), where compacted text goes, the thread's size now, and the size to get under (a summary is written only
+// if compressing cells isn't enough).
 export type CompactOptions = {
-  readonly score: (labels: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<number>>
+  readonly summarize: (cells: ReadonlyArray<{ readonly intent: string; readonly glimpse: string }>) => Effect.Effect<ReadonlyArray<string | undefined>>
   readonly stash: Map<string, string>
   readonly size: number
   readonly target: number
 }
-type Compacted = { readonly masked: number; readonly savedTokens: number; readonly summarized: number; readonly after: number; readonly tokens: Tokens }
+type Compacted = { readonly compressed: number; readonly stubbed: number; readonly reasoning: number; readonly summarized: number; readonly after: number; readonly tokens: Tokens }
 export type Handoff = { readonly answer: string; readonly done: boolean } | { readonly output: string }
 
 // System Two: slow, expensive reasoning (the LLM). Only called when System One escalates.
@@ -165,7 +166,7 @@ export class SystemTwo extends Context.Service<
     readonly sessionMirror?: SessionMirrorFn
     // `size`: the input tokens of its last request, i.e. how big the thread is now.
     readonly ask: (prompt: string, hooks?: Hooks) => Effect.Effect<{ text: string; tokens: Tokens; done?: boolean; waitingForUser?: boolean; size?: number }>
-    // Shrink the thread in place: hide old tool outputs System One says aren't needed, then (if still too big) summarize.
+    // Shrink the thread in place: compress old cells to one line each, then (if still too big) summarize.
     readonly compact: (thread: Array<unknown>, options: CompactOptions) => Effect.Effect<Compacted>
   }
 >()("empty-vessel/SystemTwo") {}
@@ -173,5 +174,5 @@ export class SystemTwo extends Context.Service<
 // Fake System Two: pretends to think. The real LLM will be another Layer with the same shape.
 export const FakeSystemTwo = Layer.succeed(SystemTwo, {
   ask: (prompt) => Effect.succeed({ text: `(System Two would think about: "${prompt}")`, tokens: { input: 0, output: 0 } }),
-  compact: (_thread, { size }) => Effect.succeed({ masked: 0, savedTokens: 0, summarized: 0, after: size, tokens: { input: 0, output: 0 } }),
+  compact: (_thread, { size }) => Effect.succeed({ compressed: 0, stubbed: 0, reasoning: 0, summarized: 0, after: size, tokens: { input: 0, output: 0 } }),
 })
