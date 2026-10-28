@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.15
+# empty-vessel core 0.0.16
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -152,6 +152,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
         readonly maxRounds: number;
         readonly webSearch: boolean;
         readonly progressMinutes: number;
+        readonly showChecks: boolean;
         readonly scopeCheck: boolean;
         readonly style: "i-have-adhd" | "none";
     };
@@ -765,6 +766,7 @@ config.systemTwo.reasoning: {"type":"string","enum":["low","medium","high","xhig
 config.systemTwo.maxRounds: {"type":"integer","exclusiveMinimum":1,"description":"Tool rounds in one System Two run; the last has no tools, so it must answer","default":30}
 config.systemTwo.webSearch: {"type":"boolean","description":"Let System Two search the web with its backend's own search (Codex's web_search; Claude Code's WebSearch and WebFetch)","default":true}
 config.systemTwo.progressMinutes: {"type":"integer","minimum":0,"description":"Minutes without a note to you (tell_user) before System Two is reminded to send one; 0: never reminded","default":5}
+config.systemTwo.showChecks: {"type":"boolean","description":"Show the check that finished a turn (its command and the end of its output) under System Two's answer; off: the answer alone (the check stays in the session), as for a chat channel","default":true}
 config.systemTwo.scopeCheck: {"type":"boolean","description":"Tell System Two to ask you first when its changes reach another part of the project (another package) than where it started","default":true}
 config.systemTwo.style: {"type":"string","enum":["i-have-adhd","none"],"description":"How System Two shapes what it writes to you: i-have-adhd (the i-have-adhd skill by Ayoub Ghriss, MIT: lead with the next action, numbered steps, no preamble), or none","default":"i-have-adhd"}
 config.actionGuard.use: {"type":"array","items":{"type":"string"},"description":"Required action guard plugins, checked before shell execution","default":[]}

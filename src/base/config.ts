@@ -62,6 +62,8 @@ export const ConfigSchema = described({
     // Results go to the model, not into cells (a search tool source would, later).
     webSearch: setting(Schema.Boolean, "Let System Two search the web with its backend's own search (Codex's web_search; Claude Code's WebSearch and WebFetch)", { default: true }),
     progressMinutes: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))), "Minutes without a note to you (tell_user) before System Two is reminded to send one; 0: never reminded", { default: 5 }),
+    // src/loop/handoff.ts, replyFor: the check that finished a turn, as evidence under the answer (or only in the session).
+    showChecks: setting(Schema.Boolean, "Show the check that finished a turn (its command and the end of its output) under System Two's answer; off: the answer alone (the check stays in the session), as for a chat channel", { default: true }),
     scopeCheck: setting(Schema.Boolean, "Tell System Two to ask you first when its changes reach another part of the project (another package) than where it started", { default: true }),
     // src/system-two/style.ts: added to System Two's briefing each session.
     style: setting(Schema.Literals(["i-have-adhd", "none"]), "How System Two shapes what it writes to you: i-have-adhd (the i-have-adhd skill by Ayoub Ghriss, MIT: lead with the next action, numbered steps, no preamble), or none", { default: "i-have-adhd" }),

@@ -44,9 +44,11 @@ const tail = (output: string, lines = 12, chars = 1200) => output.trim().split("
 // judged it itself, surely: then System Two's answer goes to the user without another model round. System Two wrote
 // that answer before the check ran, so the check's own output goes with it: what it says about the result (a test
 // count) can be wrong (the recurring-requests benchmark: "12 tests pass" where 7 did); the output can't.
-export const replyFor = (verdict: string, args: Args, command: string, output: string, sure = true): Handoff => {
+// `show` off (systemTwo.showChecks): the answer alone, for a channel where a command and its output are noise; the check is
+// recorded in the session either way (recordCheck).
+export const replyFor = (verdict: string, args: Args, command: string, output: string, sure = true, show = true): Handoff => {
   if (verdict === "passed" && args.finishes && sure)
-    return { answer: `${args.success ?? "Done."}\n\n\`${command}\` passed:\n\`\`\`\n${tail(output)}\n\`\`\``, done: true }
+    return { answer: show ? `${args.success ?? "Done."}\n\n\`${command}\` passed:\n\`\`\`\n${tail(output)}\n\`\`\`` : args.success ?? "Done.", done: true }
   if (verdict === "passed") return { output: `System One judged this a pass${args.finishes ? ", but not surely enough to finish for you: read the output and answer" : ""}.\n${output}` }
   if (args.failure !== undefined) return { answer: args.failure, done: false }
   return { output: `System One judged this ${verdict === "broken" ? "broken (the command itself didn't run)" : "a failure"}.\n${output}` }
@@ -104,7 +106,7 @@ export const makeHandoff = (ctx: Ctx, state: TurnState, checks: ReadonlyArray<Sc
     yield* keepCheck(ctx, args, which.command, j.verdict, which.saved)
 
     // When System Two meant this check to finish the task: which way it went (ended here, or back to System Two).
-    const reply = replyFor(j.verdict, args, which.command, j.output, j.judged && j.confidence >= SURE)
+    const reply = replyFor(j.verdict, args, which.command, j.output, j.judged && j.confidence >= SURE, ctx.config.systemTwo.showChecks)
     if (args.finishes) {
       const ended = "done" in reply && reply.done === true
       yield* Effect.logDebug(`system one finish ${JSON.stringify({ command: which.command, ended, verdict: j.verdict, confidence: j.confidence })}`)

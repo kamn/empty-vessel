@@ -23,6 +23,7 @@ test("verdictOf: System One's verdict, or the exit code when System One couldn't
 
 test("replyFor: a finishing pass ends the turn; otherwise the output (or the failure message) goes back", () => {
   expect(replyFor("passed", args({ success: "Fixed." }), "bun test", "exit 0\n 7 pass")).toEqual({ answer: "Fixed.\n\n`bun test` passed:\n```\nexit 0\n 7 pass\n```", done: true })
+  expect(replyFor("passed", args({ success: "Fixed." }), "bun test", "exit 0\n 7 pass", true, false)).toEqual({ answer: "Fixed.", done: true }) // showChecks off: the answer alone
   expect(replyFor("passed", args({ success: "Fixed." }), "bun test", "exit 0", false)).toEqual({ output: "System One judged this a pass, but not surely enough to finish for you: read the output and answer.\nexit 0" })
   expect(replyFor("passed", args({ finishes: false }), "bun test", "exit 0")).toEqual({ output: "System One judged this a pass.\nexit 0" })
   expect(replyFor("failed", args({ failure: "Still failing." }), "bun test", "exit 1")).toEqual({ answer: "Still failing.", done: false })
