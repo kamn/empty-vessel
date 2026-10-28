@@ -59,9 +59,12 @@ const cellSummary = (name: string, parsed: any) => {
   return name === "kernel" && Option.isSome(decoded) ? decoded.value : undefined
 }
 
+// A code cell's title: its summary, else its code's first line.
+export const cellTitle = (parsed: any) => cellSummary("kernel", parsed)?.replace(/\s+/g, " ").trim() || codeTitle(String(parsed?.code ?? ""))
+
 // How a tool call is shown: a kernel cell by its title (a text cell by its name); any other tool by name.
 export const shownAs = (name: string, parsed: any) =>
-  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellSummary(name, parsed)?.replace(/\s+/g, " ").trim() || codeTitle(String(parsed?.code ?? ""))}`)
+  name === "kernel" ? (parsed?.text !== undefined ? `kernel: text ${parsed?.name ?? "(no name)"} (${String(parsed.text).split("\n").length} lines)` : `kernel: ${cellTitle(parsed)}`)
   : name
 
 // What can be unfolded under it: a cell's code (or text) and its result.

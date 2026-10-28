@@ -134,16 +134,17 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
   // structured summary written by the model, ending with the ids that can still be reopened.
   const compact = (thread: Array<unknown>, { summarize, stash, size, target }: CompactOptions) =>
     Effect.gen(function* () {
-      const cells = oldCells(thread, lastTurnStart(thread))
+      const before = lastTurnStart(thread)
+      const cells = oldCells(thread, before)
       const results = cells.length ? yield* summarize(cells) : []
 
       let saved = 0
       cells.forEach((cell, i) => { saved += compressCell(thread, cell, results[i], stash) })
-      const files = oldFiles(thread, lastTurnStart(thread))
+      const files = oldFiles(thread, before)
       for (const file of files) saved += stubFile(thread, file, stash)
       // ponytail: old reasoning isn't counted as saved; the input sizes Codex reports suggest it doesn't count them either
-      const reasoning = dropOldReasoning(thread, lastTurnStart(thread))
-      const keepFrom = lastTurnStart(thread)
+      const reasoning = dropOldReasoning(thread, before)
+      const keepFrom = before - reasoning // dropping reasoning moved the last turn up
       const tier1 = { compressed: cells.length, stubbed: files.length, reasoning, summarized: 0, after: size - Math.round(saved / 4), tokens: { input: 0, output: 0 } }
       if (tier1.after <= target || keepFrom === 0) return tier1
 

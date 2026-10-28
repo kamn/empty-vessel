@@ -111,7 +111,7 @@ test("actual compaction marks loaded instructions for replay even if all outputs
     session: { record: (role: string) => Effect.sync(() => { records.push(role) }) },
     depth: 0,
   } as unknown as Ctx
-  await Effect.runPromise(compactIfNeeded(ctx))
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
   expect(records).toContain("compact")
   expect(c.thread).toEqual([])
   expect(skillNotes(c, true, project).join("\n")).toContain("saved instructions")
@@ -184,14 +184,14 @@ test("/compact: the next turn compacts even below compactAt, aiming for half the
     depth: 0,
   } as unknown as Ctx
 
-  await Effect.runPromise(compactIfNeeded(ctx))
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
   expect(targets).toEqual([]) // below compactAt, not asked: nothing
 
   expect(await Effect.runPromise(compactCommand(c))).toContain("when you send your next message")
-  await Effect.runPromise(compactIfNeeded(ctx))
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
   expect(targets).toEqual([30])
   expect(c.size).toBe(25)
 
-  await Effect.runPromise(compactIfNeeded(ctx))
+  await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
   expect(targets).toEqual([30]) // asked once
 })

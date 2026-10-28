@@ -10,6 +10,7 @@ import { turn } from "../../src/loop/turn"
 import { newConversation, type Needs } from "../../src/loop/turnkit"
 import { FakeSystemOne } from "../../src/system-one/systemone"
 import { FakeSystemTwo, SystemTwo } from "../../src/system-two/systemtwo"
+import { FakeFill } from "../../src/system-two/fill"
 import { CurrentSession, SessionMirror, makeSession, openSession, type SessionEntry, type SessionHandle } from "../../src/base/session"
 import { diskStore } from "../../src/base/store"
 
@@ -163,7 +164,7 @@ test("turn scopes auxiliary compaction, resets a mirrorless child's turn, and re
       Effect.provideService(SessionMirror, collect(inherited)),
       Effect.provideService(Config, config),
       Effect.provideService(Events, { emit: () => Effect.void }),
-      Effect.provide(FakeSystemOne), Effect.provide(FakeSystemTwo),
+      Effect.provide(FakeSystemOne), Effect.provide(FakeSystemTwo), Effect.provide(FakeFill),
       Effect.provide(Usage.layer), Effect.provide(store),
       // Echo and prefilled briefing avoid the remaining services; missing access fails loudly.
       Effect.provideContext(Context.empty() as Context.Context<Needs>),

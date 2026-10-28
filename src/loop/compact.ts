@@ -23,12 +23,11 @@ export const compactIfNeeded = (ctx: Ctx) =>
     if (!conversation.size || (conversation.size <= config.compactAt && !asked)) return
 
     // ponytail: 40 cells per fill call, 4 at a time; tune from the compaction replay
+    const fill = yield* Fill
     const summarize = (cells: ReadonlyArray<{ readonly intent: string; readonly glimpse: string }>) =>
       Effect.gen(function* () {
-        const fill = yield* Effect.serviceOption(Fill)
-        if (Option.isNone(fill)) return []
         const chunks = Array.from({ length: Math.ceil(cells.length / 40) }, (_, i) => cells.slice(i * 40, i * 40 + 40))
-        const results = yield* Effect.forEach(chunks, (chunk) => summarizeChunk(ctx, fill.value, chunk), { concurrency: 4 })
+        const results = yield* Effect.forEach(chunks, (chunk) => summarizeChunk(ctx, fill, chunk), { concurrency: 4 })
         return results.flat()
       })
 

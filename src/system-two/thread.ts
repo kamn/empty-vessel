@@ -1,7 +1,7 @@
 // System Two's thread is a list of Codex items: messages ({ role, content }), and { type: "function_call" |
 // "function_call_output" | "reasoning" | "message", … }. These plain functions read and shorten it for compaction.
 
-import { codeTitle } from "./dispatch"
+import { cellTitle } from "./dispatch"
 
 type Item = { readonly type?: string; readonly role?: string; readonly call_id?: string; readonly name?: string; readonly arguments?: string; output?: unknown; content?: Array<{ type: string; text?: string }> }
 
@@ -43,9 +43,9 @@ export const stubFile = (thread: Array<unknown>, old: OldFile, stash: Map<string
   return saved
 }
 
-// A kernel cell before the last turn, big enough to compress: its call and output (by index), what it was for (its
-// summary, else its code's first line), and a glimpse of the output (first and last lines) for the result summary.
-export type OldCell = { readonly call: number; readonly output: number; readonly intent: string; readonly glimpse: string }
+// A kernel cell before the last turn, big enough to compress: its call and output (by index), its code, what it was for
+// (its title), and a glimpse of the output (first and last lines) for the result summary.
+export type OldCell = { readonly call: number; readonly output: number; readonly code: string; readonly intent: string; readonly glimpse: string }
 export const oldCells = (thread: ReadonlyArray<unknown>, before: number, minChars = 500) => {
   const outputs = new Map(thread.slice(0, before).flatMap((raw, i) => (raw as Item).type === "function_call_output" ? [[(raw as Item).call_id, i] as const] : []))
   const found: Array<OldCell> = []
@@ -57,7 +57,7 @@ export const oldCells = (thread: ReadonlyArray<unknown>, before: number, minChar
     const args = parse(item.arguments)
     const out = String((thread[output] as Item).output ?? "")
     if (typeof args.code !== "string" || out.startsWith(CELL) || args.code.length + out.length < minChars) return
-    found.push({ call, output, intent: intentOf(args), glimpse: glimpseOf(out) })
+    found.push({ call, output, code: args.code, intent: cellTitle(args).slice(0, 100), glimpse: glimpseOf(out) })
   })
 
   return found
@@ -68,13 +68,13 @@ export const oldCells = (thread: ReadonlyArray<unknown>, before: number, minChar
 // Source and output go in `stash` under the id. Returns how many characters that took out of the thread.
 export const compressCell = (thread: Array<unknown>, cell: OldCell, result: string | undefined, stash: Map<string, string>) => {
   const call = thread[cell.call] as Item, output = thread[cell.output] as Item
-  const code = String(parse(call.arguments).code), out = String(output.output ?? "")
+  const out = String(output.output ?? "")
   const id = `out${stash.size + 1}`
 
   const args = JSON.stringify({ summary: cell.intent, code: `[compacted: more_output { id: "${id}" }]` })
   const said = (result ?? out.split("\n").find((l) => l.trim()) ?? "(no output)").replace(/\s+/g, " ").trim().slice(0, 200)
   const line = `${CELL}${id} · ${cell.intent} · ${out.split("\n").length} lines · result: ${said}]`
-  stash.set(id, `${code}\n── result ──\n${out}`)
+  stash.set(id, `${cell.code}\n── result ──\n${out}`)
   thread[cell.call] = { ...call, arguments: args }
   thread[cell.output] = { ...output, output: line }
 
@@ -93,12 +93,18 @@ export const dropOldReasoning = (thread: Array<unknown>, before: number) => {
 // What a summary leaves reopenable: compressed cells, stubbed files and an earlier summary's own list, in `items`.
 // "- outN: what it is" lines, newest first, at most `max` (older ids stay in the stash and the session's records).
 export const reopenIndex = (items: ReadonlyArray<unknown>, max = 100) => {
-  const text = JSON.stringify(items).replaceAll("\\n", "\n").replaceAll('\\"', '"')
   const found = new Map<number, string>()
 
-  for (const [, n, what] of text.matchAll(/\[cell out(\d+) · ([^·\]]+?) ·/g)) found.set(Number(n), what!)
-  for (const [, path, n] of text.matchAll(/<file path="([^"]+)">\n\[compacted: [^\]]*?id: "out(\d+)"/g)) found.set(Number(n!), `file ${path}`)
-  for (const [, n, what] of text.matchAll(/^- out(\d+): (.+)$/gm)) found.set(Number(n), what!)
+  for (const raw of items) {
+    const item = raw as Item
+    const text = typeof item.output === "string" ? item.output : (item.content?.[0]?.text ?? "")
+    for (const [, n, what] of text.matchAll(/^\[cell out(\d+) · (.+?) · \d+ lines · /g)) found.set(Number(n), what!)
+    for (const [, path, stub] of text.matchAll(FILE_BLOCK)) {
+      const n = stub!.startsWith(STUB) ? stub!.match(/id: "out(\d+)"/)?.[1] : undefined
+      if (n) found.set(Number(n), `file ${path}`)
+    }
+    for (const [, n, what] of text.matchAll(/^- out(\d+): (.+)$/gm)) found.set(Number(n), what!)
+  }
 
   const lines = [...found].sort(([a], [b]) => b - a).slice(0, max).map(([n, what]) => `- out${n}: ${what}`)
   return lines.length ? `\n\nStill reopenable with more_output (newest first):\n${lines.join("\n")}` : ""
@@ -107,8 +113,6 @@ export const reopenIndex = (items: ReadonlyArray<unknown>, max = 100) => {
 const parse = (args: string | undefined): { code?: unknown; summary?: unknown } => {
   try { return JSON.parse(args ?? "{}") ?? {} } catch { return {} }
 }
-const intentOf = (args: { code?: unknown; summary?: unknown }) =>
-  (typeof args.summary === "string" && args.summary.trim() ? args.summary.replace(/\s+/g, " ").trim() : codeTitle(String(args.code))).slice(0, 100)
 // First and last 4 lines, at most 600 characters: where a command's start and its verdict are.
 const glimpseOf = (out: string) => {
   const lines = out.split("\n")
