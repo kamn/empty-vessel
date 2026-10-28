@@ -5,11 +5,19 @@ import { cellTitle } from "./dispatch"
 
 type Item = { readonly type?: string; readonly role?: string; readonly call_id?: string; readonly name?: string; readonly arguments?: string; output?: unknown; content?: Array<{ type: string; text?: string }> }
 
-// Where the last turn starts: the last message from the user. Everything from there on is kept as it is.
+// Where the last turn starts: the last message from the user. Everything from there on is kept as it is. Messages the
+// loop adds in the middle of a run (the user steering, a jobs reminder, a tool's images, a stop note) don't start a turn.
+const MID_RUN = ["[The user, while you work:", "Before you finish: these sub-agent jobs", "The images the tool calls above returned:", "(The user stopped your work"]
 export const lastTurnStart = (thread: ReadonlyArray<unknown>) => {
-  for (let i = thread.length - 1; i >= 0; i--) if ((thread[i] as Item).role === "user") return i
+  for (let i = thread.length - 1; i >= 0; i--) {
+    const item = thread[i] as Item
+    if (item.role === "user" && !MID_RUN.some((p) => (item.content?.[0]?.text ?? "").startsWith(p))) return i
+  }
   return 0
 }
+
+// The message a summary (tier 2) replaces everything before the last turn with.
+export const SUMMARY_START = "Summary of the conversation so far (older messages were compacted):"
 
 const STUB = "[compacted"
 const CELL = "[cell "
@@ -97,13 +105,16 @@ export const reopenIndex = (items: ReadonlyArray<unknown>, max = 100) => {
 
   for (const raw of items) {
     const item = raw as Item
-    const text = typeof item.output === "string" ? item.output : (item.content?.[0]?.text ?? "")
-    for (const [, n, what] of text.matchAll(/^\[cell out(\d+) · (.+?) · \d+ lines · /g)) found.set(Number(n), what!)
+    if (item.type === "function_call_output" && typeof item.output === "string")
+      for (const [, n, what] of item.output.matchAll(/^\[cell out(\d+) · (.+?) · \d+ lines · /g)) found.set(Number(n), what!)
+    if (item.role !== "user") continue
+    const text = item.content?.[0]?.text ?? ""
+
     for (const [, path, stub] of text.matchAll(FILE_BLOCK)) {
       const n = stub!.startsWith(STUB) ? stub!.match(/id: "out(\d+)"/)?.[1] : undefined
       if (n) found.set(Number(n), `file ${path}`)
     }
-    for (const [, n, what] of text.matchAll(/^- out(\d+): (.+)$/gm)) found.set(Number(n), what!)
+    if (text.startsWith(SUMMARY_START)) for (const [, n, what] of text.matchAll(/^- out(\d+): (.+)$/gm)) found.set(Number(n), what!)
   }
 
   const lines = [...found].sort(([a], [b]) => b - a).slice(0, max).map(([n, what]) => `- out${n}: ${what}`)

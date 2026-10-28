@@ -105,14 +105,14 @@ test("actual compaction marks loaded instructions for replay even if all outputs
     config: { compactAt: 100 },
     systemTwo: { compact: (thread: unknown[]) => {
       thread.length = 0
-      return Effect.succeed({ masked: 1, savedTokens: 180, summarized: 1, after: 20, tokens: { input: 0, output: 0 } })
+      return Effect.succeed({ compressed: 1, stubbed: 0, reasoning: 0, summarized: 1, after: 20, tokens: { input: 0, output: 0 } })
     } },
     usage: { add: () => Effect.void },
-    session: { record: (role: string) => Effect.sync(() => { records.push(role) }) },
+    session: { record: (role: string, text: string) => Effect.sync(() => { records.push(role === "compact" ? `compact: ${text}` : role) }) },
     depth: 0,
   } as unknown as Ctx
   await Effect.runPromise(compactIfNeeded(ctx).pipe(Effect.provide(FakeFill)))
-  expect(records).toContain("compact")
+  expect(records).toContain("compact: 1 old cells compressed, 1 older items summarized")
   expect(c.thread).toEqual([])
   expect(skillNotes(c, true, project).join("\n")).toContain("saved instructions")
   expect(skillNotes(c, true, project)).toEqual([])

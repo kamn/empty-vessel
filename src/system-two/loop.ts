@@ -7,7 +7,7 @@ import type { Tokens } from "../base/usage"
 import { callTool, fromUser, jobsReminder, newCallState, systemTwoTools } from "./dispatch"
 import { KERNEL_INSTRUCTIONS, kernelInstructions } from "./instructions"
 import { type CompactOptions, type Hooks, SystemTwo } from "./systemtwo"
-import { compressCell, dropOldReasoning, lastTurnStart, oldCells, oldFiles, reopenIndex, stubFile, SUMMARY_REQUEST } from "./thread"
+import { compressCell, dropOldReasoning, lastTurnStart, oldCells, oldFiles, reopenIndex, stubFile, SUMMARY_REQUEST, SUMMARY_START } from "./thread"
 
 // System Two from a model: the core runs the request loop,
 // like Pi's (ask, run the tool calls the model wants, send the results back, repeat until it answers), and a model plugin
@@ -153,7 +153,7 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
       if (Option.isNone(asked)) return tier1
       const reply = asked.value
       const reopen = reopenIndex(thread.slice(0, keepFrom))
-      thread.splice(0, keepFrom, userItem(`Summary of the conversation so far (older messages were compacted):\n\n${reply.text}${reopen}`))
+      thread.splice(0, keepFrom, userItem(`${SUMMARY_START}\n\n${reply.text}${reopen}`))
       const after = Math.round(JSON.stringify(thread).length / 4)
       return { ...tier1, summarized: keepFrom, after, tokens: { input: reply.usage.input, output: reply.usage.output, cached: reply.usage.cached } }
     })

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { compressCell, dropOldReasoning, lastTurnStart, oldCells, oldFiles, stubFile } from "../../src/system-two/thread"
+import { compressCell, dropOldReasoning, lastTurnStart, oldCells, oldFiles, reopenIndex, stubFile, SUMMARY_START } from "../../src/system-two/thread"
 
 const user = (text: string) => ({ role: "user", content: [{ type: "input_text", text }] })
 const call = (id: string, name: string, args: object) => ({ type: "function_call", call_id: id, name, arguments: JSON.stringify(args) })
@@ -17,6 +17,13 @@ const thread = (): Array<unknown> => [
 test("lastTurnStart: the last user message", () => {
   expect(lastTurnStart(thread())).toBe(7)
   expect(lastTurnStart([])).toBe(0)
+})
+
+test("lastTurnStart: messages the loop adds mid-run (steering, a jobs reminder, images, a stop note) don't start a turn", () => {
+  const t: Array<unknown> = [user("fix the cart"), cell("a", "x", "Read cart"), output("a", big(40)), user("[The user, while you work: also tax]"),
+    user("The images the tool calls above returned:"), user("Before you finish: these sub-agent jobs haven't been collected:\nj1"), user('(The user stopped your work on "x" partway. Files may already have been changed.)')]
+  expect(lastTurnStart(t)).toBe(0)
+  expect(oldCells(t, lastTurnStart(t))).toEqual([]) // the run's own cells stay whole
 })
 
 test("oldCells: big kernel cells before the last turn, with their intent and a glimpse of the output", () => {
@@ -80,4 +87,15 @@ test("nothing before the last turn: nothing found", () => {
   const t: Array<unknown> = [user("only"), cell("a", "x", "X"), output("a", big(40))]
   expect(oldCells(t, lastTurnStart(t))).toEqual([])
   expect(oldFiles(t, lastTurnStart(t))).toEqual([])
+})
+
+test("reopenIndex: compressed cells, stubbed files and an earlier summary's list; other '- outN' lines don't count", () => {
+  const files: Array<unknown> = [user(`go\n\n<file path="src/a.ts">\n${big(40)}\n</file>`), user("next")]
+  const stash = new Map<string, string>()
+  stubFile(files, oldFiles(files, 1)[0]!, stash)
+  const t: Array<unknown> = [
+    user(`${SUMMARY_START}\n\nearlier work\n\nStill reopenable with more_output (newest first):\n- out2: Read cart`),
+    files[0], call("t", "tell_user", {}), output("t", "- out9: not an id list"), cell("c", "x", "Read tax"), output("c", "[cell out3 · Read tax · 40 lines · result: ok]"),
+  ]
+  expect(reopenIndex(t)).toBe("\n\nStill reopenable with more_output (newest first):\n- out3: Read tax\n- out2: Read cart\n- out1: file src/a.ts")
 })
