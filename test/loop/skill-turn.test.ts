@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Context, Effect, Schema } from "effect"
 import { Config, ConfigSchema } from "../../src/base/config"
+import { HostBriefing } from "../../src/base/context"
 import { Events } from "../../src/base/events"
 import { Memory } from "../../src/base/memory"
 import { makeSession } from "../../src/base/session"
@@ -124,6 +125,50 @@ test("a goal finished by the last allowed step isn't marked '(step limit)'", asy
       Effect.provide(Usage.layer), Effect.provide(diskStore(root)),
       Effect.provideContext(Context.empty() as Context.Context<Needs>),
     ))
+  } finally {
+    process.chdir(cwd)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The host (the background agent) says which channels the user reaches it on: in the briefing System Two gets, after
+// the project's instructions. Without one (plain core, the TUI), the briefing is as it was.
+test("a host briefing is in the briefing System Two receives; without one the briefing is unchanged", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-briefing-")), cwd = process.cwd()
+  const config = Schema.decodeUnknownSync(ConfigSchema)({ testOptions: true, learnAfterTurn: false, systemTwo: { scopeCheck: false } })
+  const host = "## How the user reaches you\n- Telegram: the user's private chat."
+  process.chdir(root)
+
+  try {
+    const received = await Effect.runPromise(Effect.gen(function* () {
+      const session = yield* makeSession("sessions")
+      const fake = yield* SystemTwo
+      const briefings: Array<string | undefined> = []
+      const provider: SystemTwo["Service"] = { ...fake, ask: (_prompt, hooks) => Effect.sync(() => { briefings.push(hooks?.briefing); return { text: "answered", done: true, tokens: { input: 0, output: 0 } } }) }
+      const ask = (conversation = newConversation()) => {
+        conversation.skills = { skills: [], diagnostics: [] }
+        return turn(session, "what is two plus two?", 0, conversation).pipe(Effect.provideService(SystemTwo, provider)) // a question: escalates
+      }
+
+      yield* ask()
+      yield* ask().pipe(Effect.provideService(HostBriefing, host))
+      return briefings
+    }).pipe(
+      Effect.provideService(Config, config),
+      Effect.provideService(Events, { emit: () => Effect.void }),
+      Effect.provideService(AskUser, { ask: () => Effect.succeed([]) }),
+      Effect.provideService(Memory, { snapshot: Effect.succeed(""), add: () => Effect.void, replace: () => Effect.void, remove: () => Effect.void, entries: () => Effect.succeed([]), file: () => Effect.succeed("") }),
+      Effect.provide(FakeSystemOne), Effect.provide(FakeSystemTwo),
+      Effect.provide(Usage.layer), Effect.provide(diskStore(root)),
+      Effect.provideContext(Context.empty() as Context.Context<Needs>),
+    ))
+
+    const [without, withHost] = received
+    expect(received).toHaveLength(2)
+    expect(without).toBeString()
+    expect(without).not.toContain(host)
+    expect(withHost).toContain(host)
+    expect(withHost!.replace(`${host}\n\n`, "")).toBe(without!)
   } finally {
     process.chdir(cwd)
     rmSync(root, { recursive: true, force: true })

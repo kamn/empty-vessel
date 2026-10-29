@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { Data, Effect } from "effect"
+import { Context, Data, Effect } from "effect"
 import { EMPTY_VESSEL_HOME } from "./home"
+
+// What the host running core (the background agent) tells System Two about itself, e.g. which channels the user
+// reaches it on: in the briefing after the project's instructions. Plain core and the TUI have none.
+export const HostBriefing = Context.Reference<string | undefined>("empty-vessel/HostBriefing", { defaultValue: () => undefined })
 
 class ContextError extends Data.TaggedError("ContextError")<{ path: string; cause: unknown }> {}
 

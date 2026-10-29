@@ -9,7 +9,7 @@ import { compactIfNeeded } from "./compact"
 import { endTurn } from "./endturn"
 import { briefing } from "../learning/notes"
 import { responseStyle } from "../system-two/style"
-import { projectInstructions } from "../base/context"
+import { HostBriefing, projectInstructions } from "../base/context"
 import { CurrentSession, SessionMirror, makeSession, type SessionError, type SessionHandle } from "../base/session"
 import { systemOneTools, libraryDir, loadLibrary, loadPool, shortlist, usableWith } from "./library"
 import { choose, record, settle, stats } from "./pool"
@@ -132,11 +132,11 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     conversation.inputRecorded = true
 
     // What the loop hands System Two with every request, worked out once: the project's AGENTS.md / CLAUDE.md, then what
-    // empty-vessel learned about the project (notes, saved checks), then how to shape what it writes to the user
-    // (systemTwo.style). Every backend gets it the same way.
+    // the host says about itself (HostBriefing), then what empty-vessel learned about the project (notes, saved checks),
+    // then how to shape what it writes to the user (systemTwo.style). Every backend gets it the same way.
     if (conversation.briefing === undefined) {
       const style = responseStyle((yield* Config).systemTwo.style)
-      const parts = [yield* projectInstructions(process.cwd()).pipe(Effect.orElseSucceed(() => "")), yield* briefing(process.cwd()), style]
+      const parts = [yield* projectInstructions(process.cwd()).pipe(Effect.orElseSucceed(() => "")), yield* HostBriefing, yield* briefing(process.cwd()), style]
       conversation.briefing = [...parts, conversation.instructions].filter(Boolean).join("\n\n") // an agent's instructions last
       conversation.profile = (yield* (yield* Memory).entries("user"))[0]?.replace(/^- /, "")
     }
