@@ -3,6 +3,7 @@ import { ALL, type Grants, has, type Need } from "../base/grants"
 import type { Tokens } from "../base/usage"
 import type { SessionMirrorFn } from "../base/session"
 import { Question } from "../ui/ask"
+import { Chart } from "../base/delivery"
 
 // Structured questions: reuse the UI schema so the model and the picker agree.
 export const AskUserArgs = Schema.Struct({
@@ -32,11 +33,15 @@ export const TellUserArgs = Schema.Struct({
   file: Schema.optionalKey(Schema.NonEmptyString.annotate({
     description: "Local file path to send as an attachment; message becomes its caption. Main agent only; waits for delivery and reports failure if unsupported.",
   })),
+  chart: Schema.optionalKey(Chart.annotate({
+    description: "A small bar chart to show with the message: a title and 1–12 points, each a label and a number",
+  })),
 })
 export const TELL_USER_DESCRIPTION =
   "Tell the user something now and keep working (it doesn't end your turn): a short progress note at milestones of long work, " +
   "or, as soon as you find it, a step only they can do (a secret or credential, an account or service setting, an approval, a domain). " +
-  "Optionally provide file, a local file path, to send an attachment with message as its caption. " +
+  "Optionally provide file, a local file path, to send an attachment with message as its caption, " +
+  "or chart, a title and up to 12 labelled numbers, to show them as a chart. " +
   "Attachment delivery is main-agent only and awaited; unsupported channels or failed sends return an error."
 
 // System Two hands a pass/fail check to System One: the command, whether a pass means the whole goal is done

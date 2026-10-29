@@ -3,7 +3,7 @@ import { Effect, Option, Schema } from "effect"
 import { emit } from "../base/events"
 import { CurrentSession } from "../base/session"
 import { exitOf, lessonIn } from "../base/lessons"
-import { Delivery, deliveryError } from "../base/delivery"
+import { chartTable, Delivery, deliveryError } from "../base/delivery"
 import { ALL, allGranted, type Grants } from "../base/grants"
 import { jsonSchemaFor } from "../base/json-schema"
 import { notGranted } from "./instructions"
@@ -108,7 +108,14 @@ export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallStat
     // A note for the user now, as its own line wherever empty-vessel is shown; the run goes on.
     if (name === "tell_user") {
       const decoded = Schema.decodeUnknownOption(TellUserArgs)(parsed)
-      if (Option.isNone(decoded)) return { output: "invalid arguments: provide a message for the user" }
+      if (Option.isNone(decoded)) return { output: "invalid arguments: provide a message for the user (a chart has 1–12 points)" }
+
+      // A chart goes natively when the transport can draw it, else (or if that fails) as a text table in the message.
+      const { chart } = decoded.value
+      const delivery = yield* Delivery
+      const drawn = chart !== undefined && delivery.sendChart !== undefined
+        && (yield* Effect.suspend(() => delivery.sendChart!(chart)).pipe(Effect.as(true), Effect.orElseSucceed(() => false)))
+      const message = chart === undefined || drawn ? decoded.value.message : `${decoded.value.message}\n\n${chartTable(chart)}`
 
       if (decoded.value.file !== undefined) {
         if ((hooks.depth ?? 0) !== 0) return { output: "File attachments are only available to the main agent." }
@@ -117,8 +124,7 @@ export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallStat
           return { output: "File attachments require file-read access." }
         }
 
-        const delivery = yield* Delivery
-        const sent = yield* Effect.suspend(() => delivery.sendFile(decoded.value.file!, decoded.value.message)).pipe(
+        const sent = yield* Effect.suspend(() => delivery.sendFile(decoded.value.file!, message)).pipe(
           Effect.match({
             onFailure: (error) => ({ ok: false, output: `File delivery failed: ${deliveryError(error)}` }),
             onSuccess: () => ({ ok: true, output: "The user has the file and caption. Keep working." }),
@@ -129,7 +135,7 @@ export const runTool = (name: string, parsed: any, hooks: Hooks, state: CallStat
       }
 
       state.told = state.now()
-      return { output: "The user has it. Keep working.", note: decoded.value.message }
+      return { output: "The user has it. Keep working.", note: message }
     }
 
     if (name === "more_output") {

@@ -2,7 +2,7 @@ import { Cause, Context, Deferred, Effect, Exit, Fiber, Scope, Semaphore } from 
 import { agentCommand, answer, firstAgent, modelCommand, stopped, userCommand, type ModelOwner } from "./answer"
 import type { Config } from "./base/config"
 import { Events } from "./base/events"
-import { Delivery } from "./base/delivery"
+import { type Chart, Delivery } from "./base/delivery"
 import { Inbox, makeInbox } from "./base/inbox"
 import { writeAtomic } from "./base/files"
 import type { SessionHandle } from "./base/session"
@@ -31,6 +31,7 @@ export interface SessionRunner {
 }
 export interface InteractionAdapters {
   readonly sendFile?: (path: string, caption?: string) => Effect.Effect<void, Error>
+  readonly sendChart?: (chart: Chart) => Effect.Effect<void, Error>
   readonly events: ReturnType<typeof Events.defaultValue>
   readonly ask?: AskUser["Service"]
   readonly presentQuestion?: (question: { readonly question: string; readonly options: ReadonlyArray<string> }) => Effect.Effect<void>
@@ -88,7 +89,7 @@ export const makeSessionRunner = (session: SessionHandle, conversation: Conversa
     const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
       Effect.provideService(Events, events), Effect.provideService(AskUser, ask),
       Effect.provideService(Inbox, inbox),
-      Effect.provideService(Delivery, adapters.sendFile ? { sendFile: adapters.sendFile } : Delivery.defaultValue()),
+      Effect.provideService(Delivery, { ...Delivery.defaultValue(), ...adapters.sendFile ? { sendFile: adapters.sendFile } : {}, ...adapters.sendChart ? { sendChart: adapters.sendChart } : {} }),
       Effect.provideContext(services),
     )
 
