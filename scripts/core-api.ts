@@ -1,9 +1,9 @@
-// The core's API as plugins see it, as text: every export of
-// src/core.ts with its declaration as tsc emits it, and the config file's schema, one setting per line. Written to
-// core-api.txt and committed, so every change to what the core promises shows in a diff; test/core-api.test.ts fails
-// when the file is stale.
-// Usage: bun scripts/core-api.ts           → print the API, and what changed against core-api.txt
-//        bun scripts/core-api.ts --write   → write core-api.txt (refused unless CORE_VERSION, src/base/version.ts, is bumped enough)
+// The core's API as text, one file per door: core-api.txt for plugins (every export of src/core.ts with its declaration
+// as tsc emits it, and the config file's schema, one setting per line) and host-api.txt for hosts (src/host.ts's
+// exports: what empty-vessel-agent imports). Committed, so every change to what the core promises shows in a diff;
+// test/core-api.test.ts fails when a file is stale.
+// Usage: bun scripts/core-api.ts           → print both, and what changed against the files
+//        bun scripts/core-api.ts --write   → write them (refused unless CORE_VERSION, src/base/version.ts, is bumped enough)
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,12 +12,14 @@ import { ConfigSchema } from "../src/base/config"
 import { CORE_VERSION } from "../src/core"
 
 const ROOT = join(import.meta.dir, "..")
-export const API_FILE = join(ROOT, "core-api.txt")
+export type Door = "core" | "host"
+export const DOORS: Array<Door> = ["core", "host"]
+export const apiFile = (door: Door) => join(ROOT, `${door}-api.txt`)
 
-// Declarations for src/core.ts and what it imports, from tsc (TypeScript 7 has no JavaScript API to ask instead).
-const declarations = () => {
+// Declarations for a door (src/core.ts, src/host.ts) and what it imports, from tsc (TypeScript 7 has no JavaScript API to ask instead).
+const declarations = (door: Door) => {
   const dir = mkdtempSync(join(tmpdir(), "empty-vessel-core-api-"))
-  const config = { extends: join(ROOT, "tsconfig.json"), files: [join(ROOT, "src/core.ts")], include: [],
+  const config = { extends: join(ROOT, "tsconfig.json"), files: [join(ROOT, `src/${door}.ts`)], include: [],
     compilerOptions: { noEmit: false, declaration: true, emitDeclarationOnly: true, outDir: join(dir, "out"), rootDir: join(ROOT, "src"), typeRoots: [join(ROOT, "node_modules/@types")] } }
   writeFileSync(join(dir, "tsconfig.json"), JSON.stringify(config))
   Bun.spawnSync([join(ROOT, "node_modules/.bin/tsc"), "-p", join(dir, "tsconfig.json")], { cwd: ROOT })
@@ -39,23 +41,23 @@ const statement = (text: string, name: string) => {
   }).join("\n").replace(/import\("[^"]+"\)\./g, "")
 }
 
-// Every export of core.ts, by name: its declaration, and the types it names that the core doesn't export (a plugin
+// Every export of a door, by name (`a as b`: b, declared as a): its declaration, and the types it names that the core doesn't export (a plugin
 // can't name them, so they're promises the API makes without saying so).
-export const exportsOf = () => {
-  const { out, done } = declarations()
-  const core = readFileSync(join(out, "core.d.ts"), "utf8")
+export const exportsOf = (door: Door = "core") => {
+  const { out, done } = declarations(door)
+  const core = readFileSync(join(out, `${door}.d.ts`), "utf8")
   const entries = [...core.matchAll(/export (?:type )?\{([^}]*)\} from "([^"]+)"/g)].flatMap((m) =>
-    m[1]!.split(",").map((n) => n.trim().replace(/^type /, "")).filter(Boolean).map((name) => ({ name, from: m[2]! })))
+    m[1]!.split(",").map((n) => n.trim().replace(/^type /, "")).filter(Boolean).map((n) => ({ name: n.split(" as ").at(-1)!, declared: n.split(" as ")[0]!, from: m[2]! })))
 
   // Declared in core.ts itself (not CORE_VERSION: that's the version, not the API).
   const own = [...core.matchAll(/^export (?:declare )?(?:const|class|type|interface|function) (\w+)/gm)].map((m) => m[1]!).filter((n) => n !== "CORE_VERSION")
-  entries.push(...own.map((name) => ({ name, from: "./core" })))
+  entries.push(...own.map((name) => ({ name, declared: name, from: `./${door}` })))
   entries.splice(0, entries.length, ...entries.filter((e) => e.name !== "CORE_VERSION")) // the version, not the API
   const exported = new Set(entries.map((e) => e.name))
-  const api = entries.map(({ name, from }) => {
+  const api = entries.map(({ name, declared, from }) => {
     const file = join(out, `${from}.d.ts`)
     const text = existsSync(file) ? readFileSync(file, "utf8") : ""
-    const declaration = statement(text, name)
+    const declaration = statement(text, declared)
     const imported = [...text.matchAll(/import (?:type )?\{([^}]*)\} from "(\.[^"]+)"/g)].flatMap((m) => m[1]!.split(",").map((n) => n.trim().replace(/^type /, "")))
     const unexported = imported.filter((n) => !exported.has(n) && new RegExp(`\\b${n}\\b`).test(declaration))
     return { name, from: from.replace(/^\.\//, "src/"), declaration, unexported }
@@ -76,12 +78,12 @@ export const configLines = () => {
   return lines
 }
 
-// The API as text: a header with the version, each export as a block, then the config.
-export const render = (version = CORE_VERSION) => {
-  const api = exportsOf()
-  return [`# empty-vessel core ${version}`, "# Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.", "",
+// A door's API as text: a header with the version, each export as a block, then (for plugins) the config.
+export const render = (version = CORE_VERSION, door: Door = "core") => {
+  const api = exportsOf(door)
+  return [`# empty-vessel core ${version}`, `# Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/${door}.ts, not this.`, "",
     ...api.flatMap((e) => [`## ${e.name} (${e.from})`, e.declaration, ...(e.unexported.length ? [`// names types the core doesn't export: ${e.unexported.join(", ")}`] : []), ""]),
-    "## config", ...configLines(), ""].join("\n")
+    ...(door === "core" ? ["## config", ...configLines(), ""] : [])].join("\n")
 }
 
 // What changed between two renders: entries (an export's block, or a config line) added, removed or changed.
@@ -117,12 +119,14 @@ export const needed = (from: string, c: ReturnType<typeof changes>) => {
 const atLeast = (v: string, min: string) => { const [a, b] = [v, min].map((x) => x.split(".").map(Number)); for (let i = 0; i < 3; i++) if (a![i] !== b![i]) return a![i]! > b![i]!; return true }
 
 if (import.meta.main) {
-  const before = existsSync(API_FILE) ? readFileSync(API_FILE, "utf8") : ""
-  const after = render()
-  const c = changes(before, after), need = before ? needed(versionOf(before), c) : CORE_VERSION
-  const summary = `added ${c.added.join(", ") || "nothing"} · removed ${c.removed.join(", ") || "nothing"} · changed ${c.changed.join(", ") || "nothing"}`
+  const doors = DOORS.map((door) => {
+    const before = existsSync(apiFile(door)) ? readFileSync(apiFile(door), "utf8") : "", after = render(CORE_VERSION, door)
+    const c = changes(before, after), need = before ? needed(versionOf(before), c) : needed("0.0.0", { added: [], removed: [], changed: [] })
+    return { door, before, after, need, summary: `${door}: added ${c.added.join(", ") || "nothing"} · removed ${c.removed.join(", ") || "nothing"} · changed ${c.changed.join(", ") || "nothing"}` }
+  })
+  const short = doors.filter((d) => d.before && !atLeast(CORE_VERSION, d.need))
 
-  if (!process.argv.includes("--write")) console.log(`${after}\n${summary}\nneeds at least ${need} (CORE_VERSION is ${CORE_VERSION})`)
-  else if (before && !atLeast(CORE_VERSION, need)) { console.error(`${summary}\nthat needs CORE_VERSION ${need} or more (src/base/version.ts says ${CORE_VERSION})`); process.exit(1) }
-  else { writeFileSync(API_FILE, after); console.log(`wrote core-api.txt (${CORE_VERSION}): ${summary}`) }
+  if (!process.argv.includes("--write")) for (const d of doors) console.log(`${d.after}\n${d.summary}\nneeds at least ${d.need} (CORE_VERSION is ${CORE_VERSION})`)
+  else if (short.length) { console.error(short.map((d) => `${d.summary}\nthat needs CORE_VERSION ${d.need} or more (src/base/version.ts says ${CORE_VERSION})`).join("\n")); process.exit(1) }
+  else for (const d of doors) { writeFileSync(apiFile(d.door), d.after); console.log(`wrote ${d.door}-api.txt (${CORE_VERSION}): ${d.summary}`) }
 }

@@ -1,0 +1,413 @@
+# empty-vessel core 0.0.19
+# Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/host.ts, not this.
+
+## ActionGuardFromConfig (src/plugins/index)
+export declare const ActionGuardFromConfig: Layer.Layer<never, ConfigError | PluginError, Config | SystemOne>;
+// names types the core doesn't export: ConfigError
+
+## answerOf (src/loop/resume)
+export declare const answerOf: (dir: string, run: string) => string | undefined;
+
+## AskUser (src/ui/ask)
+declare const AskUser_base: Context.ServiceClass<AskUser, "empty-vessel/AskUser", {
+    readonly ask: (questions: ReadonlyArray<Question>) => Effect.Effect<ReadonlyArray<Answer>>;
+}>;
+export declare class AskUser extends AskUser_base {
+}
+
+## attach (src/attach)
+export declare const attach: (socket: string, sessionId: string | undefined, input: NodeJS.ReadableStream, print: (line: string) => void, cwd?: string) => Effect.Effect<void, Error, never>;
+
+## Background (src/base/background)
+declare const Background_base: Context.ServiceClass<Background, "empty-vessel/Background", {
+    readonly run: <R>(work: Effect.Effect<void, never, R>) => Effect.Effect<void, never, R>;
+    readonly drain: Effect.Effect<void>;
+}>;
+export declare class Background extends Background_base {
+    static readonly layer: Layer.Layer<Background, never, never>;
+}
+
+## Chart (src/base/delivery)
+export declare const Chart: Schema.Struct<{
+    readonly title: Schema.NonEmptyString;
+    readonly points: Schema.$Array<Schema.Struct<{
+        readonly label: Schema.String;
+        readonly value: Schema.Finite;
+    }>>;
+}>;
+export type Chart = typeof Chart.Type;
+
+## chartTable (src/base/delivery)
+export declare const chartTable: (chart: Chart) => string;
+
+## closeSources (src/loop/sources)
+export declare const closeSources: () => void;
+
+## Config (src/base/config)
+declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
+    readonly maxSteps: number;
+    readonly compactAt: number;
+    readonly testOptions: boolean;
+    readonly learnAfterTurn: boolean;
+    readonly nudges: boolean;
+    readonly ui: "plain" | "tui";
+    readonly theme: "blue" | "green" | "orange" | "teal";
+    readonly sources: {
+        readonly [x: string]: {
+            readonly url?: string | undefined;
+            readonly headers?: {
+                readonly [x: string]: string;
+            } | undefined;
+            readonly auth?: "oauth" | undefined;
+            readonly command?: string | undefined;
+            readonly args?: readonly string[] | undefined;
+            readonly env?: {
+                readonly [x: string]: string;
+            } | undefined;
+            readonly ask?: boolean | undefined;
+        };
+    };
+    readonly adoption: {
+        readonly offerSystemOne: number;
+        readonly offerSystemTwo: number;
+        readonly sampler: "all" | "thompson" | "uniform";
+        readonly reward: "ok" | "used" | "verdict";
+        readonly promoteTo: "library" | "pool";
+        readonly askAtEndOfTurn: "always" | "never" | "whenSomethingToJudge" | "whenSystemTwoRan";
+        readonly maxProposals: number;
+        readonly graduateAfter: number;
+        readonly dropAfter: number;
+        readonly dropBelowRate: number;
+        readonly proposals: "conservative" | "eager";
+    };
+    readonly maxDepth: number;
+    readonly systemOne: {
+        readonly use: string;
+    };
+    readonly systemTwo: {
+        readonly use: string;
+        readonly reasoning: "high" | "low" | "max" | "medium" | "xhigh";
+        readonly maxRounds: number;
+        readonly webSearch: boolean;
+        readonly progressMinutes: number;
+        readonly showChecks: boolean;
+        readonly scopeCheck: boolean;
+        readonly style: "i-have-adhd" | "none";
+    };
+    readonly actionGuard: {
+        readonly use: readonly string[];
+    };
+    readonly channel: {
+        readonly use: string;
+    };
+    readonly store: {
+        readonly use: string;
+    };
+    readonly skills: {
+        readonly writeApproval: boolean;
+    };
+    readonly memory: {
+        readonly use: string;
+        readonly projectChars: number;
+        readonly agentChars: number;
+        readonly userChars: number;
+    };
+    readonly media: {
+        readonly baseUrl: string;
+        readonly apiKeyEnv: string;
+        readonly transcribeModel: string;
+        readonly speechModel: string;
+        readonly voice: string;
+        readonly voiceReplies: "all" | "off" | "voice";
+        readonly imageModel: string;
+    };
+    readonly kernel: {
+        readonly tools: {
+            readonly files: "none" | "read-only" | "read-write";
+            readonly shell: boolean;
+            readonly systemOne: boolean;
+            readonly agents: boolean;
+            readonly library: boolean;
+            readonly sources: boolean;
+            readonly media: boolean;
+        };
+    };
+    readonly plugins: {
+        readonly [x: string]: {
+            readonly enabled?: boolean | undefined;
+            readonly path?: string | undefined;
+            readonly from?: string | undefined;
+            readonly config?: unknown;
+        };
+    };
+}>;
+export declare class Config extends Config_base {
+    static readonly layer: Layer.Layer<Config, ConfigError, never>;
+}
+
+## copies (src/plugins/index)
+export declare const copies: (sections: Readonly<Record<string, {
+    readonly from?: string;
+    readonly enabled?: boolean;
+}>>) => ({
+    name: string;
+    error: string;
+    plugin?: undefined;
+} | {
+    error?: undefined;
+    name: string;
+    plugin: Plugin;
+})[];
+// names types the core doesn't export: Plugin
+
+## countTurn (src/loop/signals)
+export declare const countTurn: (window: Window, report: TurnReport) => {
+    window: Window;
+    review?: string;
+};
+
+## curateMemory (src/learning/reviewer)
+export declare const curateMemory: (window: string, exchanges: ReadonlyArray<{
+    readonly user: string;
+    readonly answer: string;
+    readonly origin?: string;
+}>, home?: string) => Effect.Effect<string[], AskError, Config | Memory | Reviewer>;
+// names types the core doesn't export: Memory, AskError
+
+## deliveryError (src/base/delivery)
+export declare const deliveryError: (error: Error) => string;
+
+## DETACHED (src/loop/jobs)
+export declare const DETACHED = "detached-";
+
+## ensureAgentsGuide (src/base/agents)
+export declare const ensureAgentsGuide: (home?: string) => void;
+
+## HostBriefing (src/base/context)
+export declare const HostBriefing: Context.Reference<string | undefined>;
+
+## libraryDir (src/loop/library)
+export declare const libraryDir: (root: string, home?: string) => string;
+
+## loadConversation (src/loop/resume)
+export declare const loadConversation: (dir: string) => Conversation;
+// names types the core doesn't export: Conversation
+
+## loadLibrary (src/loop/library)
+export declare const loadLibrary: (dir: string) => ReadonlyArray<Entry>;
+
+## loadPool (src/loop/library)
+export declare const loadPool: (dir: string) => ReadonlyArray<PoolEntry>;
+
+## localSource (src/kernel/mcp)
+export declare const localSource: (o: LocalOptions) => {
+    name: string;
+    list: Effect.Effect<ReadonlyArray<SourceTool>, Error>;
+    call: (tool: string, args: unknown) => Effect.Effect<unknown, Error>;
+    instructions?: () => string | undefined;
+    ask?: boolean;
+    tools: () => Promise<ReadonlyArray<SourceTool>>;
+    close: () => void;
+};
+// names types the core doesn't export: SourceTool
+
+## logEntries (src/base/session)
+export declare const logEntries: (text: string | undefined) => Array<LogEntry>;
+
+## makeMedia (src/base/media)
+export declare const makeMedia: (settings: MediaSettings, http?: Http) => {
+    transcribe: (path: string) => Effect.Effect<string, MediaError, never>;
+    speak: (text: string, path: string) => Effect.Effect<string, MediaError, never>;
+    image: (prompt: string, path: string) => Effect.Effect<string, MediaError, never>;
+};
+
+## makeSession (src/base/session)
+export declare const makeSession: (parentKey: string) => Effect.Effect<{
+    readonly id: string;
+    readonly key: string;
+    readonly dir: string;
+    readonly record: Recorder;
+}, SessionError, Store>;
+
+## makeSessionRunner (src/interaction)
+export declare const makeSessionRunner: (session: SessionHandle, conversation: Conversation, adapters: InteractionAdapters, operations?: {
+    answer: typeof answer;
+    modelCommand: typeof modelCommand;
+    agentCommand: typeof agentCommand;
+    firstAgent: typeof firstAgent;
+    stopped: typeof stopped;
+    userCommand: typeof userCommand;
+    refineCommand: typeof refineCommand;
+    reviewCommand: typeof reviewCommand;
+    memoryCommand: typeof memoryCommand;
+    skillCommand: typeof skillCommand;
+    undoCommand: typeof undoCommand;
+    redoCommand: typeof redoCommand;
+}) => Effect.Effect<SessionRunner, never, Scope.Scope | Needs>;
+// names types the core doesn't export: agentCommand, answer, firstAgent, modelCommand, stopped, userCommand, SessionHandle, memoryCommand, refineCommand, reviewCommand, redoCommand, undoCommand, skillCommand, Conversation
+
+## makeSources (src/loop/sources)
+export declare const makeSources: (config: Sources, home?: string) => (ToolSource & {
+    close?: () => void;
+})[];
+// names types the core doesn't export: ToolSource
+
+## makeTelegramChannel (src/plugins/telegram/channel)
+export declare const makeTelegramChannel: (options: TelegramOptions, dependencies?: TelegramDependencies) => Effect.Effect<{
+    readonly hideUsageSummaries?: boolean;
+    readonly loadSession: Effect.Effect<string | undefined, Error>;
+    readonly saveSession: (id: string) => Effect.Effect<void, Error>;
+    readonly send: (text: string) => Effect.Effect<number | void, Error>;
+    readonly sendFile?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
+    readonly sendVoice?: (path: string, caption?: string) => Effect.Effect<number | void, Error>;
+    readonly progress?: (summary: string) => Effect.Effect<void, Error>;
+    readonly typing?: () => Effect.Effect<void, Error>;
+    readonly listen: (onMessage: (message: {
+        text: string;
+        requestId?: string;
+        voice?: true;
+    }) => Effect.Effect<void>) => Effect.Effect<void, Error, Scope>;
+}, Error, Scope>;
+
+## ModelOwner (src/answer)
+export type ModelOwner = {
+    current?: Scope.Closeable;
+};
+
+## newConversation (src/loop/turnkit)
+export declare const newConversation: () => Conversation;
+
+## NO_WINDOW (src/loop/signals)
+export declare const NO_WINDOW: Window;
+
+## openSession (src/base/session)
+export declare const openSession: (key: string) => Effect.Effect<{
+    readonly id: string;
+    readonly key: string;
+    readonly dir: string;
+    readonly record: Recorder;
+}, SessionError, Store>;
+
+## PLUGINS (src/plugins/index)
+export declare const PLUGINS: ReadonlyArray<Plugin>;
+// names types the core doesn't export: Plugin
+
+## pluginSettings (src/plugins/plugin)
+export declare const pluginSettings: <S extends Schema.Struct<any>>(name: string, settings: S) => Effect.Effect<S["Type"], ConfigError, Config | S["DecodingServices"]>;
+// names types the core doesn't export: ConfigError
+
+## processStart (src/base/files)
+export declare const processStart: (pid: number) => string | undefined;
+
+## resumeAgent (src/answer)
+export declare const resumeAgent: <R>(session: SessionHandle, conversation: Conversation, services: Context.Context<R | Config>, owner?: ModelOwner) => Effect.Effect<{
+    services: Context.Context<R | Config>;
+    line: string | undefined;
+    use: string | undefined;
+}, never, never>;
+// names types the core doesn't export: SessionHandle, Conversation
+
+## SessionRunner (src/interaction)
+export interface SessionRunner {
+    readonly run: (input: string, resume?: Unfinished) => Effect.Effect<SessionReply, string>;
+    readonly shell: (command: string, share: boolean) => Effect.Effect<string, string>;
+    readonly stop: Effect.Effect<void>;
+    readonly answer: (reply: InteractionAnswer) => Effect.Effect<void>;
+    readonly steer: (text: string) => Effect.Effect<void>;
+    readonly drain: Effect.Effect<ReadonlyArray<string>>;
+}
+// names types the core doesn't export: answer, Unfinished
+
+## SESSIONS (src/base/session)
+export declare const SESSIONS = "sessions";
+
+## Store (src/base/store)
+declare const Store_base: Context.ServiceClass<Store, "empty-vessel/Store", {
+    readonly get: (key: string) => Effect.Effect<string | undefined>;
+    readonly put: (key: string, text: string) => Effect.Effect<void>;
+    readonly append: (key: string, text: string, options?: {
+        readonly sync?: boolean;
+    }) => Effect.Effect<void>;
+    readonly list: (prefix: string) => Effect.Effect<ReadonlyArray<string>>;
+    readonly folder: (key: string) => string;
+}>;
+export declare class Store extends Store_base {
+}
+
+## StoreAndMemoryFromConfig (src/plugins/index)
+export declare const StoreAndMemoryFromConfig: Layer.Layer<Memory | Store, ConfigError, Config>;
+// names types the core doesn't export: ConfigError
+
+## SystemOneFromConfig (src/plugins/index)
+export declare const SystemOneFromConfig: Layer.Layer<SystemOne, ConfigError, Config>;
+// names types the core doesn't export: ConfigError
+
+## SystemTwoLayers (src/loop/systems)
+export declare const SystemTwoLayers: Layer.Layer<Fill | Reviewer | SystemTwo, ConfigError | PluginError, Config>;
+
+## takeLease (src/base/files)
+export declare const takeLease: (path: string) => Effect.Effect<Owner | undefined, never, never>;
+
+## telegramMedia (src/plugins/telegram/media)
+export declare const telegramMedia: (token: Redacted.Redacted<string>, directory: string, http?: Http) => {
+    download: (message: MediaMessage) => Effect.Effect<string | undefined, Error>;
+    receive: (message: MediaMessage) => Effect.Effect<string | undefined, Error, never>;
+    send: (path: string, chatId: string, caption?: string, as?: "document" | "voice" | "photo") => Effect.Effect<number | undefined, Error>;
+};
+// names types the core doesn't export: Http
+
+## telegramSettings (src/plugins/telegram/config)
+export declare const settings: Settings<{
+    token: Setting<Schema.RedactedFromValue<Schema.String>>;
+    allowedUserId: Setting<Schema.String>;
+    allowedChatId: Setting<Schema.String>;
+    stateDirectory: Setting<Schema.optionalKey<Schema.String>>;
+}>;
+
+## TIMER (src/loop/jobs)
+export declare const TIMER = "timer-";
+
+## Timers (src/loop/jobs)
+export declare const Timers: Context.Reference<TimerService>;
+
+## TurnReport (src/loop/signals)
+export type TurnReport = Readonly<{
+    userTurns: number;
+    toolIterations: number;
+    signals: ReadonlyArray<string>;
+    corrected: boolean;
+}>;
+
+## TurnReports (src/loop/endturn)
+export declare const TurnReports: Context.Reference<{
+    readonly report?: (report: TurnReport) => Effect.Effect<void>;
+}>;
+
+## unfinishedTurn (src/loop/resume)
+export declare const unfinishedTurn: (dir: string) => Unfinished | undefined;
+
+## Usage (src/base/usage)
+declare const Usage_base: Context.ServiceClass<Usage, "empty-vessel/Usage", {
+    readonly add: (who: keyof Totals, ms: number, tokens: Tokens) => Effect.Effect<void>;
+    readonly take: Effect.Effect<{
+        turn: Totals;
+        session: Totals;
+    }>;
+}>;
+export declare class Usage extends Usage_base {
+    static readonly layer: Layer.Layer<Usage, never, never>;
+}
+
+## useSources (src/loop/sources)
+export declare const useSources: (sources: typeof active) => void;
+
+## useSystemTwo (src/loop/resume)
+export declare const useSystemTwo: (session: SessionHandle, conversation: Conversation, use: string) => Effect.Effect<string | undefined, SessionError, never>;
+// names types the core doesn't export: SessionHandle, Conversation
+
+## Window (src/loop/signals)
+export type Window = Readonly<{
+    userTurns: number;
+    toolIterations: number;
+    signals: ReadonlyArray<string>;
+}>;

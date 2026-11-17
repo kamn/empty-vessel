@@ -5,7 +5,8 @@
     "empty-vessel": "src/main.ts"
   },
   "exports": {
-    ".": "./src/core.ts"
+    ".": "./src/core.ts",
+    "./host": "./src/host.ts"
   },
   "scripts": {
     "test": "bun test --parallel=4",

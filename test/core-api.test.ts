@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { CORE_VERSION } from "../src/core"
-import { API_FILE, changes, needed, render, versionOf } from "../scripts/core-api"
+import { apiFile, changes, DOORS, needed, render, versionOf } from "../scripts/core-api"
 
-// core-api.txt is what the core promises plugins (src/core.ts's exports and the config's schema). A change to either
-// without rewriting it fails here, saying what changed and which version it needs; the rewrite (bun
-// scripts/core-api.ts --write) is refused until CORE_VERSION is bumped that far.
-test("core-api.txt matches the core, and its version is CORE_VERSION", () => {
-  const committed = readFileSync(API_FILE, "utf8"), now = render(versionOf(readFileSync(API_FILE, "utf8")))
+// core-api.txt is what the core promises plugins (src/core.ts's exports and the config's schema), host-api.txt what it
+// promises hosts (src/host.ts's exports: empty-vessel-agent). A change to either without rewriting its file fails here,
+// saying what changed and which version it needs; the rewrite (bun scripts/core-api.ts --write) is refused until
+// CORE_VERSION is bumped that far.
+test.each(DOORS)("%s-api.txt matches the core, and its version is CORE_VERSION", (door) => {
+  const committed = readFileSync(apiFile(door), "utf8"), now = render(versionOf(committed), door)
   const c = changes(committed, now)
   const why = `the core's API changed (added ${c.added.join(", ") || "nothing"}; removed ${c.removed.join(", ") || "nothing"}; changed ${c.changed.join(", ") || "nothing"}): set CORE_VERSION to at least ${needed(versionOf(committed), c)} in src/base/version.ts, then run bun scripts/core-api.ts --write`
   expect(now === committed ? "" : why).toBe("")
