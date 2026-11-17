@@ -14,7 +14,8 @@
     "local-start": "test -f .empty-vessel/config.json && EMPTY_VESSEL_HOME=\"$PWD/.empty-vessel\" EMPTY_VESSEL_CHANNEL=telegram bun src/main.ts",
     "build": "bun scripts/build.ts",
     "kernel:view": "bun local-eval/kernel-session.ts",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks",
+    "sessions": "bun scripts/session-browser.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

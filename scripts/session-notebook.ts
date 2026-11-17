@@ -107,6 +107,7 @@ export const renderSession = (source: string, rows: RecordRow[], children: strin
 const help = `Usage: bun scripts/session-notebook.ts [--random | SESSION_ID | SESSION_DIR | main.jsonl] [--recent N] [--open]
        bun scripts/session-notebook.ts --list
 Options: --root PATH (default ~/.empty-vessel/sessions), --output PATH
+Browse all sessions interactively: bun run sessions
 Default output: sibling empty-vessel-research/local-eval/results/session-ID.html
 --recent N draws from the N sessions with the latest recorded timestamps.
 Reads main.jsonl only. Keeps all records; does not execute or upload anything.`
