@@ -3,17 +3,18 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import fc from "fast-check"
+import * as hegel from "@hegeldev/hegel"
+import * as gs from "@hegeldev/hegel/generators"
 import { makeKernel, type Cell, type KernelOptions } from "../../src/kernel/kernel"
 import { closeChecker } from "../../src/kernel/checker"
 
 // Integration properties use real Workers, but only a fake, append-only host log.
-// Replay: FC_SEED=<seed> FC_PATH=<path> bun test test/kernel/properties.test.ts -t '<test name>'
-// Increase coverage: FC_RUNS=100 bun test test/kernel/properties.test.ts
-const parameters = (numRuns: number) => ({
-  numRuns: Number(process.env.FC_RUNS ?? numRuns),
-  ...(process.env.FC_SEED === undefined ? {} : { seed: Number(process.env.FC_SEED) }),
-  ...(process.env.FC_PATH === undefined ? {} : { path: process.env.FC_PATH }),
+// A failure found once is replayed first on the next run (.hegel/, gitignored). Replay one elsewhere:
+// HEGEL_SEED=<seed> bun test test/kernel/properties.test.ts -t '<test name>'
+// Increase coverage: HEGEL_CASES=100 bun test test/kernel/properties.test.ts
+const settings = (testCases: number): hegel.Settings => ({
+  testCases: Number(process.env.HEGEL_CASES ?? testCases),
+  ...(process.env.HEGEL_SEED === undefined ? {} : { seed: BigInt(process.env.HEGEL_SEED) }),
 })
 const tsc = new URL("../../node_modules/.bin/tsc", import.meta.url).pathname
 const suiteDir = mkdtempSync(join(tmpdir(), "empty-vessel-properties-"))
@@ -36,12 +37,13 @@ const run = (k: ReturnType<typeof makeKernel>, code: string, calls: unknown[]) =
   Effect.runPromise(k.run(code, {
     record: (value) => Effect.sync(() => { calls.push(value); return value }),
   }))
-const payload = fc.string({ maxLength: 40 })
-const suffix = fc.nat({ max: 100_000 })
+const payload = gs.text({ maxSize: 40 })
 
 for (const kind of ["rules", "types"] as const) {
   test(`kernel property: ${kind} rejection publishes nothing and makes no host calls`, async () => {
-    await fc.assert(fc.asyncProperty(payload, suffix, fc.boolean(), fc.nat({ max: 2 }), async (value, id, before, variant) => {
+    await hegel.testAsync(async tc => {
+      const value = tc.draw(payload, "value"), id = tc.draw(gs.integers({ minValue: 0, maxValue: 100_000 }), "id")
+      const before = tc.draw(gs.booleans(), "before"), variant = tc.draw(gs.integers({ minValue: 0, maxValue: 2 }), "variant")
       await withKernel(async (k, calls) => {
         const name = `rejected_${id}`
         const problem = kind === "types"
@@ -68,12 +70,13 @@ for (const kind of ["rules", "types"] as const) {
           .toMatchObject({ status: "ok", value })
         expect(calls).toEqual([value])
       }, kind === "types" ? { tsc } : {})
-    }), parameters(kind === "types" ? 10 : 20))
+    }, settings(kind === "types" ? 10 : 20))
   }, 120_000)
 }
 
 test("kernel property: importing definition chains never repeats default actions", async () => {
-  await fc.assert(fc.asyncProperty(fc.array(payload, { minLength: 1, maxLength: 5 }), async values => {
+  await hegel.testAsync(async tc => {
+    const values = tc.draw(gs.arrays(payload, { minSize: 1, maxSize: 5 }), "values")
     await withKernel(async (k, calls) => {
       const expected: unknown[] = []
       for (const [i, value] of values.entries()) {
@@ -93,7 +96,7 @@ export default call("record", chain_${i})`, calls)
         expect(calls).toEqual(expected)
       }
     })
-  }), parameters(20))
+  }, settings(20))
 }, 120_000)
 
 // Each generated sequence includes every failure kind, in a shuffled order, and
@@ -101,9 +104,10 @@ export default call("record", chain_${i})`, calls)
 // model contains only expected journal entries, immutable values, and host calls;
 // it never derives its expectations from the kernel's persisted state.
 test("kernel property: failures and reopening preserve session state without replay", async () => {
-  const failures = fc.shuffledSubarray(["rules", "types", "runtime"] as const, { minLength: 3, maxLength: 3 })
-  const rounds = fc.array(fc.record({ value: payload, reopenBefore: fc.boolean() }), { minLength: 3, maxLength: 3 })
-  await fc.assert(fc.asyncProperty(payload, failures, rounds, async (initial, kinds, steps) => {
+  const rounds = gs.arrays(gs.record({ value: payload, reopenBefore: gs.booleans() }), { minSize: 3, maxSize: 3 })
+  await hegel.testAsync(async tc => {
+    const initial = tc.draw(payload, "initial"), kinds = tc.draw(gs.permutations(["rules", "types", "runtime"] as const), "kinds")
+    const steps = tc.draw(rounds, "steps")
     await withKernel(async (first, calls, reopen) => {
       let k = first
       let nextId = 1
@@ -175,5 +179,5 @@ export default () => [${saved.map(s => `[${s.name}, result(${s.n})]`).join(", ")
       openAgain()
       await checkSaved()
     }, { tsc })
-  }), parameters(10))
+  }, settings(10))
 }, 180_000)

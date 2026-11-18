@@ -56,3 +56,6 @@ evals/
 
 # local config for `bun run local-start` (holds tokens)
 .empty-vessel/
+
+# Hegel's saved failing examples (replayed first by the property tests)
+.hegel/
