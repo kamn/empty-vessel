@@ -16,6 +16,7 @@ import type { SystemOne } from "../system-one/systemone"
 import type { Tokens } from "../base/usage"
 import type { SystemTwo } from "../system-two/systemtwo"
 import type { Usage } from "../base/usage"
+import type { Pulled } from "./pull"
 import type { Unfinished } from "./resume"
 
 // What a turn and its steps may use: the services, provided once in main.ts.
@@ -80,6 +81,7 @@ export type TurnState = {
   offered: { systemOne: ReadonlyArray<string>; systemTwo: ReadonlyArray<string> } // pool tools on trial this turn (src/loop/pool.ts)
   cellsBefore: number // System Two's kernel cells before this turn: the ones after are this turn's (src/loop/adopt.ts)
   turn: number // this turn's number in the session (1 = the first): the record's events for a turn share it
+  pulled?: Pulled // the memory facts System One picked at the turn's start (src/loop/pull.ts): in its view and System Two's first prompt
   resume?: Unfinished // a turn a restart cut short, going on: System Two's first run hears what it did (src/loop/resume.ts)
 }
 export const newTurnState = (): TurnState => ({ steps: [], did: [], work: [], passed: [], gathered: "", gatheredPaths: [], escalated: 0, told: 0, answerText: undefined, systemTwoAnswered: false, offered: { systemOne: [], systemTwo: [] }, cellsBefore: 0, turn: 0 })

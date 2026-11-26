@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { ActionGuard, combineActionGuards } from "../tools/action-guard"
 import { Config, ConfigError } from "../base/config"
 import type { Plugin, Provides } from "./plugin"
-import { memoryLimits, memoryOnStore } from "../base/memory"
+import { memoryLimits, memoryOnStore, notesPull } from "../base/memory"
 import type { PluginSetup } from "../base/plugin-setup"
 import { diskStore } from "../base/store"
 import { FakeSystemOne } from "../system-one/systemone"
@@ -37,10 +37,13 @@ const fake: Plugin = {
 }
 
 // The core's own store and memory: ~/.empty-vessel, and notes kept in the store (for the project empty-vessel was started in).
+// With memory.pull on, the notes also offer System One the turn-start pull (KTD13: the evals' notes-in-System-One arm);
+// off by default, so a notes user's turns are as before.
 const disk: Plugin = { name: "disk", provides: { store: Effect.succeed(diskStore()) } }
 const notes: Plugin = { name: "notes", provides: { memory: Effect.gen(function* () {
   const { memory } = yield* Config
-  return memoryOnStore(process.cwd(), memoryLimits(memory))
+  const store = memoryOnStore(process.cwd(), memoryLimits(memory))
+  return memory.pull ? notesPull.pipe(Layer.provideMerge(store)) : store
 }) } }
 
 export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]

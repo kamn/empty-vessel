@@ -7,6 +7,7 @@ import { emit } from "../base/events"
 import { Config } from "../base/config"
 import { compactIfNeeded } from "./compact"
 import { endTurn } from "./endturn"
+import { pull, reportPull } from "./pull"
 import { briefing } from "../learning/notes"
 import { responseStyle } from "../system-two/style"
 import { HostBriefing, projectInstructions } from "../base/context"
@@ -57,15 +58,16 @@ export const isFinished = (stepsSoFar: number, done: number, systemTwoAnswered: 
 export const finalReply = (answerText: string | undefined, last: string, hitLimit: boolean) => `${answerText ?? last}${hitLimit ? " (step limit)" : ""}`
 
 // System One's decision for the next step: is the goal done, and if not, which option. Its view stays small: what it did
-// in the last 20 turns, the last 3 exchanges (long answers trimmed), the goal, this turn's last 3 steps, and the user
-// profile's first line (who it works for; it doesn't shape what Jev says: a Jev-only reply is the last step's output).
+// in the last 20 turns, the last 3 exchanges (long answers trimmed), the goal, this turn's last 3 steps, the memory facts
+// it picked at the turn's start, and the user profile's first line (who it works for; it doesn't shape what Jev says: a
+// Jev-only reply is the last step's output).
 // `last`: the step limit is reached and only `finished` matters (no step follows): said as such, not as a next step.
 const decide = (ctx: Ctx, state: TurnState, options: Readonly<Record<string, string>>, library: ReadonlySet<string>, last = false) =>
   Effect.gen(function* () {
     const { history, actions } = ctx.conversation
     const earlier = history.slice(-3).map((h) => `User: ${h.user} → answered: ${h.answer.length > 300 ? `${h.answer.slice(0, 300)}…` : h.answer}`)
     const recent = actions.slice(-20).map((a, i, all) => `turn ${actions.length - all.length + i + 1}: ${a}`)
-    const view = { ...(recent.length ? { did: recent } : {}), ...(earlier.length ? { earlier } : {}), goal: ctx.input, steps: state.steps.slice(-3), ...(ctx.conversation.profile ? { user: ctx.conversation.profile } : {}) }
+    const view = { ...(recent.length ? { did: recent } : {}), ...(earlier.length ? { earlier } : {}), goal: ctx.input, steps: state.steps.slice(-3), ...(state.pulled?.picked.length ? { facts: state.pulled.picked.map((f) => f.text) } : {}), ...(ctx.conversation.profile ? { user: ctx.conversation.profile } : {}) }
 
     yield* emit("activity", ctx.depth, last ? "System One is checking whether the goal is done" : `System One is choosing step ${state.steps.length + 1}`)
     const { result: { choice: picked, confidence, done, tokens }, ms } = yield* timed(ctx, "systemOne", ctx.systemOne.choose(view, options))
@@ -181,6 +183,10 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     state.gatheredPaths.push(...mentioned.paths)
     if (mentioned.paths.length) state.did.push(`mentioned (${mentioned.paths.map((p) => p.split("/").at(-1)).join(", ")})`)
     state.turn = conversation.history.length + 1
+
+    // What memory holds for this goal, as System One judges it: once, before its first decision (src/loop/pull.ts).
+    state.pulled = yield* pull(ctx, input)
+
     const pool = loadPool(dir).filter(usable)
     const trial = (kind: "systemOne" | "systemTwo", n: number) => choose(pool.filter((e) => e.for === kind), known, n, config.adoption.sampler, config.adoption.reward)
     const trialSystemOne = trial("systemOne", config.adoption.offerSystemOne)
@@ -197,7 +203,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     }
     const steps: Readonly<Record<string, Step>> = { ...(config.testOptions ? { ...TEST_STEPS, ...STEPS } : STEPS), ...Object.fromEntries([...promoted, ...trialSystemOne].map((e) => [e.name, libraryStep(e.name, dir)])) }
 
-    let last = "", finishedByCheck = false, waitingForUser = false
+    let last = "", lastFailed = false, finishedByCheck = false, waitingForUser = false
 
     const explicitSkill = conversation.explicitSkill === true
     delete conversation.explicitSkill
@@ -213,6 +219,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
       const result = yield* (steps[choice] ?? STEPS.escalate!)(ctx, state) // a pick with no step (e.g. the fake's "ask") goes to System Two
       yield* recordStep(ctx, state, choice, result)
       last = result.reply
+      lastFailed = result.outcome === "failed"
       finishedByCheck = result.finishedByCheck === true
       waitingForUser = result.outcome === "waiting_for_user"
       if (depth === 0 && waitingForUser) yield* reportState("blocked")
@@ -227,6 +234,7 @@ const runTurn = (session: SessionHandle, input: string, depth: number, conversat
     const reply = finalReply(state.answerText, last, hitLimit)
 
     yield* session.record("assistant", reply)
+    yield* reportPull(state.pulled, hitLimit ? "stopped" : waitingForUser ? "waiting" : lastFailed ? "failed" : "done")
     yield* endTurn(ctx, state, reply)
     return reply
   })

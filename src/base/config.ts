@@ -82,6 +82,7 @@ export const ConfigSchema = described({
   }, "Skills the agent writes (saveSkill)"),
   memory: section({
     use: setting(Schema.String, "The plugin that remembers (notes: one line per entry, kept in the store)", { default: "notes" }),
+    pull: setting(Schema.Boolean, "At the start of each turn System One picks the notes relevant to it and both systems see them (the graph memory always does)", { default: false }),
     // The notes plugin's size limits (src/base/memory.ts): a write that would go over fails until entries are merged.
     projectChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters this project's memory may hold (merge or remove entries to add more)", { default: 2200 }),
     agentChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters each agent's memory may hold (this machine and its tools)", { default: 2400 }),

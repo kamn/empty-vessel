@@ -110,6 +110,8 @@ const escalate: Step = (ctx, state) =>
       ...(state.escalated === 0 ? [`Goal: ${attached.text}`] : ["The goal isn't done yet. What happened since your last answer:"]),
       ...(state.escalated === 0 && attached.images.length ? [`Images attached to this message (you can see them): ${attached.images.map((i) => `${i.label} ${i.path}`).join(", ")}`] : []),
       ...(state.escalated === 0 && state.gathered ? [`Files for this request, from the user's @mentions and what System One loaded (read others if you need them):\n\n${state.gathered}`] : []),
+      // Per turn, so here and not in the briefing (cached once per conversation).
+      ...(state.escalated === 0 && state.pulled?.picked.length ? [`Facts from memory System One picked for this request (a starting point):\n${state.pulled.picked.map((f) => `- ${f.text}`).join("\n")}`] : []),
       // Only the names: System Two loads one when it needs it (import it from "kernel"; tools() says what each is for).
       ...(state.escalated === 0 && state.offered.systemTwo.length ? [`Tools on trial (new, being tried out: import from "kernel" if one helps; tools() says how to call each): ${state.offered.systemTwo.join(", ")}`] : []),
       ...(state.escalated === 0 && outside ? [outside] : []),

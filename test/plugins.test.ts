@@ -31,6 +31,20 @@ test("each kind is made by the plugin the config names; an unknown name lists th
   expect(run({ systemTwo: { use: "fake" }, memory: { use: "disk" } })).toBe('error: memory.use is "disk", but no plugin provides a memory by that name (there are: notes)')
 })
 
+// The notes offer the turn-start pull only with memory.pull on (off by default: a notes user's turns are as before).
+test("the notes memory offers the turn-start pull only with memory.pull on", () => {
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-plugins-"))
+  const run = (config: object) => {
+    writeFileSync(join(dir, "config.json"), JSON.stringify(config))
+    const script = `import { Context, Effect, Layer } from "effect"; import { Config } from "./src/base/config"; import { MemoryPull } from "./src/base/memory"; import { StoreAndMemoryFromConfig } from "./src/plugins/index"
+      Effect.runPromise(Effect.gen(function* () { const services = yield* Layer.build(StoreAndMemoryFromConfig); return typeof Context.get(services, MemoryPull).candidates }).pipe(Effect.scoped, Effect.provide(Config.layer))).then(console.log)`
+    return runScript(dir, script)
+  }
+
+  expect(run({ systemTwo: { use: "fake" } })).toBe("undefined")
+  expect(run({ systemTwo: { use: "fake" }, memory: { pull: true } })).toBe("function")
+})
+
 // plugins.<name>.from: a copy of a bundled plugin under that name, with that section's config; a plugin that can't be
 // copied, or a bundled plugin's name, is an error naming why.
 test("a section with from is a copy of that plugin, with its own config; a bad from or a bundled name fails, saying why", () => {

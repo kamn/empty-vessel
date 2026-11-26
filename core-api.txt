@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.19
+# empty-vessel core 0.0.21
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -170,6 +170,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
     };
     readonly memory: {
         readonly use: string;
+        readonly pull: boolean;
         readonly projectChars: number;
         readonly agentChars: number;
         readonly userChars: number;
@@ -378,6 +379,12 @@ export declare class MemoryError extends MemoryError_base<{
 }> {
 }
 
+## MemoryPull (src/base/memory)
+export declare const MemoryPull: Context.Reference<{
+    readonly candidates?: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>;
+    readonly reportUsage?: (usage: PullUsage) => Effect.Effect<void>;
+}>;
+
 ## Model (src/system-two/loop)
 export type Model = {
     readonly name: string;
@@ -479,6 +486,20 @@ export type Provides = {
     readonly memory?: Effect.Effect<Layer.Layer<Memory, never, Store>, ConfigError, Config>;
 };
 
+## PullCandidate (src/base/memory)
+export type PullCandidate = {
+    readonly id: string;
+    readonly text: string;
+    readonly kind?: string;
+};
+
+## PullUsage (src/base/memory)
+export type PullUsage = {
+    readonly shown: ReadonlyArray<string>;
+    readonly picked: ReadonlyArray<string>;
+    readonly outcome: "done" | "failed" | "stopped" | "waiting";
+};
+
 ## recordUsage (src/base/usage)
 export declare const recordUsage: (request: {
     readonly system: "systemOne" | "systemTwo";
@@ -572,6 +593,7 @@ export interface StepState {
     readonly earlier?: readonly string[];
     readonly goal: string;
     readonly steps: readonly string[];
+    readonly facts?: readonly string[];
     readonly user?: string;
 }
 
@@ -774,6 +796,7 @@ config.channel.use: {"type":"string","description":"The conversation channel (te
 config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
 config.skills.writeApproval: {"type":"boolean","description":"Skills the agent saves in your own turns wait for /skills approve too (those from jobs, sub-agents and background reviews always do)","default":false}
 config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}
+config.memory.pull: {"type":"boolean","description":"At the start of each turn System One picks the notes relevant to it and both systems see them (the graph memory always does)","default":false}
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
 config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}
 config.memory.userChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters the user profile may hold (who you are and how you work), shared by every agent","default":1375}

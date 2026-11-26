@@ -28,6 +28,17 @@ export class Memory extends Context.Service<Memory, {
   readonly file: (scope: Scope) => Effect.Effect<string> // where it's kept, relative to the Store (to edit by hand)
 }>()("empty-vessel/Memory") {}
 
+// A memory's turn-start pull (KTD12, KTD13), offered by the memory plugin when it has one: the facts it holds for a goal
+// (System One judges which matter: src/loop/pull.ts), and, at the turn's end, which were shown, which System One picked
+// and how the turn went (KTD18: a memory credits the outcome to the picked facts only). `kind`: "existence" and
+// "observation" facts are never offered. No candidates (the default): no pull, the turn goes as before.
+export type PullCandidate = { readonly id: string; readonly text: string; readonly kind?: string }
+export type PullUsage = { readonly shown: ReadonlyArray<string>; readonly picked: ReadonlyArray<string>; readonly outcome: "done" | "failed" | "stopped" | "waiting" }
+export const MemoryPull = Context.Reference<{
+  readonly candidates?: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>
+  readonly reportUsage?: (usage: PullUsage) => Effect.Effect<void>
+}>("empty-vessel/MemoryPull", { defaultValue: () => ({}) })
+
 // The agent a conversation works as ("root": empty-vessel itself): set by src/answer.ts (useAgent) and, for a sub-agent, by
 // src/loop/turn.ts. Read whenever memory is used, so one Memory serves every agent.
 export const ActiveAgent = Context.Reference<string>("empty-vessel/ActiveAgent", { defaultValue: () => "root" })
@@ -123,3 +134,11 @@ export const memoryOnStore = (root: string, given: Partial<Limits> = {}) =>
       file: key,
     }
   }))
+
+// The notes' pull (KTD13): every entry the active agent sees now, as it is (they're few: each scope has a size limit).
+// Nothing to report: notes keep no usage.
+export const notesPull = Layer.effect(MemoryPull, Effect.gen(function* () {
+  const memory = yield* Memory
+  const scope = (s: Scope) => Effect.map(memory.entries(s), (ls) => ls.map((l, i): PullCandidate => ({ id: `${s}:${i + 1}`, text: l.replace(/^- /, "") })))
+  return { candidates: () => Effect.map(Effect.forEach(SCOPES, scope), (all) => all.flat()) }
+}))
