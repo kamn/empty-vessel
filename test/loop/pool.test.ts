@@ -3,8 +3,8 @@ import { Effect } from "effect"
 import { appendFileSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { loadLibrary, loadPool, type PoolEntry, savePool } from "../../src/loop/library"
-import { applicable, choose, record, settle, stats } from "../../src/loop/pool"
+import { loadLibrary, loadPool, type PoolEntry, savePool, settle } from "../../src/loop/library"
+import { applicable, choose, record, stats } from "../../src/loop/pool"
 
 const tool = (name: string): PoolEntry => ({ name, description: `does ${name}`, file: "", from: "", for: "systemTwo" })
 // A seeded random number generator, so the sampler's draws repeat.
