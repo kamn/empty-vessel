@@ -9,6 +9,7 @@ A coding agent harness.
 - Explain plainly, with concrete examples over jargon.
 - Use clickable Markdown links when referring to a file or web page with a known destination. For local files, use absolute `file://` URLs (percent-encode spaces) so the TUI can open them; for web pages, use HTTPS links.
 - Code style: group related lines in a function with blank lines (setup and lookups, the main work, recording and logging, the return), and put blank lines around loops and multi-line `if` blocks. Leave short functions (about 4 lines or fewer) as they are.
+- Structure: deep modules, narrow interfaces. When a check flags it (`bun run lint:structure` for files that import each other in a circle, `test/layers.test.ts` for folders), fix it from first principles: which file belongs at which layer, and what can hide behind a narrow door? Don't move code around just to quiet the check. Example: `settle` rewrites the library's files, so it lives in `src/loop/library.ts`, and `src/loop/pool.ts` (the record and the draw) imports nothing from it.
 - HTML reports and charts (benchmark timelines, comparisons) are local files, written under `local-eval/results/` and opened in the browser. Don't upload or publish them as artifacts.
 
 ## Direction

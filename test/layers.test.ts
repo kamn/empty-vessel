@@ -45,3 +45,11 @@ test("plugins import the core only by its package name", () => {
       .map((spec) => `${relative(SRC, file)} → ${spec}`))
   expect(wrong).toEqual([])
 })
+
+// Inside a folder the levels above say nothing, so fallow checks it: no two files import each other in a circle
+// (a circle has no order to read its files in, and one side's top-level code can run before the other's exists).
+// The same check by hand: bun run lint:structure.
+test("no files import each other in a circle", () => {
+  const ran = Bun.spawnSync([join(import.meta.dir, "../node_modules/.bin/fallow"), "architecture", "--cycles", "--fail-on-issues", "--quiet"], { cwd: join(import.meta.dir, "..") })
+  expect(ran.exitCode === 0 ? "" : ran.stdout.toString() + ran.stderr.toString()).toBe("")
+})
