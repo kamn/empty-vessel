@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { closeSync, openSync, readSync } from "node:fs"
 import { appendFile, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises"
 import { dirname } from "node:path"
 import { Effect } from "effect"
@@ -80,3 +81,13 @@ export const takeLease = (path: string) =>
     yield* writeAtomic(path, JSON.stringify({ pid: process.pid, startedAt: myStart() }))
     return undefined
   })
+
+// The bytes of `file` from `offset` up to its last whole line (a line being appended right now waits for the next pass).
+export const tail = (file: string, offset: number, size: number) => {
+  const bytes = Buffer.alloc(size - offset)
+  const fd = openSync(file, "r")
+  try { readSync(fd, bytes, 0, bytes.length, offset) } finally { closeSync(fd) }
+
+  const end = bytes.lastIndexOf(10) + 1
+  return { text: bytes.subarray(0, end).toString("utf8"), read: end }
+}

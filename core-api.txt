@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.23
+# empty-vessel core 0.0.24
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)

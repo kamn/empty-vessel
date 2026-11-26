@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect"
+import { Context, Effect, Option } from "effect"
 import { emit } from "../base/events"
 import { Background } from "../base/background"
 import { withLock } from "../base/files"
@@ -6,6 +6,9 @@ import { logEntries } from "../base/session"
 import { Store } from "../base/store"
 import { loadChecks } from "../learning/checks"
 import { Memory } from "../base/memory"
+import { GraphMemory } from "../base/graph-memory"
+import { captureSessions } from "../learning/graph-capture"
+import { curateGraph } from "../learning/graph-curator"
 import { applyProposals, curateMemory, Reviewer } from "../learning/reviewer"
 import { Timers } from "./jobs"
 import { countTurn, learningSignals, NO_WINDOW, type TurnReport, type Window } from "./signals"
@@ -102,8 +105,14 @@ const nudge = (ctx: Ctx, state: TurnState, reply: string) =>
     }))
     if (!review) return
 
+    // With the graph on (KTD15), the sessions are captured and the curator writes graph operations instead.
+    // ponytail: the graph's review keeps no skills (curateMemory's SKILL_REVIEW); add skill edits to its ops if missed.
     const exchanges = [...ctx.conversation.history, { user: ctx.input, answer: reply }]
-    yield* (yield* Background).run(curateMemory(review, exchanges).pipe(
+    const graph = yield* Effect.serviceOption(GraphMemory)
+    const curate: Effect.Effect<ReadonlyArray<string>, unknown, Effect.Services<ReturnType<typeof curateMemory>> | Store> = Option.isSome(graph)
+      ? Effect.andThen(captureSessions, curateGraph(review)).pipe(Effect.provideService(GraphMemory, graph.value))
+      : curateMemory(review, exchanges)
+    yield* (yield* Background).run(curate.pipe(
       Effect.flatMap((said) => emit("review", ctx.depth, `memory review: ${said.map((s) => `\n  ${s}`).join("") || "nothing changed"}`)),
       Effect.ignore,
     ))

@@ -6,6 +6,7 @@ import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Background } from "../../src/base/background"
 import { Config, ConfigSchema } from "../../src/base/config"
 import { Events } from "../../src/base/events"
+import { graphOnStore } from "../../src/base/graph-memory"
 import { memoryOnStore } from "../../src/base/memory"
 import { makeSession } from "../../src/base/session"
 import { diskStore } from "../../src/base/store"
@@ -24,7 +25,7 @@ import { AskUser } from "../../src/ui/ask"
 // Memory nudges in the plain TUI (KTD18): the real turn loop (the fake System One answers alone: echo, so every turn is
 // Jev-only), the window kept in the home's nudge.json, and a fake Reviewer whose answers the test gives.
 type Asked = { input: string; fields: ReadonlyArray<string> }
-const world = (options: { config?: object; answers?: ReadonlyArray<object>; gate?: Deferred.Deferred<void>; started?: Deferred.Deferred<void>; origin?: string; reports?: Array<TurnReport>; memory?: string } = {}) => {
+const world = (options: { config?: object; answers?: ReadonlyArray<object>; gate?: Deferred.Deferred<void>; started?: Deferred.Deferred<void>; origin?: string; reports?: Array<TurnReport>; memory?: string; graph?: boolean } = {}) => {
   const home = mkdtempSync(join(tmpdir(), "nudge-home-")), project = join(home, "project")
   mkdirSync(project)
   if (options.memory) { mkdirSync(join(home, "agents")); writeFileSync(join(home, "agents", "memory.md"), options.memory) }
@@ -53,8 +54,9 @@ const world = (options: { config?: object; answers?: ReadonlyArray<object>; gate
     Effect.provideService(Reviewer, reviewer),
     options.origin ? Effect.provideService(Timers, { ...Timers.defaultValue(), origin: () => options.origin }) : (e) => e,
     options.reports ? Effect.provideService(TurnReports, { report: (r) => Effect.sync(() => { options.reports!.push(r) }) }) : (e) => e,
-    Effect.provide(memoryOnStore(project, { agent: config.memory.agentChars, project: config.memory.projectChars }).pipe(Layer.provideMerge(diskStore(home)))),
+    Effect.provide((options.graph ? graphOnStore(project) : memoryOnStore(project, { agent: config.memory.agentChars, project: config.memory.projectChars })).pipe(Layer.provideMerge(diskStore(home)))),
     Effect.provide(Background.layer), Effect.provide(systemOne), Effect.provide(FakeSystemTwo), Effect.provide(Usage.layer),
+    Effect.scoped,
     Effect.provideContext(Context.empty() as Context.Context<Needs>),
   )
   // As main.ts does: the turn, then its exchange into the history.
@@ -100,6 +102,22 @@ test("AE7, plain TUI: ten Jev-only user turns with one correction; every reply c
     expect(w.remembered()).toBe("- The user means the second file when unsure.\n")
     expect(w.window()).toEqual(NO_WINDOW)
     expect(w.judged).toHaveLength(9) // one System One question per user turn after the first (nothing to correct before it)
+  } finally { w.done() }
+})
+
+// KTD15: with the graph on, the review captures the sessions and curates them: graph operations, not memory ops.
+test("with the graph on, a nudge's review captures this session and asks the curator for graph operations", async () => {
+  const w = world({ graph: true, answers: [{ ops: [] }] })
+  try {
+    await w.inProject(() => Effect.runPromise(w.provide(Effect.gen(function* () {
+      const conversation = newConversation()
+      for (const text of turns(10, 4)) yield* w.say(conversation, text)
+      yield* (yield* Background).drain
+    }))))
+    expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]!.fields).toEqual(["ops"])
+    expect(w.asked[0]!.input).toContain("No, I meant the second file 4 → echo: No, I meant the second file 4")
+    expect(w.asked[0]!.input).toContain("corrected")
   } finally { w.done() }
 })
 

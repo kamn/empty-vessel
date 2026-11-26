@@ -25,7 +25,7 @@ export class GraphMemory extends Context.Service<GraphMemory, {
   readonly exportNotes: Effect.Effect<Readonly<Record<string, string>>> // every notes file, by Store key (R31: lossy)
 }>()("empty-vessel/GraphMemory") {}
 
-const projectOf = (root: string) => basename(projectDir(root, ""))
+export const projectOf = (root: string) => basename(projectDir(root, ""))
 
 // The file a fact of `scope` belongs to, for `agent` in `project`.
 const notesFile = (scope: Scope, agent: string, project: string): NotesFile =>
