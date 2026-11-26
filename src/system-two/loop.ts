@@ -63,7 +63,7 @@ export const systemTwoFromModel = (model: Model, maxRounds: number) => {
       // empty-vessel's instructions, then the briefing (the project's instructions and what empty-vessel learned): the same all
       // session, so the start of every request stays identical, good for prompt caching.
       // What it's told of the kernel names only what the kernel grants (hooks.grants; everything: the usual text).
-      const told = kernelInstructions(hooks.grants), tools = systemTwoTools(hooks.grants)
+      const told = kernelInstructions(hooks.grants, hooks.graph), tools = systemTwoTools(hooks.grants)
       const instructions = hooks.briefing ? `${told}\n\n${hooks.briefing}` : told
       // Images the user attached, with the prompt (shrunk, base64). ponytail: they stay in the thread and go with every
       // later request until compaction summarizes them away.

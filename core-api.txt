@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.22
+# empty-vessel core 0.0.23
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -328,6 +328,7 @@ export type Hooks = {
     readonly scope?: () => Effect.Effect<string | undefined>;
     readonly remembered?: () => Effect.Effect<string>;
     readonly grants?: Grants;
+    readonly graph?: boolean;
 };
 
 ## jobsReminder (src/system-two/dispatch)
@@ -340,7 +341,7 @@ export declare const jsonSchemaFor: (schema: Schema.Top) => Record<string, unkno
 export declare const KERNEL_INSTRUCTIONS: string;
 
 ## kernelInstructions (src/system-two/instructions)
-export declare const kernelInstructions: (g?: Grants) => string;
+export declare const kernelInstructions: (g?: Grants, graph?: boolean) => string;
 
 ## Kind (src/base/events)
 export type Kind = "step" | "system-two" | "check" | "compact" | "review" | "spawn" | "error" | "activity" | "note";

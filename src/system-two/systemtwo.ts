@@ -149,6 +149,8 @@ export type Hooks = {
   // What the kernel grants (config.json's kernel.tools): System Two's instructions and the kernel tool name only those
   // built-ins (kernelInstructions, systemTwoTools). None: everything.
   readonly grants?: Grants
+  // The graph memory is on (memory.use = graph): System Two is told of the graph built-ins. None: it isn't.
+  readonly graph?: boolean
 }
 
 // How to compact: a result summary for each old cell (by its intent and a glimpse of its output; none: the output's

@@ -1,6 +1,6 @@
 import { nestedContextFiles } from "../base/context"
 import { mkdirSync } from "node:fs"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { AskUser } from "../ui/ask"
 import { withAsking } from "../integrations/herdr"
 import type { AskUserArgs } from "../system-two/systemtwo"
@@ -22,6 +22,7 @@ import { Inbox } from "../base/inbox"
 import { listAgents } from "../base/agents"
 import { skillContext, skillNotes } from "./skills"
 import { Memory } from "../base/memory"
+import { GraphMemory } from "../base/graph-memory"
 import { type Conversation, type Ctx, type Exchange, type Needs, type Step, timed } from "./turnkit"
 
 // What System One can pick each step. The descriptions are what System One reads to choose, so wording matters.
@@ -154,6 +155,7 @@ const escalate: Step = (ctx, state) =>
       kernel: makeKernelHook(ctx, yield* Effect.context<Needs>(), state.offered.systemTwo, state.turn),
       skillContext: () => skillContext(ctx.conversation, ctx.config.kernel.tools.files !== "none"),
       grants: ctx.config.kernel.tools, // System Two is told only of the built-ins this kernel grants
+      graph: Option.isSome(yield* Effect.serviceOption(GraphMemory)), // and of the graph ones only with the graph memory
       images: attached.images, thread: ctx.conversation.thread, briefing: ctx.conversation.briefing, stash: ctx.conversation.stash, cacheKey: ctx.session.id, depth: ctx.depth, pending: () => ctx.conversation.jobs.pending(),
     }
 

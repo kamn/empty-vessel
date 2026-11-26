@@ -13,12 +13,15 @@ const FILES_AND_SHELL: ReadonlyArray<readonly [Need, string]> = [
   ["read", "read(path, offset?, limit?) (numbered lines)"], ["read", "readText(path) (the raw text)"], ["write", "write(path, content)"],
   ["write", "edit(path, [{ oldText, newText }])"], ["shell", "bash(command, timeoutSeconds?)"],
 ]
-const OTHERS: ReadonlyArray<readonly [Need | undefined, string]> = [
+const OTHERS: ReadonlyArray<readonly [Told | undefined, string]> = [
   [undefined, "now() and random() (the time, a random number)"], ["systemOne", "judge(items, evidence, questions)"], ["systemOne", "systemOne(evidence, questions)"],
-  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["agents", "schedule({ at | cron, tz?, prompt, deliver? })"], ["library", "memory.add / memory.replace / memory.remove"], ["library", "saveSkill({ name, content } | { name, old, new })"], ["library", "pastSessions(query | { query, allProjects?, summarize? } | { mode, session, seq? })"], ["media", "image(prompt) (makes a picture, gives its path; send it with tell_user's file)"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
+  ["agents", "spawn(task) / wait(ids) / cancel(id) / jobs()"], ["agents", "schedule({ at | cron, tz?, prompt, deliver? })"], ["library", "memory.add / memory.replace / memory.remove"], ["library", "saveSkill({ name, content } | { name, old, new })"], ["library", "pastSessions(query | { query, allProjects?, summarize? } | { mode, session, seq? })"], ["graph", "graph.query / graph.why / graph.near / graph.add / graph.link / graph.retire"], ["media", "image(prompt) (makes a picture, gives its path; send it with tell_user's file)"], [undefined, "remember / forget"], [undefined, "result(n)"], [undefined, "and every definition earlier cells exported."],
 ]
 const USE: ReadonlyArray<readonly [Need | undefined, string]> = [["read", "readText"], ["shell", "bash"], [undefined, "now"], [undefined, "random"], [undefined, "Effect.sleep"]]
-const granted = (g: Grants, items: ReadonlyArray<readonly [Need | undefined, string]>) => items.filter(([n]) => !n || has(g, n)).map(([, text]) => text)
+// "graph": the library, with the graph memory on (memory.use = graph); off, the text is exactly as before it.
+type Told = Need | "graph"
+const tells = (g: Grants, graph: boolean) => (n: Told) => (n === "graph" ? graph && g.library : has(g, n))
+const granted = (g: Grants, items: ReadonlyArray<readonly [Told | undefined, string]>, graph = false) => items.filter(([n]) => !n || tells(g, graph)(n)).map(([, text]) => text)
 const listed = (items: ReadonlyArray<string>) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items.join(""))
 const importLine = (g: Grants) => {
   const fs = granted(g, FILES_AND_SHELL)
@@ -37,11 +40,11 @@ export const notGranted = (g: Grants) => [
 // Set in the Docker image (empty-vessel-agent/docker/Dockerfile): only the home folder outlives a container upgrade.
 const CONTAINER = "- You run in a container. Tools you install user-level persist: pip install, bun add -g, npm i -g, binaries into ~/.local/bin. sudo apt-get install works but is lost when the container is recreated, so prefer user-level installs."
 
-export const kernelInstructions = (g: Grants = ALL) => {
-  const lines: ReadonlyArray<readonly [ReadonlyArray<Need | "example">, string]> = [
+export const kernelInstructions = (g: Grants = ALL, graph = false) => {
+  const lines: ReadonlyArray<readonly [ReadonlyArray<Told | "example">, string]> = [
   [[], "You are System Two of a coding agent, working in the user's project folder. You do all your work in the kernel: each kernel call runs a TypeScript cell."],
   [[], importLine(g)],
-  [[], `  ${granted(g, OTHERS).join(", ")}`],
+  [[], `  ${granted(g, OTHERS, graph).join(", ")}`],
   [[], "- The kernel's rules: a cell's top level only defines things (functions, Effects, const values): no work there, no top-level await, no let. Everything that touches the world goes through the built-ins, so each Effect's type says what it touches (Files, Shell, System One, Agents…): nothing from Bun, node: modules, fetch, process, timers, Date.now or Math.random " + `(use ${granted(g, USE).join(", ")})` + ". A cell that breaks a rule is refused before it runs, with what to write instead."],
   [[], "- A cell's named exports stay defined for later cells, and importing them costs nothing (defining an Effect doesn't run it). The default export is the cell's action, run once; its value comes back shortened as $N."],
   [[], "- remember(effect), or remember((input) => effect): the result is saved and reused by every later cell (per input, for a function) instead of running again. Use it for what's costly and can't change underneath: System One, judge, sub-agents, tool sources. Not for files or commands (that's a type error): pass their data in as the input instead, so new data means a new result. Results must be JSON. forget(x) drops a saved result."],
@@ -52,6 +55,7 @@ export const kernelInstructions = (g: Grants = ALL) => {
   [["library"], "- What empty-vessel remembers (about the user, this machine and this project) is in your briefing. When you find something a later session would need, keep it right away: yield* memory.add(\"project\" | \"agent\" | \"user\", \"one short line\"): project for anything about this repo (its setup, commands, versions, conventions), agent for this computer and its tools (in every project), user for who the user is and how they work (their preferences and corrections; never machine facts). Keep: environment and setup discoveries (a version, a PATH, a command that only works a certain way), the user's corrections and preferences, the repo's conventions. Skip: anything about this task only, anything the code or git already shows, anything already in CLAUDE.md or AGENTS.md. Merge related entries with memory.replace(scope, oldText, newText); each scope has a size limit: when one is full, merge or memory.remove(scope, oldText) first."],
   [["library"], "- After a hard task (several steps, a dead end that led to a fix, or the user correcting your approach), keep the workflow as a skill: yield* saveSkill({ name, content }) writes a personal SKILL.md (frontmatter name and description, then the steps), in the catalog at once; yield* saveSkill({ name, old, new }) changes one place in one. Patch an existing skill before making a near-duplicate."],
   [["library"], "- Earlier sessions in this project: when the user refers to past work (\"what did we decide about X\", \"like last time\") and your briefing doesn't have it, search them: yield* pastSessions(\"a few words\") gives the best-matching sessions (id, start time) with excerpts, matches in **bold**; { allProjects: true } searches every project, { summarize: true } adds a summary. Read around a hit with { mode: \"scroll\", session, seq } or a whole session with { mode: \"read\", session }. Say which session and when an answer came from; what was said then may be out of date."],
+  [["graph"], "- What empty-vessel remembers is also a graph of facts that know when they were true, how sure it is of them and how useful they've been. Query it any time: yield* graph.query({ text?, kind?, attrs?, status?, at? }) gives the facts true now (or at a time) as { id, kind, text, status, evidence, usefulness, valid_from, valid_until }; graph.why(id) a fact with its evidence (what supports or contradicts it, one level); graph.near(id, { by: \"time\" }) the facts around it. Change it: graph.add({ kind: \"note\", text, attrs: { scope: \"project\" | \"agent\" | \"user\" } }) as memory.add does; for what you saw happen, graph.add({ kind: \"observation\", text, source: \"seen\" }) then graph.link({ from: thatId, to: factId, type: \"supports\" | \"contradicts\" }); a fact that stopped being true: graph.retire(id) and add the new one. Facts about the user change only from the user's own turns."],
   [[], "- Loop in code, not in kernel calls: Effect.forEach(items, f, { concurrency: 8 }). Write results to files from code; never copy them by hand."],
   [[], "- Write multi-line cells. result(n) is an earlier cell's value, not a place to keep data: use definitions, or remember what's costly."],
   [[], "- For anything that isn't TypeScript (a Python script, Markdown, a long prompt or rubric), use a text cell: kernel { name, text } keeps the text exactly, never escaped into a TypeScript string; then use it from code" + (has(g, "write") ? ", e.g. write(\"work/report.py\", reportPy)." : ".") + ""],
@@ -90,7 +94,7 @@ export const kernelInstructions = (g: Grants = ALL) => {
   [["shell", "agents"], "```"],
   [[], "Answer concisely."],
   ]
-  const shown = lines.filter(([needs]) => needs.every((n) => n === "example" || has(g, n)))
+  const shown = lines.filter(([needs]) => needs.every((n) => n === "example" || tells(g, graph)(n)))
   const anyExample = shown.some(([needs]) => needs.length && !needs.includes("example"))
   const missing = notGranted(g)
   return shown.filter(([needs]) => !needs.includes("example") || anyExample).map(([, text]) => text)
