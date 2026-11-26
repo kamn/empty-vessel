@@ -149,3 +149,14 @@ test("pull candidates: FTS matches on the goal first, then the top facts; never 
   expect(counts[0]).toMatchObject({ shown: 1, picked: 1, good: 1, bad: 0 })
   expect(counts[1]).toMatchObject({ shown: 1, picked: 0, good: 0, bad: 0 })
 })
+
+test("pull candidates: a note still shows among far more captured observations", async () => {
+  const { home, root } = dirs()
+  const run = graphIn(home, root)
+  await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => {
+    add(g, { kind: "note", text: "tests: bun test", attrs: { scope: "project" } })
+    for (let i = 0; i < 130; i++) add(g, { kind: "turn", text: `run the tests → tests pass ${i}`, source: `session:s1#${i}`, source_trust: "asserted", attrs: { origin: "user" } })
+  })))
+
+  expect((await run(pulled("run the tests"))).map((c) => c.text)).toEqual(["tests: bun test"])
+})

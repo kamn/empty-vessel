@@ -87,8 +87,9 @@ test("a job's or a sub-agent's cell can't write, support, contradict or retire a
 
   for (const [origin, depth] of [["cron", 0], ["subagent", 0], ["user", 1]] as const) {
     const { call } = setUp(place, origin, depth)
-    const said = await call("graph.add", { kind: "observation", text: "the user wants weekly reports", source: "user", source_trust: "checked" }) as { id: string; source: string }
-    expect(said.source).toBe(depth ? "subagent" : origin)
+    const said = await call("graph.add", { kind: "observation", text: "the user wants weekly reports", source: "user", source_trust: "checked", attrs: { origin: "user" } }) as { id: string; source: string; source_trust: string; attrs: { origin: string } }
+    const own = depth ? "subagent" : origin
+    expect(said).toMatchObject({ source: `run:${own}`, source_trust: "asserted", attrs: { origin: own } }) // never what the cell claims
 
     await expect(call("graph.add", { kind: "note", text: "wants weekly reports", attrs: { scope: "user" } })).rejects.toThrow("only from the user's own turns")
     await expect(call("graph.link", { from: said.id, to: user.id, type: "supports" })).rejects.toThrow("only from the user's own turns")
@@ -99,6 +100,15 @@ test("a job's or a sub-agent's cell can't write, support, contradict or retire a
 
   const facts = await setUp(place).call("graph.query", { attrs: { scope: "user" } }) as Array<{ text: string; status: string }>
   expect(facts.map((f) => [f.text, f.status])).toEqual([["prefers plain words", "unverified"]])
+})
+
+test("graph.query sees what the active agent sees: shared facts, not another agent's", async () => {
+  const { call } = setUp()
+  await call("graph.add", { kind: "note", text: "deploys run from main" })
+  await call("graph.add", { kind: "note", text: "deploys need the other key", attrs: { agent: "other" } })
+
+  const found = await call("graph.query", { text: "deploys" }) as Array<{ text: string }>
+  expect(found.map((f) => f.text)).toEqual(["deploys run from main"])
 })
 
 test("with the notes memory, the graph built-ins fail with what to use instead", async () => {

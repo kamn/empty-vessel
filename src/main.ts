@@ -360,7 +360,7 @@ const emptyVessel = Command.make(
       }).pipe(Effect.ensuring(Effect.sync(closeSources)), withSystems),
     ).pipe(Command.withDescription("Look back over this project's sessions since the last refine: your /flags, what to fix in empty-vessel, and proposed notes and tools (kept only with your OK, or --yes); log lists past refines, undo <id> takes an edit back")),
     Command.make("memory", { args: Argument.String("what").pipe(Argument.withDescription("nothing (list), remove <scope> <n>, or edit [scope]"), Argument.variadic()) }, ({ args }) =>
-      memoryCommand(args.join(" "), true).pipe(Effect.flatMap((text) => Console.log(text)), Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer)),
+      withStore(memoryCommand(args.join(" "), true).pipe(Effect.flatMap((text) => Console.log(text)))),
     ).pipe(Command.withDescription("What empty-vessel remembers (this agent, this project): each entry numbered, how full each scope is; remove <scope> <n> forgets one, edit opens the file")),
     Command.make("graph").pipe(
       Command.withDescription("The graph memory (memory.use = graph): capture sessions into it, curate it, export it as notes, count its facts"),
@@ -378,12 +378,11 @@ const emptyVessel = Command.make(
       all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every folder's sessions, not only this one's")),
       limit: Flag.Int("limit").pipe(Flag.withDefault(20), Flag.withDescription("How many, newest first")),
     }, ({ all, limit }) =>
-      listSessions(all ? undefined : process.cwd(), limit).pipe(
+      withStore(listSessions(all ? undefined : process.cwd(), limit).pipe(
         Effect.flatMap((found) => Console.log(found.length
           ? [...sessionLines(found, all), "", "Resume one with: empty-vessel --resume <id> (add --fork-session to go on in a copy)"].join("\n")
           : `No sessions${all ? "" : " started in this folder (--all shows every folder's)"}.`)),
-        Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer),
-      ),
+      )),
     ).pipe(Command.withDescription("The newest sessions started in this folder, to choose one to --resume")),
     Command.make("onboarding", {}, () => onboarding).pipe(Command.withDescription("Show the walkthrough of empty-vessel's two ideas again (it leads into setup)")),
     Command.make("login", {

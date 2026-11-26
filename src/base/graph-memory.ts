@@ -116,8 +116,9 @@ export const graphOnStore = (root: string) => {
             if (out.size < MAX_CANDIDATES && shownFact(f)) out.set(id, { id, text: f.text, kind: f.kind })
           }
         }
-        take(query(g, { text: goal, attrs, limit: MAX_CANDIDATES * 3 }))
-        if (out.size < MAX_CANDIDATES) take(query(g, { attrs, limit: MAX_CANDIDATES * 3 }))
+        // Notes only: captured observations far outnumber them and would fill the limit before any note.
+        take(query(g, { kind: "note", text: goal, attrs, limit: MAX_CANDIDATES * 3 }))
+        if (out.size < MAX_CANDIDATES) take(query(g, { kind: "note", attrs, limit: MAX_CANDIDATES * 3 }))
         return [...out.values()]
       })
     }).pipe(Effect.orElseSucceed(() => []))

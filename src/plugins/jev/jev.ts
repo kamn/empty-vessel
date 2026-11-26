@@ -62,7 +62,8 @@ export const makeJevSystemOne = (apiKey: Redacted.Redacted<string>) =>
             questions: Object.fromEntries(items.map((item, i) => [`f${i}`, {
               type: "noul",
               instructions: `Does the goal need this? ${item}`,
-              criteria: { true: "The goal needs this file's contents, or something inside this folder", false: "This doesn't matter for the goal" },
+              // The turn-start pull scores remembered facts ("fact: …", src/loop/pull.ts); everything else is a file or folder.
+              criteria: { true: item.startsWith("fact: ") ? "Knowing this fact helps reach the goal" : "The goal needs this file's contents, or something inside this folder", false: "This doesn't matter for the goal" },
             }])),
           }).pipe(
             Effect.flatMap(HttpClientResponse.schemaBodyJson(JevRelevant)),

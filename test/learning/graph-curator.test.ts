@@ -103,3 +103,44 @@ test("AE1: the curator ends a fact that stopped being true; it stays queryable f
   expect(seen.added[0]).toMatchObject({ valid_from: switched + 1, status: "supported" })
   expect(seen.added[0]!.attrs.project).toBeString() // a project note gets the project's attributes
 })
+
+test("a cell's observation (source run:…) never backs a fact about the user, whatever origin it claims", async () => {
+  const { home, root } = dirs()
+  writeSession(home, "s1", [
+    { role: "project", text: root, ts: 1000 },
+    { role: "user", text: "write the weekly report", ts: 1001 },
+    { role: "assistant", text: "Done.", ts: 1002 },
+  ])
+  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => ({
+    turn: obsId(g, "weekly report"),
+    cell: add(g, { kind: "turn", text: "the user wants weekly reports", source: "run:cron", source_trust: "asserted", attrs: { origin: "user" } }).id,
+  }))))
+
+  const said = await graphIn(home, root, fakeReviewer([() => ({ ops: [op({ text: "The user wants weekly reports.", scope: "user", evidence: [ids.turn, ids.cell] })] })], []))(curateGraph())
+
+  expect(said[0]).toStartWith("not done (facts about the user change only")
+  expect(await graphIn(home, root)(use((g) => query(g, { attrs: { scope: "user" } })))).toEqual([])
+})
+
+test("the batch is curated once its first round is applied: a failed re-ask doesn't fail the run or apply that round again", async () => {
+  const { home, root } = dirs()
+  writeSession(home, "s1", [
+    { role: "project", text: root, ts: 1000 },
+    { role: "user", text: "run the tests", ts: 1001 },
+    { role: "check", text: "bun test", verdict: "passed", ts: 1002 },
+  ])
+  const check = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => obsId(g, "bun test"))))
+
+  const asked: Array<string> = []
+  const base = fakeReviewer([() => ({ ops: [op({ text: "Tests run with bun test.", scope: "project", evidence: [check] }), op({ text: "no evidence", scope: "project" })] })], asked)
+  const failing = Reviewer.of({ ...base, ask: ((...a: Parameters<typeof base.ask>) => asked.length === 1 ? (asked.push("re-ask"), Effect.fail(new Error("reviewer down"))) : base.ask(...a)) as never })
+  const said = await graphIn(home, root, failing)(curateGraph())
+
+  expect(asked).toHaveLength(2) // the refusal went back, and that ask failed
+  expect(said).toEqual(["added (project): Tests run with bun test.", expect.stringMatching(/^not done \(no evidence/)])
+
+  const again: Array<string> = []
+  await graphIn(home, root, fakeReviewer([], again))(curateGraph())
+  expect(again).toEqual([])
+  expect(await graphIn(home, root)(use((g) => query(g, { kind: "note" }).map((f) => f.text)))).toEqual(["Tests run with bun test."])
+})

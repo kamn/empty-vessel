@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { add, type Fact, type Graph, link, query, show, update } from "empty-graph"
+import { add, EGraphInvalid, type Fact, type Graph, link, query, show, update, withRetry } from "empty-graph"
 import { GraphMemory } from "../base/graph-memory"
 import { Reviewer } from "./reviewer"
 
@@ -36,15 +36,27 @@ const INSTRUCTIONS = [
   "Changing nothing is a fine answer: an empty list.",
 ].join("\n")
 
-const refuse = (why: string): never => { throw new Error(why) }
+class Refused extends Error {}
+const refuse = (why: string): never => { throw new Refused(why) }
 const timeOf = (f: Fact) => f.valid_from ?? f.learned_at
 
-// One operation, applied in one transaction: what it did, or an Error saying why not.
-const apply = (g: Graph, o: GraphOp) => g.db.transaction(() => {
+// One operation, applied in one transaction (retried while the file is busy): what it did, or why it was refused.
+// Anything else (the file stayed busy, a broken file) fails the run, so the batch isn't marked curated.
+const apply = (g: Graph, o: GraphOp): { done: string } | { refused: string } => {
+  try {
+    return { done: withRetry(() => applyOne(g, o)) }
+  } catch (e) {
+    if (e instanceof Refused || e instanceof EGraphInvalid) return { refused: e.message }
+    throw e
+  }
+}
+const applyOne = (g: Graph, o: GraphOp) => g.db.transaction(() => {
   const evidence = o.evidence.map((id) => show(g, id))
   if (!evidence.length) refuse("no evidence: list the observations it rests on")
   const observed = evidence.map((f, i) => (f && f.source !== null ? f : refuse(`${o.evidence[i]} is not an observation`)))
-  const fromUser = observed.every((f) => f.attrs.origin === "user")
+  // What the user said: their own /memory add, or a captured line from a turn they started. A cell's observation
+  // (source run:…) never counts, whatever attrs it carries.
+  const fromUser = observed.every((f) => f.source === "user" || (f.source!.startsWith("session:") && f.attrs.origin === "user"))
   const guard = "facts about the user change only on evidence from the user's own turns (origin user)"
 
   if (o.op === "add") {
@@ -111,20 +123,23 @@ export const curateGraph = (window?: string) =>
           `Facts now that may relate:\n${facts.map(describe).join("\n") || "(none yet)"}`,
           ...(window ? [window] : []),
           ...(refused.length ? [`These operations were refused; change the graph as it is now instead:\n${refused.join("\n")}`] : [])].join("\n\n")
-        const { value } = yield* reviewer.ask(INSTRUCTIONS, GraphOps, digest)
+        // The re-ask is best effort: the batch is already marked curated, so its failure loses only the retry.
+        const answer = round === 0 ? yield* reviewer.ask(INSTRUCTIONS, GraphOps, digest)
+          : yield* reviewer.ask(INSTRUCTIONS, GraphOps, digest).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!answer) break
 
         refused = []
-        for (const o of value.ops) {
-          const done = yield* gm.use((g) => apply(g, o)).pipe(Effect.map((s) => ({ s })), Effect.catch((e) => Effect.succeed({ error: e.message })))
-          if ("s" in done) said.push(done.s)
+        for (const o of answer.value.ops) {
+          const done = yield* gm.use((g) => apply(g, o))
+          if ("done" in done) said.push(done.done)
           else {
-            refused.push(`- ${o.op} ${o.fact ?? o.text} on ${o.evidence.join(", ") || "nothing"}: ${done.error}`)
-            said.push(`not done (${done.error}): ${o.op} ${o.fact ?? o.text}`)
+            refused.push(`- ${o.op} ${o.fact ?? o.text} on ${o.evidence.join(", ") || "nothing"}: ${done.refused}`)
+            said.push(`not done (${done.refused}): ${o.op} ${o.fact ?? o.text}`)
           }
         }
+        // Marked right after the first round's ops, so a failure later never applies them a second time.
+        if (round === 0) yield* gm.use((g) => markAt(g, observations.at(-1)!))
       }
-
-      yield* gm.use((g) => markAt(g, observations.at(-1)!))
     }
 
     return said

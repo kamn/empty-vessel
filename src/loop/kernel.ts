@@ -13,7 +13,7 @@ import { Kernel } from "../tools/kernel-service"
 import { DETACHED, jobsRefusal, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
-import { Memory, type Scope, SCOPES } from "../base/memory"
+import { ActiveAgent, Memory, type Scope, SCOPES } from "../base/memory"
 import { attrsOf, GraphMemory } from "../base/graph-memory"
 import { type PastArgs, pastSessions } from "./past"
 import { fillParameters, helpers, systemOneTools, kernelImports, libraryDir, loadLibrary, loadPool, promote, TSC, usableWith, writeBuiltins } from "./library"
@@ -195,7 +195,9 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
 // The graph built-ins (graph.add …, src/tools/kernel-builtins.ts): each one empty-graph action on the open graph (KTD4),
 // recorded in the session; host functions graph.<action>, so the journal knows a query from a write. Only with
 // memory.use = graph. From a run the user didn't start (a job, a sub-agent), a fact about the user isn't written, linked
-// to or retired, and an observation's source is the run's own, never one the cell gives (R26).
+// to or retired, and an observation's source, trust and origin are the run's own, never what the cell gives (R26): its
+// source is run:<origin>, apart from the user's own (source user) and captured lines (session:…). A query sees what the
+// active agent sees (R20): shared facts and its own.
 const GRAPH_ACTIONS = ["add", "link", "retire", "query", "why", "near"] as const
 const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GRAPH_ACTIONS[number]) => (arg: unknown) => Effect.gen(function* () {
   const gm = Context.getOption(services, GraphMemory)
@@ -203,6 +205,7 @@ const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GR
   const origin = ctx.depth > 0 ? "subagent" : Context.get(services, Timers).origin() ?? "user" // as the memory built-in
   const a = (arg ?? {}) as Record<string, any>
   const files = yield* gm.value.files.pipe(Effect.provideContext(services))
+  const agent = yield* ActiveAgent.pipe(Effect.provideContext(services))
 
   const result = yield* gm.value.use((g): unknown => {
     const aboutUser = (id: unknown) => typeof id === "string" && show(g, id)?.attrs.scope === "user"
@@ -211,11 +214,13 @@ const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GR
 
     if (action === "add") {
       const own = files.findLast((f) => f.scope === a.attrs?.scope) // the attributes memory.add gives a fact of that scope
-      return add(g, { ...a, attrs: { ...(own ? attrsOf(own) : {}), ...a.attrs }, ...(a.source !== undefined ? { source: origin } : {}) } as Parameters<typeof add>[1])
+      const attrs = { ...(own ? attrsOf(own) : {}), ...a.attrs }
+      const seen = a.source !== undefined ? { source: `run:${origin}`, source_trust: "asserted", attrs: { ...attrs, origin } } : { attrs }
+      return add(g, { ...a, ...seen } as Parameters<typeof add>[1])
     }
     if (action === "link") return link(g, a as Parameters<typeof link>[1])
     if (action === "retire") return (retire(g, String(arg)), `retired ${arg}`)
-    if (action === "query") return query(g, a)
+    if (action === "query") return query(g, { ...a, attrs: { ...a.attrs, agent: agent === "root" ? [null] : [null, agent] } })
     if (action === "why") return why(g, String(arg))
     const { from, ...options } = a
     return near(g, from, options as Parameters<typeof near>[2])
