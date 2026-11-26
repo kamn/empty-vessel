@@ -1,13 +1,13 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { type PoolEntry, updateTools } from "./library"
 
 // The pool: candidate tools that have to prove themselves before they join the
 // library. Each turn a few are offered (to System One as options, to System Two as names in its prompt), and what happens is
 // recorded, one line per event, so the reward rule can change later without losing history.
 // Two kinds: System One tools take the request and give the answer; System Two tools are helpers it calls as it likes.
 
-// The pool's entries themselves live next to the library's (loadPool in src/loop/library.ts).
+// The pool's entries themselves live next to the library's, and so does settling them (loadPool, settle in
+// src/loop/library.ts): this file is only the record and the draw, and knows a tool by its name.
 
 // One event: a tool was offered this turn, or used (with whether it ran without error), or given a verdict.
 export type Event = { readonly session: string; readonly turn: number; readonly tool: string; readonly for: "systemOne" | "systemTwo" } &
@@ -57,41 +57,15 @@ const beta = (a: number, b: number, rng: () => number) => { const x = gamma(a, r
 
 // Which pool tools to offer this turn. "thompson": each tool's chance of success is drawn from what's known (few
 // offers: a wide guess, so untried tools get their turn), and the best draws win. `rng` is passed in for tests.
-export const choose = (entries: ReadonlyArray<PoolEntry>, known: ReadonlyMap<string, Stats>, n: number, how: "thompson" | "uniform" | "all", reward: "used" | "ok" | "verdict", rng: () => number = Math.random) => {
+export const choose = <E extends { readonly name: string }>(entries: ReadonlyArray<E>, known: ReadonlyMap<string, Stats>, n: number, how: "thompson" | "uniform" | "all", reward: "used" | "ok" | "verdict", rng: () => number = Math.random) => {
   if (how === "all") return entries
-  const score = (e: PoolEntry) => {
+  const score = (e: E) => {
     if (how === "uniform") return rng()
     const s = known.get(e.name) ?? { offered: 0, used: 0, ok: 0, helped: 0, applied: 0, notApplied: 0 }
-    const wins = reward === "used" ? s.used : reward === "ok" ? s.ok : s.helped
+    const wins = successes(s, reward)
     return beta(1 + wins, 1 + Math.max(0, applicable(s) - wins), rng)
   }
   return entries.map((e) => ({ e, score: score(e) })).sort((a, b) => b.score - a.score).slice(0, n).map((x) => x.e)
 }
 
-const successes = (s: Stats, reward: "used" | "ok" | "verdict") => (reward === "used" ? s.used : reward === "ok" ? s.ok : s.helped)
-
-// Settle the pool before a turn samples it: a tool with `graduateAfter` successes joins the library (same kind); one
-// offered `dropAfter` times where it applied, succeeding less than `dropBelowRate` of them, leaves. Both are recorded.
-export type Settling = { readonly graduateAfter: number; readonly dropAfter: number; readonly dropBelowRate: number; readonly reward: "used" | "ok" | "verdict" }
-// The stats are read under the lock too: read before it, a tool re-added meanwhile would be judged on its old numbers.
-export const settle = (dir: string, rules: Settling, session: string, turn: number) => {
-  const none: Stats = { offered: 0, used: 0, ok: 0, helped: 0, applied: 0, notApplied: 0 }
-  // Decided and written under the tools lock, from the files as they are now (promote may be adding to them).
-  return updateTools(dir, (library, pool) => {
-    const known = stats(dir)
-    const graduated = pool.filter((e) => successes(known.get(e.name) ?? none, rules.reward) >= rules.graduateAfter)
-    const dropped = pool.filter((e) => {
-      const s = known.get(e.name) ?? none
-      return !graduated.includes(e) && applicable(s) >= rules.dropAfter && successes(s, rules.reward) < rules.dropBelowRate * applicable(s)
-    })
-    if (!graduated.length && !dropped.length) return { result: { graduated, dropped } }
-
-    for (const e of graduated) record(dir, { session, turn, tool: e.name, for: e.for, event: "graduated", stats: known.get(e.name) ?? none })
-    for (const e of dropped) record(dir, { session, turn, tool: e.name, for: e.for, event: "dropped", stats: known.get(e.name) ?? none })
-    return {
-      library: [...library.filter((e) => !graduated.some((g) => g.name === e.name)), ...graduated],
-      pool: pool.filter((e) => !graduated.includes(e) && !dropped.includes(e)),
-      result: { graduated, dropped },
-    }
-  })
-}
+export const successes = (s: Stats, reward: "used" | "ok" | "verdict") => (reward === "used" ? s.used : reward === "ok" ? s.ok : s.helped)

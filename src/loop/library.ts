@@ -10,7 +10,7 @@ import { ALL, allGranted, allows, type Grants, has, NEEDS } from "../base/grants
 import { EMPTY_VESSEL_HOME } from "../base/home"
 import { projectDir } from "../base/project"
 import { verdictFor, withUnclear } from "../tools/judge-rules"
-import { record } from "./pool"
+import { applicable, record, type Stats, stats, successes } from "./pool"
 import { kernelSources } from "./sources"
 import type { SystemOne } from "../system-one/systemone"
 import { Fill } from "../system-two/fill"
@@ -66,6 +66,33 @@ export const updateTools = <A>(dir: string, change: (library: ReadonlyArray<Entr
     return next.result
   }))
 export type PoolEntry = typeof PoolEntry.Type
+
+// Settle the pool before a turn samples it: a tool with `graduateAfter` successes joins the library (same kind); one
+// offered `dropAfter` times where it applied, succeeding less than `dropBelowRate` of them, leaves. Both are recorded.
+export type Settling = { readonly graduateAfter: number; readonly dropAfter: number; readonly dropBelowRate: number; readonly reward: "used" | "ok" | "verdict" }
+// The stats are read under the lock too: read before it, a tool re-added meanwhile would be judged on its old numbers.
+export const settle = (dir: string, rules: Settling, session: string, turn: number) => {
+  const none: Stats = { offered: 0, used: 0, ok: 0, helped: 0, applied: 0, notApplied: 0 }
+  // Decided and written under the tools lock, from the files as they are now (promote may be adding to them).
+  return updateTools(dir, (library, pool) => {
+    const known = stats(dir)
+    const graduated = pool.filter((e) => successes(known.get(e.name) ?? none, rules.reward) >= rules.graduateAfter)
+    const dropped = pool.filter((e) => {
+      const s = known.get(e.name) ?? none
+      return !graduated.includes(e) && applicable(s) >= rules.dropAfter && successes(s, rules.reward) < rules.dropBelowRate * applicable(s)
+    })
+    if (!graduated.length && !dropped.length) return { result: { graduated, dropped } }
+
+    for (const e of graduated) record(dir, { session, turn, tool: e.name, for: e.for, event: "graduated", stats: known.get(e.name) ?? none })
+    for (const e of dropped) record(dir, { session, turn, tool: e.name, for: e.for, event: "dropped", stats: known.get(e.name) ?? none })
+    return {
+      library: [...library.filter((e) => !graduated.some((g) => g.name === e.name)), ...graduated],
+      pool: pool.filter((e) => !graduated.includes(e) && !dropped.includes(e)),
+      result: { graduated, dropped },
+    }
+  })
+}
+
 // A tool whose module breaks the kernel's rules (one made before them: raw file reads, Bun, node: imports) is left
 // out wherever tools are loaded (offered, listed, imported): loading it could do work, or fail, for every cell. The
 // next write of the pool or library drops it for good.

@@ -11,6 +11,7 @@
   "scripts": {
     "test": "bun test --parallel=4",
     "test:serial": "bun test",
+    "lint:structure": "fallow architecture --cycles --fail-on-issues",
     "start": "bun src/main.ts",
     "local-start": "test -f .empty-vessel/config.json && EMPTY_VESSEL_HOME=\"$PWD/.empty-vessel\" EMPTY_VESSEL_CHANNEL=telegram bun src/main.ts",
     "build": "bun scripts/build.ts",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@hegeldev/hegel": "0.5.8",
     "@types/bun": "^1.4.2",
+    "fallow": "3.48.0",
     "fast-check": "^4.10.2"
   },
   "peerDependencies": {
