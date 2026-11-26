@@ -82,6 +82,7 @@ export const ConfigSchema = described({
   }, "Skills the agent writes (saveSkill)"),
   memory: section({
     use: setting(Schema.String, "The plugin that remembers (notes: one line per entry, kept in the store)", { default: "notes" }),
+    pull: setting(Schema.Boolean, "At the start of each turn System One picks the notes relevant to it and both systems see them (the graph memory always does)", { default: false }),
     // The notes plugin's size limits (src/base/memory.ts): a write that would go over fails until entries are merged.
     projectChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters this project's memory may hold (merge or remove entries to add more)", { default: 2200 }),
     agentChars: setting(Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))), "Characters each agent's memory may hold (this machine and its tools)", { default: 2400 }),
@@ -185,11 +186,12 @@ export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()(
       })
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return yield* new ConfigError({ message: `${file}: the settings must be a JSON object ({ … })` })
       // Parse only the two boolean spellings; other values fail schema validation.
+      const flag = (value: string) => (value === "true" ? true : value === "false" ? false : value)
       const learnAfterTurn = process.env.EMPTY_VESSEL_LEARN_AFTER_TURN
+      const memoryPull = process.env.EMPTY_VESSEL_MEMORY_PULL
 
-      if (learnAfterTurn !== undefined) {
-        raw.learnAfterTurn = learnAfterTurn === "true" ? true : learnAfterTurn === "false" ? false : learnAfterTurn
-      }
+      if (learnAfterTurn !== undefined) raw.learnAfterTurn = flag(learnAfterTurn)
+      if (memoryPull !== undefined) raw.memory = { ...raw.memory, pull: flag(memoryPull) } // e.g. an eval's arm
 
       if (process.env.EMPTY_VESSEL_COMPACT_AT) raw.compactAt = Number(process.env.EMPTY_VESSEL_COMPACT_AT)
       if (process.env.EMPTY_VESSEL_ADOPTION) { // e.g. an eval's settings
@@ -200,6 +202,7 @@ export class Config extends Context.Service<Config, typeof ConfigSchema.Type>()(
       if (raw.adoption?.offerJev !== undefined && raw.adoption.offerSystemOne === undefined) raw.adoption = { ...raw.adoption, offerSystemOne: raw.adoption.offerJev }
       if (process.env.EMPTY_VESSEL_CHANNEL) raw.channel = { ...raw.channel, use: process.env.EMPTY_VESSEL_CHANNEL }
       if (process.env.EMPTY_VESSEL_SYSTEM_TWO) raw.systemTwo = { ...raw.systemTwo, use: process.env.EMPTY_VESSEL_SYSTEM_TWO } // e.g. try claude for one run
+      if (process.env.EMPTY_VESSEL_MEMORY) raw.memory = { ...raw.memory, use: process.env.EMPTY_VESSEL_MEMORY } // e.g. an eval's arm
       return yield* decodeConfig(raw, file)
     }),
   )

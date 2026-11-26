@@ -33,6 +33,9 @@ export { DETACHED, TIMER, Timers } from "./loop/jobs"
 export { TurnReports } from "./loop/endturn"
 export { countTurn, NO_WINDOW, type TurnReport, type Window } from "./loop/signals"
 export { curateMemory } from "./learning/reviewer"
+// With memory.use = graph, the scheduled capture (no model) and curator (the Reviewer) as non-turn origins (KTD16).
+export { captureSessions } from "./learning/graph-capture"
+export { curateGraph } from "./learning/graph-curator"
 
 // What a host shows or sends: charts, a project's learned tools, voice and images.
 export { Chart, chartTable, deliveryError } from "./base/delivery"

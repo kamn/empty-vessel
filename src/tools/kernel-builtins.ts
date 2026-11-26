@@ -49,6 +49,7 @@ export class Library extends Context.Service<Library, {
   readonly memory: (change: MemoryChange) => Effect.Effect<string, Error>
   readonly pastSessions: (args: PastArgs) => Effect.Effect<PastResult, Error>
   readonly saveSkill: (edit: SkillEdit) => Effect.Effect<string, Error>
+  readonly graph: (action: GraphAction, arg: unknown) => Effect.Effect<unknown, Error>
 }>()("empty-vessel/Library") {}
 export type SkillEdit = { readonly name: string; readonly content: string } | { readonly name: string; readonly old: string; readonly new: string }
 // pastSessions' arguments and result (src/loop/past.ts, which uses these). Types only: cells' scope lists value exports.
@@ -59,6 +60,29 @@ export type PastArgs = {
 export type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
 export type PastSession = { readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }
 export type PastResult = { readonly sessions: ReadonlyArray<PastSession>; readonly summary?: string; readonly truncated?: boolean }
+// The graph built-ins' arguments and results, as empty-graph has them (it can't be imported here). Types only.
+export type GraphAction = "add" | "link" | "retire" | "query" | "why" | "near"
+export type GraphStatus = "unverified" | "supported" | "verified" | "contested" | "debunked"
+export type GraphTime = number | string // ms since 1970, or an ISO date
+export type GraphSummary = {
+  readonly id: string; readonly kind: string; readonly text: string; readonly status: GraphStatus; readonly evidence: number; readonly usefulness: number
+  readonly valid_from: number | null; readonly valid_until: number | null
+}
+export type GraphFact = Omit<GraphSummary, "evidence" | "usefulness"> & {
+  readonly attrs: Readonly<Record<string, unknown>>; readonly learned_at: number; readonly retired_at: number | null; readonly source: string | null; readonly source_trust: string | null
+}
+export type GraphAdd = {
+  readonly kind: string; readonly text: string; readonly attrs?: Readonly<Record<string, unknown>>; readonly valid_from?: GraphTime | null; readonly valid_until?: GraphTime | null
+  readonly source?: string; readonly source_trust?: string; readonly vector?: ReadonlyArray<number>
+}
+export type GraphLink = { readonly from: string; readonly to: string; readonly type: string; readonly weight?: number; readonly attrs?: Readonly<Record<string, unknown>> }
+type GraphAttr = string | number | boolean | null
+export type GraphQuery = {
+  readonly text?: string; readonly kind?: string; readonly attrs?: Readonly<Record<string, GraphAttr | ReadonlyArray<GraphAttr>>>; readonly status?: GraphStatus | ReadonlyArray<GraphStatus>
+  readonly about?: string; readonly at?: GraphTime; readonly includeRetired?: boolean; readonly limit?: number
+}
+export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary }> }
+export type GraphNear = { readonly by: "time" | "vector"; readonly limit?: number; readonly includeRetired?: boolean }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }
 export class Media extends Context.Service<Media, { readonly image: (prompt: string) => Effect.Effect<string, Error> }>()("empty-vessel/Media") {}
@@ -112,6 +136,7 @@ export const layerFor = (g: Grants) => Layer.mergeAll(
     memory: (change) => call("memory", change) as Effect.Effect<string, Error>,
     pastSessions: (args) => call("pastSessions", args) as Effect.Effect<PastResult, Error>,
     saveSkill: (edit) => call("saveSkill", edit) as Effect.Effect<string, Error>,
+    graph: (action, arg) => call(`graph.${action}`, arg),
   }))] : []),
   ...(g.media ? [Layer.succeed(Media, Media.of({ image: (prompt) => call("image", prompt) as Effect.Effect<string, Error> }))] : []),
 ) as Layer.Layer<Files | Shell | SystemOne | Agents | Library | Media | Time | Random> // only what's granted, in fact: cells see the rest missing
@@ -180,6 +205,22 @@ export const memory = {
   add: (scope: MemoryScope, text: string) => Library.use((l) => l.memory({ action: "add", scope, text })),
   replace: (scope: MemoryScope, old: string, text: string) => Library.use((l) => l.memory({ action: "replace", scope, old, text })),
   remove: (scope: MemoryScope, old: string) => Library.use((l) => l.memory({ action: "remove", scope, old })),
+}
+
+// graph: the memory graph, with memory.use = graph (otherwise each fails, saying so). Facts know when they were true
+// (valid_from, valid_until), how sure empty-vessel is (status, from their evidence) and how useful they've been.
+// query: facts true now (or `at`) as summaries; why(id): the fact and one level of its evidence; near(id, { by: "time" }):
+// its neighbours. add: a fact (attrs.scope "project" | "agent" | "user" files it as memory does; a `source` makes it
+// an observation, the run's own source whatever is given); link: { from, to, type: "supports" | "contradicts" | "about" };
+// retire(id). Facts about the user are written, linked to or retired only from the user's own turns.
+const graphDo = <A>(action: GraphAction, arg: unknown) => Library.use((l) => l.graph(action, arg) as Effect.Effect<A, Error>)
+export const graph = {
+  add: (fact: GraphAdd) => graphDo<GraphFact>("add", fact),
+  link: (link: GraphLink) => graphDo<GraphLink & { readonly id: string; readonly weight: number; readonly learned_at: number }>("link", link),
+  retire: (id: string) => graphDo<string>("retire", id),
+  query: (q: GraphQuery = {}) => graphDo<ReadonlyArray<GraphSummary>>("query", q),
+  why: (id: string) => graphDo<GraphWhy | null>("why", id),
+  near: (from: string | ReadonlyArray<number>, options: GraphNear) => graphDo<ReadonlyArray<GraphSummary>>("near", { from, ...options }),
 }
 
 // pastSessions: what was said in earlier sessions (the user's messages and empty-vessel's answers), for "what did we decide

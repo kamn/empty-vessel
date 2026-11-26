@@ -34,6 +34,9 @@ import type { SystemOne } from "./system-one/systemone"
 import { addSource, closeSources, describeSources, entryFor, loginTo, makeSources, removeSource, useSources } from "./loop/sources"
 import { type Conversation, newConversation } from "./loop/turnkit"
 import { refineCommand } from "./loop/refine"
+import { GraphMemory } from "./base/graph-memory"
+import { captureSessions, graphStats } from "./learning/graph-capture"
+import { curateGraph } from "./learning/graph-curator"
 import { skillCommand } from "./loop/skill-commands"
 import { Usage } from "./base/usage"
 import { EMPTY_VESSEL_HOME } from "./base/home"
@@ -262,6 +265,15 @@ const withSystems = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
   Effect.provide(Config.layer), // outside the others: SystemOneFromConfig and SystemTwoLayers need Config too
 )
 
+// `empty-vessel graph …` (KTD16): what it prints, with memory.use = graph; with notes it says the graph is off (exit 1).
+const withGraph = <E extends { readonly message: string }, R>(what: Effect.Effect<string, E, R | GraphMemory>) =>
+  Effect.serviceOption(GraphMemory).pipe(
+    Effect.flatMap((graph) => Option.isNone(graph) ? Effect.fail({ message: "the graph memory is off (memory.use is notes)" }) : what.pipe(Effect.provideService(GraphMemory, graph.value))),
+    Effect.flatMap(Console.log),
+    Effect.catch((e) => Effect.andThen(Console.error(`graph: ${e.message}`), Effect.sync(() => { process.exitCode = 1 }))),
+  )
+const withStore = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer))
+
 // Command line: no arguments = interactive. --help and --version come free from Effect's CLI.
 // New flags go in the object below.
 const emptyVessel = Command.make(
@@ -348,18 +360,29 @@ const emptyVessel = Command.make(
       }).pipe(Effect.ensuring(Effect.sync(closeSources)), withSystems),
     ).pipe(Command.withDescription("Look back over this project's sessions since the last refine: your /flags, what to fix in empty-vessel, and proposed notes and tools (kept only with your OK, or --yes); log lists past refines, undo <id> takes an edit back")),
     Command.make("memory", { args: Argument.String("what").pipe(Argument.withDescription("nothing (list), remove <scope> <n>, or edit [scope]"), Argument.variadic()) }, ({ args }) =>
-      memoryCommand(args.join(" "), true).pipe(Effect.flatMap((text) => Console.log(text)), Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer)),
+      withStore(memoryCommand(args.join(" "), true).pipe(Effect.flatMap((text) => Console.log(text)))),
     ).pipe(Command.withDescription("What empty-vessel remembers (this agent, this project): each entry numbered, how full each scope is; remove <scope> <n> forgets one, edit opens the file")),
+    Command.make("graph").pipe(
+      Command.withDescription("The graph memory (memory.use = graph): capture sessions into it, curate it, export it as notes, count its facts"),
+      Command.withSubcommands([
+        Command.make("capture", {}, () => withStore(withGraph(Effect.map(captureSessions, (c) => `captured ${c.observations} observations from ${c.sessions} sessions`))))
+          .pipe(Command.withDescription("Record what sessions did since the last capture (turns, commands, checks, file changes) as observations; no model call")),
+        Command.make("curate", {}, () => withGraph(Effect.map(curateGraph(), (said) => said.join("\n") || "nothing changed")).pipe(withSystems))
+          .pipe(Command.withDescription("Have the reviewer turn the observations captured since the last curate into facts: add, link as evidence, retire what stopped being true")),
+        Command.make("export", {}, () => withStore(withGraph(Effect.flatMap(GraphMemory, (gm) => Effect.map(gm.exportNotes, (files) => Object.entries(files).map(([key, text]) => `## ${key}\n${text}`).join("\n\n"))))))
+          .pipe(Command.withDescription("The facts as the notes files they replaced, each under its file's name")),
+        Command.make("stats", {}, () => withStore(withGraph(graphStats))).pipe(Command.withDescription("How many facts there are, by kind and status")),
+      ]),
+    ),
     Command.make("sessions", {
       all: Flag.Boolean("all").pipe(Flag.withDefault(false), Flag.withDescription("Every folder's sessions, not only this one's")),
       limit: Flag.Int("limit").pipe(Flag.withDefault(20), Flag.withDescription("How many, newest first")),
     }, ({ all, limit }) =>
-      listSessions(all ? undefined : process.cwd(), limit).pipe(
+      withStore(listSessions(all ? undefined : process.cwd(), limit).pipe(
         Effect.flatMap((found) => Console.log(found.length
           ? [...sessionLines(found, all), "", "Resume one with: empty-vessel --resume <id> (add --fork-session to go on in a copy)"].join("\n")
           : `No sessions${all ? "" : " started in this folder (--all shows every folder's)"}.`)),
-        Effect.provide(StoreAndMemoryFromConfig), Effect.provide(Config.layer),
-      ),
+      )),
     ).pipe(Command.withDescription("The newest sessions started in this folder, to choose one to --resume")),
     Command.make("onboarding", {}, () => onboarding).pipe(Command.withDescription("Show the walkthrough of empty-vessel's two ideas again (it leads into setup)")),
     Command.make("login", {

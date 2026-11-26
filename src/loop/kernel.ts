@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs"
-import { Context, Effect } from "effect"
+import { Context, Effect, Option } from "effect"
+import { add, link, near, query, retire, show, why } from "empty-graph"
 import { discoverSkills, loadSkill, saveSkill } from "../base/skills"
 import { describeFlags } from "../base/skill-scan"
 import { EMPTY_VESSEL_HOME } from "../base/home"
@@ -12,7 +13,8 @@ import { Kernel } from "../tools/kernel-service"
 import { DETACHED, jobsRefusal, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
-import { Memory, type Scope, SCOPES } from "../base/memory"
+import { ActiveAgent, Memory, type Scope, SCOPES } from "../base/memory"
+import { attrsOf, GraphMemory } from "../base/graph-memory"
 import { type PastArgs, pastSessions } from "./past"
 import { fillParameters, helpers, systemOneTools, kernelImports, libraryDir, loadLibrary, loadPool, promote, TSC, usableWith, writeBuiltins } from "./library"
 import { record } from "./pool"
@@ -179,6 +181,7 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
         limit: num(a.limit) !== undefined && num(a.limit)! > 0 ? num(a.limit) : undefined, allProjects: a.allProjects === true, summarize: a.summarize === true }
       return pastSessions(args, { cwd: process.cwd(), exclude: ctx.session.key.split("/")[1] }).pipe(Effect.provideContext(services))
     },
+    ...Object.fromEntries(GRAPH_ACTIONS.map((action) => [`graph.${action}`, graphCall(ctx, services, action)])),
     // An image from the configured API (src/base/media.ts), kept with this session's kernel; the cell gets its path.
     image: (arg: unknown) => {
       if (!has(ctx.config.kernel.tools, "media")) return Effect.fail(new Error("image requires the media grant"))
@@ -188,6 +191,45 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
   }
   return host
 }
+
+// The graph built-ins (graph.add …, src/tools/kernel-builtins.ts): each one empty-graph action on the open graph (KTD4),
+// recorded in the session; host functions graph.<action>, so the journal knows a query from a write. Only with
+// memory.use = graph. From a run the user didn't start (a job, a sub-agent), a fact about the user isn't written, linked
+// to or retired, and an observation's source, trust and origin are the run's own, never what the cell gives (R26): its
+// source is run:<origin>, apart from the user's own (source user) and captured lines (session:…). A query sees what the
+// active agent sees (R20): shared facts and its own.
+const GRAPH_ACTIONS = ["add", "link", "retire", "query", "why", "near"] as const
+const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GRAPH_ACTIONS[number]) => (arg: unknown) => Effect.gen(function* () {
+  const gm = Context.getOption(services, GraphMemory)
+  if (Option.isNone(gm)) return yield* Effect.fail(new Error(`graph.${action} needs the graph memory (memory.use = graph); this session's memory is notes: use memory.add / replace / remove`))
+  const origin = ctx.depth > 0 ? "subagent" : Context.get(services, Timers).origin() ?? "user" // as the memory built-in
+  const a = (arg ?? {}) as Record<string, any>
+  const files = yield* gm.value.files.pipe(Effect.provideContext(services))
+  const agent = yield* ActiveAgent.pipe(Effect.provideContext(services))
+
+  const result = yield* gm.value.use((g): unknown => {
+    const aboutUser = (id: unknown) => typeof id === "string" && show(g, id)?.attrs.scope === "user"
+    const touchesUser = action === "add" ? a.attrs?.scope === "user" : action === "link" ? aboutUser(a.from) || aboutUser(a.to) : action === "retire" && aboutUser(arg)
+    if (origin !== "user" && touchesUser) throw new Error("not done: facts about the user are written, linked to or retired only from the user's own turns")
+
+    if (action === "add") {
+      const own = files.findLast((f) => f.scope === a.attrs?.scope) // the attributes memory.add gives a fact of that scope
+      const attrs = { ...(own ? attrsOf(own) : {}), ...a.attrs }
+      const seen = a.source !== undefined ? { source: `run:${origin}`, source_trust: "asserted", attrs: { ...attrs, origin } } : { attrs }
+      return add(g, { ...a, ...seen } as Parameters<typeof add>[1])
+    }
+    if (action === "link") return link(g, a as Parameters<typeof link>[1])
+    if (action === "retire") return (retire(g, String(arg)), `retired ${arg}`)
+    if (action === "query") return query(g, { ...a, attrs: { ...a.attrs, agent: agent === "root" ? [null] : [null, agent] } })
+    if (action === "why") return why(g, String(arg))
+    const { from, ...options } = a
+    return near(g, from, options as Parameters<typeof near>[2])
+  }).pipe(Effect.mapError((e) => new Error(e.message)))
+
+  const said = action === "add" ? `${(result as { id: string }).id}: ${a.text}` : (JSON.stringify(arg) ?? "").slice(0, 300)
+  yield* ctx.session.record("graph", `${action} ${said}`).pipe(Effect.ignore)
+  return result
+})
 
 // `trial`: pool tools offered to System Two this turn; a cell that imports one records a use (and whether it ran OK).
 export const makeKernelHook = (ctx: Ctx, services: Context.Context<Needs>, trial: ReadonlyArray<string> = [], turn = 0) => {

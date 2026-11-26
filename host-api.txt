@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.19
+# empty-vessel core 0.0.24
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/host.ts, not this.
 
 ## ActionGuardFromConfig (src/plugins/index)
@@ -26,6 +26,13 @@ declare const Background_base: Context.ServiceClass<Background, "empty-vessel/Ba
 export declare class Background extends Background_base {
     static readonly layer: Layer.Layer<Background, never, never>;
 }
+
+## captureSessions (src/learning/graph-capture)
+export declare const captureSessions: Effect.Effect<{
+    sessions: number;
+    observations: number;
+}, MemoryError, GraphMemory | Store>;
+// names types the core doesn't export: GraphMemory
 
 ## Chart (src/base/delivery)
 export declare const Chart: Schema.Struct<{
@@ -108,6 +115,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
     };
     readonly memory: {
         readonly use: string;
+        readonly pull: boolean;
         readonly projectChars: number;
         readonly agentChars: number;
         readonly userChars: number;
@@ -165,6 +173,10 @@ export declare const countTurn: (window: Window, report: TurnReport) => {
     window: Window;
     review?: string;
 };
+
+## curateGraph (src/learning/graph-curator)
+export declare const curateGraph: (window?: string) => Effect.Effect<string[], AskError | MemoryError, GraphMemory | Reviewer>;
+// names types the core doesn't export: GraphMemory, Reviewer
 
 ## curateMemory (src/learning/reviewer)
 export declare const curateMemory: (window: string, exchanges: ReadonlyArray<{

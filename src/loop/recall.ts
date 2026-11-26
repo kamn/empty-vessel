@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite"
-import { closeSync, openSync, readSync, statSync } from "node:fs"
+import { statSync } from "node:fs"
 import { Effect } from "effect"
 import { type LogEntry, logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
+import { tail } from "../base/files"
 
 // The recall index (KTD23): every root session's messages in an SQLite FTS5 table at <home>/recall.db, for pastSessions
 // (src/loop/past.ts). Each search first brings it up to date: a session file whose size hasn't changed isn't read; one
@@ -57,16 +58,6 @@ export const withIndex = <A, E, R>(use: (db: Database) => Effect.Effect<A, E, R>
       (db) => Effect.sync(() => db.close()),
     )
   })
-
-// The bytes of `file` from `offset` up to its last whole line (a line being appended right now waits for the next pass).
-const tail = (file: string, offset: number, size: number) => {
-  const bytes = Buffer.alloc(size - offset)
-  const fd = openSync(file, "r")
-  try { readSync(fd, bytes, 0, bytes.length, offset) } finally { closeSync(fd) }
-
-  const end = bytes.lastIndexOf(10) + 1
-  return { text: bytes.subarray(0, end).toString("utf8"), read: end }
-}
 
 type Row = { project: string; started: number; offset: number; seq: number }
 

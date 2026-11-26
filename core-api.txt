@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.19
+# empty-vessel core 0.0.24
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -170,6 +170,7 @@ declare const Config_base: Context.ServiceClass<Config, "empty-vessel/Config", {
     };
     readonly memory: {
         readonly use: string;
+        readonly pull: boolean;
         readonly projectChars: number;
         readonly agentChars: number;
         readonly userChars: number;
@@ -275,6 +276,19 @@ export type Grants = {
     readonly media: boolean;
 };
 
+## GraphMemory (src/base/graph-memory)
+declare const GraphMemory_base: Context.ServiceClass<GraphMemory, "empty-vessel/GraphMemory", {
+    readonly use: <A>(f: (graph: Graph) => A) => Effect.Effect<A, MemoryError>;
+    readonly files: Effect.Effect<ReadonlyArray<NotesFile>>;
+    readonly candidates: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>;
+    readonly exportNotes: Effect.Effect<Readonly<Record<string, string>>>;
+}>;
+export declare class GraphMemory extends GraphMemory_base {
+}
+
+## graphOnStore (src/base/graph-memory)
+export declare const graphOnStore: (root: string) => Layer.Layer<GraphMemory | Memory, never, Store>;
+
 ## GuardVerdict (src/tools/action-guard)
 export type GuardVerdict = {
     readonly decision: "allow";
@@ -314,6 +328,7 @@ export type Hooks = {
     readonly scope?: () => Effect.Effect<string | undefined>;
     readonly remembered?: () => Effect.Effect<string>;
     readonly grants?: Grants;
+    readonly graph?: boolean;
 };
 
 ## jobsReminder (src/system-two/dispatch)
@@ -326,7 +341,7 @@ export declare const jsonSchemaFor: (schema: Schema.Top) => Record<string, unkno
 export declare const KERNEL_INSTRUCTIONS: string;
 
 ## kernelInstructions (src/system-two/instructions)
-export declare const kernelInstructions: (g?: Grants) => string;
+export declare const kernelInstructions: (g?: Grants, graph?: boolean) => string;
 
 ## Kind (src/base/events)
 export type Kind = "step" | "system-two" | "check" | "compact" | "review" | "spawn" | "error" | "activity" | "note";
@@ -377,6 +392,12 @@ export declare class MemoryError extends MemoryError_base<{
     message: string;
 }> {
 }
+
+## MemoryPull (src/base/memory)
+export declare const MemoryPull: Context.Reference<{
+    readonly candidates?: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>;
+    readonly reportUsage?: (usage: PullUsage) => Effect.Effect<void>;
+}>;
 
 ## Model (src/system-two/loop)
 export type Model = {
@@ -430,6 +451,14 @@ export type ModelTool = {
 ## newCallState (src/system-two/dispatch)
 export declare const newCallState: (stash?: Map<string, string>, now?: () => number) => CallState;
 
+## NotesFile (src/base/graph-memory)
+export type NotesFile = {
+    readonly key: string;
+    readonly label: string;
+    readonly scope: Scope;
+    readonly filter: Readonly<Record<string, string | null>>;
+};
+
 ## Owner (src/base/files)
 export type Owner = {
     readonly pid: number;
@@ -477,6 +506,20 @@ export type Provides = {
     readonly systemTwo?: Effect.Effect<SystemTwoParts, ConfigError, Config>;
     readonly store?: Effect.Effect<Layer.Layer<Store>, ConfigError, Config>;
     readonly memory?: Effect.Effect<Layer.Layer<Memory, never, Store>, ConfigError, Config>;
+};
+
+## PullCandidate (src/base/memory)
+export type PullCandidate = {
+    readonly id: string;
+    readonly text: string;
+    readonly kind?: string;
+};
+
+## PullUsage (src/base/memory)
+export type PullUsage = {
+    readonly shown: ReadonlyArray<string>;
+    readonly picked: ReadonlyArray<string>;
+    readonly outcome: "done" | "failed" | "stopped" | "waiting";
 };
 
 ## recordUsage (src/base/usage)
@@ -572,6 +615,7 @@ export interface StepState {
     readonly earlier?: readonly string[];
     readonly goal: string;
     readonly steps: readonly string[];
+    readonly facts?: readonly string[];
     readonly user?: string;
 }
 
@@ -774,6 +818,7 @@ config.channel.use: {"type":"string","description":"The conversation channel (te
 config.store.use: {"type":"string","description":"The plugin that keeps empty-vessel's files (disk: ~/.empty-vessel)","default":"disk"}
 config.skills.writeApproval: {"type":"boolean","description":"Skills the agent saves in your own turns wait for /skills approve too (those from jobs, sub-agents and background reviews always do)","default":false}
 config.memory.use: {"type":"string","description":"The plugin that remembers (notes: one line per entry, kept in the store)","default":"notes"}
+config.memory.pull: {"type":"boolean","description":"At the start of each turn System One picks the notes relevant to it and both systems see them (the graph memory always does)","default":false}
 config.memory.projectChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters this project's memory may hold (merge or remove entries to add more)","default":2200}
 config.memory.agentChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters each agent's memory may hold (this machine and its tools)","default":2400}
 config.memory.userChars: {"type":"integer","exclusiveMinimum":0,"description":"Characters the user profile may hold (who you are and how you work), shared by every agent","default":1375}

@@ -8,6 +8,7 @@ export interface StepState {
   readonly earlier?: readonly string[]
   readonly goal: string
   readonly steps: readonly string[]
+  readonly facts?: readonly string[] // what memory holds that System One picked for this turn's goal (src/loop/pull.ts)
   readonly user?: string // the user profile's first line (src/base/memory.ts): who System One is working for
 }
 

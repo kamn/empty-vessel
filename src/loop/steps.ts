@@ -1,6 +1,6 @@
 import { nestedContextFiles } from "../base/context"
 import { mkdirSync } from "node:fs"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { AskUser } from "../ui/ask"
 import { withAsking } from "../integrations/herdr"
 import type { AskUserArgs } from "../system-two/systemtwo"
@@ -22,6 +22,7 @@ import { Inbox } from "../base/inbox"
 import { listAgents } from "../base/agents"
 import { skillContext, skillNotes } from "./skills"
 import { Memory } from "../base/memory"
+import { GraphMemory } from "../base/graph-memory"
 import { type Conversation, type Ctx, type Exchange, type Needs, type Step, timed } from "./turnkit"
 
 // What System One can pick each step. The descriptions are what System One reads to choose, so wording matters.
@@ -110,6 +111,8 @@ const escalate: Step = (ctx, state) =>
       ...(state.escalated === 0 ? [`Goal: ${attached.text}`] : ["The goal isn't done yet. What happened since your last answer:"]),
       ...(state.escalated === 0 && attached.images.length ? [`Images attached to this message (you can see them): ${attached.images.map((i) => `${i.label} ${i.path}`).join(", ")}`] : []),
       ...(state.escalated === 0 && state.gathered ? [`Files for this request, from the user's @mentions and what System One loaded (read others if you need them):\n\n${state.gathered}`] : []),
+      // Per turn, so here and not in the briefing (cached once per conversation).
+      ...(state.escalated === 0 && state.pulled?.picked.length ? [`Facts from memory System One picked for this request (a starting point):\n${state.pulled.picked.map((f) => `- ${f.text}`).join("\n")}`] : []),
       // Only the names: System Two loads one when it needs it (import it from "kernel"; tools() says what each is for).
       ...(state.escalated === 0 && state.offered.systemTwo.length ? [`Tools on trial (new, being tried out: import from "kernel" if one helps; tools() says how to call each): ${state.offered.systemTwo.join(", ")}`] : []),
       ...(state.escalated === 0 && outside ? [outside] : []),
@@ -152,6 +155,7 @@ const escalate: Step = (ctx, state) =>
       kernel: makeKernelHook(ctx, yield* Effect.context<Needs>(), state.offered.systemTwo, state.turn),
       skillContext: () => skillContext(ctx.conversation, ctx.config.kernel.tools.files !== "none"),
       grants: ctx.config.kernel.tools, // System Two is told only of the built-ins this kernel grants
+      graph: Option.isSome(yield* Effect.serviceOption(GraphMemory)), // and of the graph ones only with the graph memory
       images: attached.images, thread: ctx.conversation.thread, briefing: ctx.conversation.briefing, stash: ctx.conversation.stash, cacheKey: ctx.session.id, depth: ctx.depth, pending: () => ctx.conversation.jobs.pending(),
     }
 

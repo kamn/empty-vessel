@@ -58,6 +58,7 @@ export const EFFECTS: Readonly<Record<string, "harmless" | "effectful">> = {
   read: "harmless", readText: "harmless", skill: "harmless", now: "harmless", random: "harmless", systemOne: "harmless", recheck: "harmless", fill: "harmless", judge: "harmless",
   wait: "harmless", jobs: "harmless", tools: "harmless", pastSessions: "harmless", remember: "harmless", forget: "harmless", // forget drops a cache: doing it twice is the same
   write: "effectful", edit: "effectful", bash: "effectful", spawn: "effectful", cancel: "effectful", schedule: "effectful", promote: "effectful", handTools: "effectful", memory: "effectful", saveSkill: "effectful", image: "effectful",
+  graph: "harmless", "graph.query": "harmless", "graph.why": "harmless", "graph.near": "harmless", "graph.add": "effectful", "graph.link": "effectful", "graph.retire": "effectful", // graph's host functions go by action
   $source: "effectful", $actionGuard: "effectful", $effect: "effectful",
 }
 export const effectful = (name: string) => EFFECTS[name] !== "harmless"

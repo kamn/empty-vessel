@@ -185,7 +185,7 @@ const ask = (prompt: string, hooks: Hooks, relay: ToolRelay, model: string | und
     // Fetch at every CLI invocation, including job reminders and max-turn wrap-up retries.
     // The hook is a read-only snapshot; it must not consume skill replay flags.
     const common = () => {
-      const system = [kernelInstructions(hooks.grants), hooks.briefing ?? "", hooks.skillContext ? SKILL_COMPACTION : "", hooks.skillContext?.() ?? ""].filter(Boolean).join("\n\n")
+      const system = [kernelInstructions(hooks.grants, hooks.graph), hooks.briefing ?? "", hooks.skillContext ? SKILL_COMPACTION : "", hooks.skillContext?.() ?? ""].filter(Boolean).join("\n\n")
       return ["--system-prompt", system, "--strict-mcp-config", "--mcp-config", JSON.stringify(mcp), ...(model ? ["--model", model] : []), ...(reasoning ? ["--effort", reasoning] : [])]
     }
     yield* emit("activity", hooks.depth ?? 0, "System Two (claude -p) is thinking")
