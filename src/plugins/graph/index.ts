@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { add, EGraphInvalid, exportMarkdown, type ExportInput, type Fact, type Graph, link, type NearInput, near, open, query, type QueryInput, reportUsage, retire, show, update, why, withRetry } from "empty-graph"
+import { add, addSource, EGraphInvalid, exportMarkdown, type ExportInput, type Fact, type Graph, link, type NearInput, near, open, query, type QueryInput, reportUsage, retire, retireSource, setSourceTrust, show, showSource, sources, importSource, update, why, withRetry } from "empty-graph"
 import { type GraphOps, type GraphStatus, GraphInvalid, type GraphUse, graphMemory, MemoryError, type Plugin, Store } from "empty-vessel"
 
 // memory.use = graph: empty-vessel's memory as one empty-graph file in the store, for the project empty-vessel was started
@@ -27,6 +27,12 @@ const opsOf = (g: Graph): GraphOps => ({
       AND (learned_at > ?2 OR (learned_at = ?2 AND id > ?3)) ORDER BY learned_at, id LIMIT ?4`).all(like, after.at, after.id, limit) as Array<{ id: string }>
     return rows.map(({ id }) => show(g, id) as Fact)
   },
+  addSource: (s) => addSource(g, s),
+  showSource: (id) => showSource(g, id),
+  sources: (q) => sources(g, q),
+  setSourceTrust: (id, trust) => setSourceTrust(g, id, trust),
+  retireSource: (id) => retireSource(g, id),
+  importSource: (s, observations) => importSource(g, s, [...observations] as Parameters<typeof importSource>[2]),
   stats: () => (g.db.query("SELECT kind, status, count(*) AS count FROM facts WHERE retired_at IS NULL GROUP BY kind, status ORDER BY kind, status").all() as Array<{ kind: string; status: GraphStatus; count: number }>),
   meta: {
     get: (key) => {

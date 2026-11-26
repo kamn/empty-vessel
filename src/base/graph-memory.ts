@@ -39,6 +39,14 @@ export type GraphQuery = {
 export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary }> }
 export type GraphNear = { readonly by: "time" | "vector"; readonly limit?: number; readonly includeRetired?: boolean }
 export type GraphMark = { readonly at: number; readonly id: string } // a fact's learned_at, then its id
+// Where observations come from (a document, a run, the user): one source counts as one voice however many observations
+// it gives, and its trust (a status name, or null: derived from evidence) is every observation's. Retiring one drops
+// its observations from the evidence.
+export type GraphSource = {
+  readonly id: string; readonly label: string | null; readonly trust: string | null; readonly attrs: Readonly<Record<string, unknown>>
+  readonly learned_at: number; readonly retired_at: number | null
+}
+export type GraphSourceAdd = { readonly id: string; readonly label?: string | null; readonly trust?: string | null; readonly attrs?: Readonly<Record<string, unknown>> }
 
 // A backend refusing what it was asked (a link to no fact, an unknown trust): thrown by GraphOps, and the cause of the
 // MemoryError `use` then fails with, so a caller can tell a refusal from the store failing.
@@ -62,6 +70,14 @@ export interface GraphOps {
   readonly exportMarkdown: (options?: { readonly kinds?: ReadonlyArray<string>; readonly attrs?: GraphAttrs; readonly groupBy?: string }) => string
   // Observations not retired whose source starts with `sourcePrefix`, learned after `after`, oldest first.
   readonly observations: (q: { readonly sourcePrefix: string; readonly after: GraphMark; readonly limit: number }) => ReadonlyArray<GraphFact>
+  // Sources: label and attrs are fixed once made; trust changes only through setSourceTrust.
+  readonly addSource: (source: GraphSourceAdd) => GraphSource
+  readonly showSource: (id: string) => (GraphSource & { readonly observations: number }) | null
+  readonly sources: (q?: { readonly prefix?: string; readonly includeRetired?: boolean; readonly limit?: number; readonly after?: string }) => ReadonlyArray<GraphSource>
+  readonly setSourceTrust: (id: string, trust: string | null) => GraphSource
+  readonly retireSource: (id: string) => GraphSource
+  // A document's observations under one source, at once; again for a source that has observations returns those.
+  readonly importSource: (source: GraphSourceAdd, observations: ReadonlyArray<Omit<GraphAdd, "source" | "source_trust">>) => { readonly source: GraphSource; readonly observations: ReadonlyArray<GraphFact>; readonly created: boolean }
   readonly stats: () => ReadonlyArray<{ readonly kind: string; readonly status: GraphStatus; readonly count: number }> // facts not retired, by kind then status
   readonly meta: { readonly get: (key: string) => unknown; readonly set: (key: string, value: unknown) => void } // JSON values; undefined: never set
 }

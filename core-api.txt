@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.25
+# empty-vessel core 0.0.26
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -372,6 +372,23 @@ export interface GraphOps {
         readonly after: GraphMark;
         readonly limit: number;
     }) => ReadonlyArray<GraphFact>;
+    readonly addSource: (source: GraphSourceAdd) => GraphSource;
+    readonly showSource: (id: string) => (GraphSource & {
+        readonly observations: number;
+    }) | null;
+    readonly sources: (q?: {
+        readonly prefix?: string;
+        readonly includeRetired?: boolean;
+        readonly limit?: number;
+        readonly after?: string;
+    }) => ReadonlyArray<GraphSource>;
+    readonly setSourceTrust: (id: string, trust: string | null) => GraphSource;
+    readonly retireSource: (id: string) => GraphSource;
+    readonly importSource: (source: GraphSourceAdd, observations: ReadonlyArray<Omit<GraphAdd, "source" | "source_trust">>) => {
+        readonly source: GraphSource;
+        readonly observations: ReadonlyArray<GraphFact>;
+        readonly created: boolean;
+    };
     readonly stats: () => ReadonlyArray<{
         readonly kind: string;
         readonly status: GraphStatus;
@@ -393,6 +410,24 @@ export type GraphQuery = {
     readonly at?: GraphTime;
     readonly includeRetired?: boolean;
     readonly limit?: number;
+};
+
+## GraphSource (src/base/graph-memory)
+export type GraphSource = {
+    readonly id: string;
+    readonly label: string | null;
+    readonly trust: string | null;
+    readonly attrs: Readonly<Record<string, unknown>>;
+    readonly learned_at: number;
+    readonly retired_at: number | null;
+};
+
+## GraphSourceAdd (src/base/graph-memory)
+export type GraphSourceAdd = {
+    readonly id: string;
+    readonly label?: string | null;
+    readonly trust?: string | null;
+    readonly attrs?: Readonly<Record<string, unknown>>;
 };
 
 ## GraphStatus (src/base/graph-memory)

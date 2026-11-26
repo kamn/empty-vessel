@@ -88,3 +88,27 @@ test("/memory edit: a removed line retires its fact; an added line becomes a fac
   expect(facts.find((f) => f.text === "moved to Lisbon")).toMatchObject({ attrs: { scope: "user" }, status: "verified" })
   expect(await run(memoryCommand("edit"))).toContain("$EDITOR") // inside the TUI there's no editor to open
 })
+
+// Sources through GraphOps: a document imported once is one voice; its trust moves its observations; retiring it drops them.
+test("sources: import a document, change its trust, retire it", async () => {
+  const { home, root } = dirs()
+  const r = await withGraph(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => {
+    const claim = ops.add({ kind: "claim", text: "the road is closed" })
+    const notes = { id: "doc:notes", label: "Field notes", trust: "asserted" }
+    const doc = ops.importSource(notes, [{ kind: "obs", text: "closed at km 4" }, { kind: "obs", text: "closed at km 5" }])
+    for (const o of doc.observations) ops.link({ from: o.id, to: claim.id, type: "supports" })
+    const again = ops.importSource(notes, [{ kind: "obs", text: "ignored" }]) // the same document again: nothing new
+    const asserted = ops.show(claim.id)!.status
+    ops.setSourceTrust("doc:notes", "checked")
+    const checked = ops.show(claim.id)!.status
+    ops.retireSource("doc:notes")
+    return { doc, again, asserted, checked, retired: ops.show(claim.id)!.status, listed: ops.sources({ includeRetired: true }).map((s) => s.id), shown: ops.showSource("doc:notes") }
+  })))
+
+  expect(r.doc).toMatchObject({ created: true, source: { id: "doc:notes", label: "Field notes", trust: "asserted" } })
+  expect(r.again).toMatchObject({ created: false })
+  expect(r.again.observations.map((o) => o.id).toSorted()).toEqual(r.doc.observations.map((o) => o.id).toSorted())
+  expect([r.asserted, r.checked, r.retired]).toEqual(["supported", "verified", "unverified"])
+  expect(r.listed).toEqual(["doc:notes"])
+  expect(r.shown).toMatchObject({ observations: 2, retired_at: expect.any(Number) })
+})
