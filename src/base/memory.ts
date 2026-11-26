@@ -50,8 +50,8 @@ export const memoryLimits = (m: { readonly agentChars: number; readonly projectC
   ({ agent: m.agentChars, project: m.projectChars, user: m.userChars })
 export const usedChars = (entries: ReadonlyArray<string>) => entries.reduce((n, e) => n + e.length + 1, 0)
 
-const agentKey = (agent: string) => (agent === "root" ? "agents/memory.md" : `agents/${agent}/memory.md`)
-const PROFILE = "agents/user.md"
+export const agentKey = (agent: string) => (agent === "root" ? "agents/memory.md" : `agents/${agent}/memory.md`)
+export const PROFILE = "agents/user.md"
 const BACKUP = "agents/memory.before-profile.md" // agent memory as it was before the profile's migration; also says it ran
 
 // Agent memory entries about the user (their preferences, how they work), moved to the profile once.

@@ -10,6 +10,7 @@ import { FakeAsk } from "../system-two/ask"
 import { FakeFill } from "../system-two/fill"
 import { FakeSystemTwo } from "../system-two/systemtwo"
 import { claude } from "./claude"
+import { graph } from "./graph"
 import { codex } from "./codex"
 import { jev, jevMock } from "./jev"
 import { openai, openaiAs } from "./openai"
@@ -46,7 +47,7 @@ const notes: Plugin = { name: "notes", provides: { memory: Effect.gen(function* 
   return memory.pull ? notesPull.pipe(Layer.provideMerge(store)) : store
 }) } }
 
-export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]
+export const PLUGINS: ReadonlyArray<Plugin> = [fake, disk, notes, graph, jev, jevMock, codex, claude, openai, telegram, noAbsoluteRm, jevGuard]
 
 // What each plugin needs before it can be used, for `empty-vessel setup`, in the order offered.
 export const SETUPS: ReadonlyArray<PluginSetup> = PLUGINS.flatMap((p) => (p.setup ? [p.setup] : []))

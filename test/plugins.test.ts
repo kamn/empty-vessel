@@ -28,7 +28,7 @@ test("each kind is made by the plugin the config names; an unknown name lists th
 
   expect(run({ systemTwo: { use: "fake" } })).toBe("fake") // store and memory: the defaults (disk, notes)
   expect(run({ systemTwo: { use: "bogus" } })).toBe('error: systemTwo.use is "bogus", but no plugin provides a systemTwo by that name (there are: fake, codex, claude, openai)')
-  expect(run({ systemTwo: { use: "fake" }, memory: { use: "disk" } })).toBe('error: memory.use is "disk", but no plugin provides a memory by that name (there are: notes)')
+  expect(run({ systemTwo: { use: "fake" }, memory: { use: "disk" } })).toBe('error: memory.use is "disk", but no plugin provides a memory by that name (there are: notes, graph)')
 })
 
 // The notes offer the turn-start pull only with memory.pull on (off by default: a notes user's turns are as before).

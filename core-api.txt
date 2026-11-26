@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.21
+# empty-vessel core 0.0.22
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -276,6 +276,19 @@ export type Grants = {
     readonly media: boolean;
 };
 
+## GraphMemory (src/base/graph-memory)
+declare const GraphMemory_base: Context.ServiceClass<GraphMemory, "empty-vessel/GraphMemory", {
+    readonly use: <A>(f: (graph: Graph) => A) => Effect.Effect<A, MemoryError>;
+    readonly files: Effect.Effect<ReadonlyArray<NotesFile>>;
+    readonly candidates: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>;
+    readonly exportNotes: Effect.Effect<Readonly<Record<string, string>>>;
+}>;
+export declare class GraphMemory extends GraphMemory_base {
+}
+
+## graphOnStore (src/base/graph-memory)
+export declare const graphOnStore: (root: string) => Layer.Layer<GraphMemory | Memory, never, Store>;
+
 ## GuardVerdict (src/tools/action-guard)
 export type GuardVerdict = {
     readonly decision: "allow";
@@ -436,6 +449,14 @@ export type ModelTool = {
 
 ## newCallState (src/system-two/dispatch)
 export declare const newCallState: (stash?: Map<string, string>, now?: () => number) => CallState;
+
+## NotesFile (src/base/graph-memory)
+export type NotesFile = {
+    readonly key: string;
+    readonly label: string;
+    readonly scope: Scope;
+    readonly filter: Readonly<Record<string, string | null>>;
+};
 
 ## Owner (src/base/files)
 export type Owner = {

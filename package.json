@@ -29,6 +29,7 @@
   "dependencies": {
     "@effect/platform-bun": "4.0.0-rc.117",
     "effect": "4.0.0-rc.117",
+    "empty-graph": "file:../empty-graph",
     "foldkit": "0.163.0"
   }
 }

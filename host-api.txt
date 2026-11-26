@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.21
+# empty-vessel core 0.0.22
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/host.ts, not this.
 
 ## ActionGuardFromConfig (src/plugins/index)
