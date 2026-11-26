@@ -131,3 +131,27 @@ test("config path (and the rest, from the command line) use EMPTY_VESSEL_HOME's 
   expect(cli("get", "plugins.or.config.apiKey").stdout.toString().trim()).toBe("<redacted>")
   expect(cli("get", "nope").exitCode).toBe(1)
 })
+
+// A fresh process per case (the config file is read when the module loads): the memory settings a session would use,
+// or the error that stopped it. With pick, the memory plugin is also built (an unknown one is refused there).
+const sessionMemory = (env: Record<string, string>, pick = false) => {
+  const dir = mkdtempSync(join(tmpdir(), "empty-vessel-config-"))
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ memory: { use: "notes", pull: true } }))
+  const src = (file: string) => JSON.stringify(join(import.meta.dir, "../src", file))
+  const script = `import { Effect, Layer } from "effect"; import { Config } from ${src("base/config.ts")}; import { StoreAndMemoryFromConfig } from ${src("plugins/index.ts")}
+    const memory = Effect.gen(function* () { const { memory } = yield* Config; ${pick ? "yield* Layer.build(StoreAndMemoryFromConfig);" : ""} return memory }).pipe(Effect.scoped, Effect.provide(Config.layer))
+    Effect.runPromise(memory).then((m) => console.log(JSON.stringify({ use: m.use, pull: m.pull })), (e) => console.log("ERROR " + e.message))`
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("EMPTY_VESSEL_")))
+  return Bun.spawnSync([process.execPath, "-e", script], { env: { ...clean, EMPTY_VESSEL_HOME: dir, ...env }, stdout: "pipe", stderr: "pipe" }).stdout.toString().trim()
+}
+
+test("EMPTY_VESSEL_MEMORY and EMPTY_VESSEL_MEMORY_PULL override memory.use and memory.pull; unset keeps the config", () => {
+  expect(sessionMemory({})).toBe(JSON.stringify({ use: "notes", pull: true }))
+  expect(sessionMemory({ EMPTY_VESSEL_MEMORY: "graph", EMPTY_VESSEL_MEMORY_PULL: "false" })).toBe(JSON.stringify({ use: "graph", pull: false }))
+  expect(sessionMemory({ EMPTY_VESSEL_MEMORY_PULL: "true" })).toBe(JSON.stringify({ use: "notes", pull: true }))
+})
+
+test("an invalid memory override is refused", () => {
+  expect(sessionMemory({ EMPTY_VESSEL_MEMORY_PULL: "yes" })).toStartWith("ERROR ")
+  expect(sessionMemory({ EMPTY_VESSEL_MEMORY: "nope" }, true)).toContain(`memory.use is "nope", but no plugin provides a memory`)
+})
