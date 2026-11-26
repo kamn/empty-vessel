@@ -195,7 +195,7 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
 // recorded in the session; host functions graph.<action>, so the journal knows a query from a write. Only with
 // memory.use = graph. From a run the user didn't start (a job, a sub-agent), a fact about the user isn't written, linked
 // to or retired, and an observation's source, trust and origin are the run's own, never what the cell gives (R26): its
-// source is run:<origin>, apart from the user's own (source user) and captured lines (session:…). A query sees what the
+// source is run:<origin>:<session id> (each run one voice: its observations count once together), apart from the user's own (source user) and captured lines (session:…). A query sees what the
 // active agent sees (R20): shared facts and its own.
 const GRAPH_ACTIONS = ["add", "link", "retire", "query", "why", "near"] as const
 const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GRAPH_ACTIONS[number]) => (arg: unknown) => Effect.gen(function* () {
@@ -214,7 +214,7 @@ const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GR
     if (action === "add") {
       const own = files.findLast((f) => f.scope === a.attrs?.scope) // the attributes memory.add gives a fact of that scope
       const attrs = { ...(own ? attrsOf(own) : {}), ...a.attrs }
-      const seen = a.source !== undefined ? { source: `run:${origin}`, source_trust: "asserted", attrs: { ...attrs, origin } } : { attrs }
+      const seen = a.source !== undefined ? { source: `run:${origin}:${ctx.session.id}`, source_trust: "asserted", attrs: { ...attrs, origin } } : { attrs }
       return ops.add({ ...a, ...seen } as GraphAdd)
     }
     if (action === "link") return ops.link(a as Parameters<typeof ops.link>[0])

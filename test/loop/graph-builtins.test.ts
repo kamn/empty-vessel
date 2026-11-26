@@ -20,7 +20,7 @@ const dirs = () => ({ home: mkdtempSync(join(tmpdir(), "empty-vessel-home-")), r
 
 const setUp = ({ home, root } = dirs(), origin?: string, depth = 0, notes = false) => {
   const recorded: Array<[string, string]> = []
-  const ctx = { depth, conversation: newConversation(), session: { record: (role: string, text: string) => Effect.sync(() => { recorded.push([role, text]) }) } } as unknown as Ctx
+  const ctx = { depth, conversation: newConversation(), session: { id: "s1", record: (role: string, text: string) => Effect.sync(() => { recorded.push([role, text]) }) } } as unknown as Ctx
   const memory = notes ? memoryOnStore(root) : graphOnStore(root)
   const layer = memory.pipe(Layer.provide(diskStore(home)))
 
@@ -89,7 +89,7 @@ test("a job's or a sub-agent's cell can't write, support, contradict or retire a
     const { call } = setUp(place, origin, depth)
     const said = await call("graph.add", { kind: "observation", text: "the user wants weekly reports", source: "user", source_trust: "checked", attrs: { origin: "user" } }) as { id: string; source: string; source_trust: string; attrs: { origin: string } }
     const own = depth ? "subagent" : origin
-    expect(said).toMatchObject({ source: `run:${own}`, source_trust: "asserted", attrs: { origin: own } }) // never what the cell claims
+    expect(said).toMatchObject({ source: `run:${own}:s1`, source_trust: "asserted", attrs: { origin: own } }) // never what the cell claims
 
     await expect(call("graph.add", { kind: "note", text: "wants weekly reports", attrs: { scope: "user" } })).rejects.toThrow("only from the user's own turns")
     await expect(call("graph.link", { from: said.id, to: user.id, type: "supports" })).rejects.toThrow("only from the user's own turns")
