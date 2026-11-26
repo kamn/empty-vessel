@@ -2,12 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Option } from "effect"
-import { type Graph, retire } from "empty-graph"
 import { projectDir } from "../base/project"
 import { loadChecks } from "./checks"
 import { environment } from "./environment"
 import { Config } from "../base/config"
-import { attrsOf, factsIn, GraphMemory, type NotesFile, stated } from "../base/graph-memory"
+import { attrsOf, factsIn, GraphMemory, type GraphOps, type NotesFile, stated } from "../base/graph-memory"
 import { EMPTY_VESSEL_HOME } from "../base/home"
 import { Memory, memoryLimits, type Scope, SCOPES, usedChars } from "../base/memory"
 
@@ -67,19 +66,19 @@ const graphCommand = (gm: GraphMemory["Service"], args: string, canEdit: boolean
     const [what = "", ...rest] = args.trim().split(/\s+/)
     const text = rest.join(" ")
     const files = yield* gm.files
-    const listed = (g: Graph) => files.map((file) => ({ file, facts: factsIn(g, file.filter) }))
+    const listed = (ops: GraphOps) => files.map((file) => ({ file, facts: factsIn(ops, file.filter) }))
     const refused = (e: { message: string }) => Effect.succeed(`not changed: ${e.message}`)
 
-    if (what === "remove") return yield* gm.use((g) => {
-      const found = listed(g).flatMap((l) => l.facts).filter((f) => text && f.id.startsWith(text))
+    if (what === "remove") return yield* gm.use((ops) => {
+      const found = listed(ops).flatMap((l) => l.facts).filter((f) => text && f.id.startsWith(text))
       if (found.length !== 1) return `${found.length ? "several facts start" : "no fact starts"} with "${text}" (empty-vessel memory lists them)`
-      retire(g, found[0]!.id)
+      ops.retire(found[0]!.id)
       return `forgot: ${found[0]!.text}`
     }).pipe(Effect.catch(refused))
 
     if (what === "add") {
       if (!text) return "what should be remembered? empty-vessel memory add <text>"
-      return yield* gm.use((g) => `remembered (user): ${stated(g, text, attrsOf(files.find((f) => f.scope === "user")!)).text}`).pipe(Effect.catch(refused))
+      return yield* gm.use((ops) => `remembered (user): ${stated(ops, text, attrsOf(files.find((f) => f.scope === "user")!)).text}`).pipe(Effect.catch(refused))
     }
 
     if (what === "edit") {
@@ -88,7 +87,7 @@ const graphCommand = (gm: GraphMemory["Service"], args: string, canEdit: boolean
       return yield* editGraph(gm, files, editor).pipe(Effect.catch(refused))
     }
 
-    const parts = yield* gm.use((g) => listed(g).map(({ file, facts }) =>
+    const parts = yield* gm.use((ops) => listed(ops).map(({ file, facts }) =>
       [`${file.label} (${file.scope})`, ...(facts.length ? facts.map((f) => `  ${f.id.slice(0, 8)} ${f.text}`) : ["  (nothing yet)"])].join("\n")))
     return [...parts, "", "empty-vessel memory remove <id> · empty-vessel memory add <text> · empty-vessel memory edit"].join("\n")
   })
@@ -97,7 +96,7 @@ const graphCommand = (gm: GraphMemory["Service"], args: string, canEdit: boolean
 const editGraph = (gm: GraphMemory["Service"], files: ReadonlyArray<NotesFile>, editor: string) =>
   Effect.gen(function* () {
     const lines = (text: string) => text.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2).trim())
-    const before = yield* gm.use((g) => files.map((file) => ({ file, facts: factsIn(g, file.filter) })))
+    const before = yield* gm.use((ops) => files.map((file) => ({ file, facts: factsIn(ops, file.filter) })))
     const doc = before.map(({ file, facts }) => [`# ${file.key}`, ...facts.map((f) => `- ${f.text}`), ""].join("\n")).join("\n")
     const dir = mkdtempSync(join(tmpdir(), "empty-vessel-memory-")), path = join(dir, "memory.md")
 
@@ -109,7 +108,7 @@ const editGraph = (gm: GraphMemory["Service"], files: ReadonlyArray<NotesFile>, 
     // Per heading: a line gone retires one fact with that text; a new line is kept as the user stated it. A heading gone
     // changes nothing (rather than forget a whole file to a slip).
     const after = new Map(saved.split(/^# /m).slice(1).map((section) => [section.split("\n")[0]!.trim(), lines(section)] as const))
-    return yield* gm.use((g) => {
+    return yield* gm.use((ops) => {
       let forgot = 0, kept = 0
 
       for (const { file, facts } of before) {
@@ -117,9 +116,9 @@ const editGraph = (gm: GraphMemory["Service"], files: ReadonlyArray<NotesFile>, 
         for (const f of facts) {
           const i = now.indexOf(f.text)
           if (i >= 0) now.splice(i, 1)
-          else { retire(g, f.id); forgot++ }
+          else { ops.retire(f.id); forgot++ }
         }
-        for (const text of now) { stated(g, text, attrsOf(file)); kept++ }
+        for (const text of now) { stated(ops, text, attrsOf(file)); kept++ }
       }
 
       return `${forgot} forgotten, ${kept} remembered`

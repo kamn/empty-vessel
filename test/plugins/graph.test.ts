@@ -3,9 +3,9 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
-import { query, show, why } from "empty-graph"
 import { Config, ConfigSchema } from "../../src/base/config"
-import { GraphMemory, graphOnStore } from "../../src/base/graph-memory"
+import { GraphMemory } from "../../src/base/graph-memory"
+import { graphOnStore } from "../../src/plugins/graph"
 import { Memory, memoryOnStore } from "../../src/base/memory"
 import { diskStore } from "../../src/base/store"
 import { briefing, memoryCommand } from "../../src/learning/notes"
@@ -15,7 +15,7 @@ const config = Schema.decodeUnknownSync(ConfigSchema)({})
 const withGraph = (home: string, root: string) =>
   <A, E>(f: Effect.Effect<A, E, Memory | GraphMemory | Config>) =>
     Effect.runPromise(f.pipe(Effect.provide(graphOnStore(root).pipe(Layer.provide(diskStore(home)))), Effect.provideService(Config, config), Effect.scoped))
-const live = Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { kind: "note", limit: 100 }).map((s) => show(g, s.id)!)))
+const live = Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ kind: "note", limit: 100 }).map((s) => ops.show(s.id)!)))
 
 // memory.use picks the plugin: notes leaves GraphMemory out (the notes plugin behaves as before), graph provides it with the pull.
 test("memory.use = notes has no GraphMemory; memory.use = graph provides it and the turn-start pull", () => {
@@ -65,7 +65,7 @@ test("/memory lists facts with ids; remove <id> retires one; add <text> writes a
   expect(await run(memoryCommand("add answers in plain words"))).toBe("remembered (user): answers in plain words")
   const added = (await run(live)).find((f) => f.text === "answers in plain words")!
   expect(added).toMatchObject({ attrs: { scope: "user" }, status: "verified" })
-  const evidence = await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => why(g, added.id)!.evidence.map((e) => show(g, e.fact.id)!))))
+  const evidence = await run(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.why(added.id)!.evidence.map((e) => ops.show(e.fact.id)!))))
   expect(evidence).toMatchObject([{ source: "user", source_trust: "checked" }])
 })
 

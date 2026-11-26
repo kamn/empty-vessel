@@ -23,7 +23,10 @@ export { CurrentSession, type SessionEntry, type SessionMirrorFn } from "./base/
 export { type Owner, takeLease, withLock } from "./base/files"
 export { Channel } from "./base/channel"
 export { ActiveAgent, Memory, MemoryError, MemoryPull, type PullCandidate, type PullUsage, type Scope } from "./base/memory"
-export { GraphMemory, graphOnStore, type NotesFile } from "./base/graph-memory"
+export {
+  type GraphAdd, type GraphFact, GraphInvalid, type GraphLink, type GraphMark, GraphMemory, graphMemory, type GraphNear, type GraphOps, type GraphQuery,
+  type GraphStatus, type GraphSummary, type GraphTime, type GraphUse, type GraphWhy, type NotesFile,
+} from "./base/graph-memory"
 export { recordUsage, type Tokens } from "./base/usage"
 
 // Small helpers every kind of plugin uses: showing what it does (an event: activity, an error), one more try after a

@@ -3,8 +3,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer } from "effect"
-import { query, show } from "empty-graph"
-import { GraphMemory, graphOnStore } from "../../src/base/graph-memory"
+import { GraphMemory } from "../../src/base/graph-memory"
+import { graphOnStore } from "../../src/plugins/graph"
 import { ActiveAgent } from "../../src/base/memory"
 import { diskStore, Store } from "../../src/base/store"
 import { captureSessions, graphStats } from "../../src/learning/graph-capture"
@@ -37,8 +37,8 @@ const fixture = (root: string) => [
 ]
 
 const observations = (home: string, root: string) =>
-  graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((g) =>
-    (g.db.query("SELECT id FROM facts WHERE source LIKE 'session:%' ORDER BY valid_from").all() as Array<{ id: string }>).map(({ id }) => show(g, id)!))))
+  graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) =>
+    ops.observations({ sourcePrefix: "session:", after: { at: -1, id: "" }, limit: 1000 }).toSorted((a, b) => (a.valid_from ?? 0) - (b.valid_from ?? 0)))))
 
 test("capture: a fixture session becomes turn, command, effect and check observations, with project, agent and origin", async () => {
   const { home, root } = dirs()
@@ -62,7 +62,7 @@ test("capture: a fixture session becomes turn, command, effect and check observa
   expect(new Set(seen.map((o) => o.source)).size).toBe(5)
 
   // One existence fact for the project, created on first sight.
-  const existence = await graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { attrs: { role: "existence" } }))))
+  const existence = await graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ attrs: { role: "existence" } }))))
   expect(existence.map((f) => f.text)).toEqual([project])
 })
 

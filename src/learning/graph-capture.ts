@@ -1,15 +1,14 @@
 import { statSync } from "node:fs"
 import { Effect } from "effect"
-import { add, type Graph, query, withRetry } from "empty-graph"
-import { GraphMemory, projectOf } from "../base/graph-memory"
+import { GraphMemory, type GraphOps, projectOf } from "../base/graph-memory"
 import { type LogEntry, logEntries, SESSIONS } from "../base/session"
 import { Store } from "../base/store"
 import { tail } from "../base/files"
 
 // The capture (KTD14, R23): what sessions did, as observation facts in the graph, with no model call. Each root session is
 // read from where the last capture stopped (its byte offset, kept in the graph's meta with what the session was doing
-// then), so capturing again writes nothing twice; the offsets and the facts are written in one immediate transaction, so
-// two captures at once take turns. A fork is captured from its last `forked` line on, as the recall index does.
+// then), so capturing again writes nothing twice; the offsets and the facts are written in one GraphMemory.use (one
+// transaction), so two captures at once take turns. A fork is captured from its last `forked` line on, as the recall index does.
 // Observations: a turn (the user's goal and the answer), a command, a check and its verdict, a file effect and how it
 // went. Each carries source session:<id>#<byte offset of its line>, source_trust asserted, valid_from when it happened,
 // and attributes project, origin (user, or the job's: cron …) and agent (a named agent's; none for empty-vessel itself).
@@ -34,9 +33,8 @@ const observe = (e: LogEntry, seen: Seen): { kind: string; text: string } | unde
   return { kind: "turn", text: `${goal ? `${goal} → ` : ""}${short(e.text)}` }
 }
 
-const pass = (g: Graph, folder: (key: string) => string, ids: ReadonlyArray<string>) => {
-  const row = g.db.query("SELECT value FROM meta WHERE key = ?").get(CAPTURED) as { value: string } | null
-  const captured: Record<string, Seen> = row ? JSON.parse(row.value) : {}
+const pass = (ops: GraphOps, folder: (key: string) => string, ids: ReadonlyArray<string>) => {
+  const captured = (ops.meta.get(CAPTURED) ?? {}) as Record<string, Seen>
   let sessions = 0, observations = 0
 
   for (const id of ids) {
@@ -62,15 +60,15 @@ const pass = (g: Graph, folder: (key: string) => string, ids: ReadonlyArray<stri
       if (head?.role !== "project") continue // not a session's start yet: next capture
       seen = { offset: 0, project: projectOf(head.text), origin: "user" }
       lines = lines.slice(Math.max(0, lines.findLastIndex((l) => l.e.role === "forked")))
-      if (!query(g, { attrs: { role: "existence", project: seen.project }, limit: 1 }).length)
-        add(g, { kind: "project", text: seen.project, attrs: { role: "existence", project: seen.project } })
+      if (!ops.query({ attrs: { role: "existence", project: seen.project }, limit: 1 }).length)
+        ops.add({ kind: "project", text: seen.project, attrs: { role: "existence", project: seen.project } })
     }
 
     for (const { at, e } of lines) {
       const o = observe(e, seen)
       if (!o) continue
       const attrs = { project: seen.project, origin: seen.origin, ...(seen.agent ? { agent: seen.agent } : {}) }
-      add(g, { ...o, attrs, source: `session:${id}#${at}`, source_trust: "asserted", valid_from: e.ts })
+      ops.add({ ...o, attrs, source: `session:${id}#${at}`, source_trust: "asserted", valid_from: e.ts })
       observations++
     }
 
@@ -78,7 +76,7 @@ const pass = (g: Graph, folder: (key: string) => string, ids: ReadonlyArray<stri
     sessions++
   }
 
-  g.db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [CAPTURED, JSON.stringify(captured)])
+  ops.meta.set(CAPTURED, captured)
   return { sessions, observations }
 }
 
@@ -88,12 +86,11 @@ export const captureSessions = Effect.gen(function* () {
   const ids = yield* store.list(SESSIONS)
   const gm = yield* GraphMemory
 
-  return yield* gm.use((g) => withRetry(() => g.db.transaction(() => pass(g, store.folder, ids)).immediate()))
+  return yield* gm.use((ops) => pass(ops, store.folder, ids))
 })
 
 // `empty-vessel graph stats`: the facts not retired, counted by kind and status, one line per kind.
-export const graphStats = Effect.flatMap(GraphMemory, (gm) => gm.use((g) => {
-  const rows = g.db.query("SELECT kind, status, count(*) AS n FROM facts WHERE retired_at IS NULL GROUP BY kind, status ORDER BY kind, status").all() as Array<{ kind: string; status: string; n: number }>
-  const kinds = Map.groupBy(rows, (r) => r.kind)
-  return [...kinds].map(([kind, rs]) => `${kind}: ${rs.map((r) => `${r.n} ${r.status}`).join(", ")}`).join("\n") || "the graph is empty"
+export const graphStats = Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => {
+  const kinds = Map.groupBy(ops.stats(), (r) => r.kind)
+  return [...kinds].map(([kind, rs]) => `${kind}: ${rs.map((r) => `${r.count} ${r.status}`).join(", ")}`).join("\n") || "the graph is empty"
 }))

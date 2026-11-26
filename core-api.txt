@@ -1,4 +1,4 @@
-# empty-vessel core 0.0.24
+# empty-vessel core 0.0.25
 # Written by scripts/core-api.ts; checked by test/core-api.test.ts. Edit src/core.ts, not this.
 
 ## Action (src/tools/action-guard)
@@ -276,9 +276,53 @@ export type Grants = {
     readonly media: boolean;
 };
 
+## GraphAdd (src/base/graph-memory)
+export type GraphAdd = {
+    readonly kind: string;
+    readonly text: string;
+    readonly attrs?: Readonly<Record<string, unknown>>;
+    readonly valid_from?: GraphTime | null;
+    readonly valid_until?: GraphTime | null;
+    readonly source?: string;
+    readonly source_trust?: string;
+    readonly vector?: ReadonlyArray<number>;
+};
+
+## GraphFact (src/base/graph-memory)
+export type GraphFact = Omit<GraphSummary, "evidence" | "usefulness"> & {
+    readonly attrs: Readonly<Record<string, unknown>>;
+    readonly learned_at: number;
+    readonly retired_at: number | null;
+    readonly source: string | null;
+    readonly source_trust: string | null;
+};
+
+## GraphInvalid (src/base/graph-memory)
+export declare class GraphInvalid extends Error {
+    name: string;
+}
+
+## GraphLink (src/base/graph-memory)
+export type GraphLink = {
+    readonly from: string;
+    readonly to: string;
+    readonly type: string;
+    readonly weight?: number;
+    readonly attrs?: Readonly<Record<string, unknown>>;
+};
+
+## GraphMark (src/base/graph-memory)
+export type GraphMark = {
+    readonly at: number;
+    readonly id: string;
+};
+
+## graphMemory (src/base/graph-memory)
+export declare const graphMemory: (root: string, where: string, open: Effect.Effect<GraphUse, never, Store | EffectScope.Scope>) => Layer.Layer<GraphMemory | Memory, never, Store>;
+
 ## GraphMemory (src/base/graph-memory)
 declare const GraphMemory_base: Context.ServiceClass<GraphMemory, "empty-vessel/GraphMemory", {
-    readonly use: <A>(f: (graph: Graph) => A) => Effect.Effect<A, MemoryError>;
+    readonly use: GraphUse;
     readonly files: Effect.Effect<ReadonlyArray<NotesFile>>;
     readonly candidates: (goal: string) => Effect.Effect<ReadonlyArray<PullCandidate>>;
     readonly exportNotes: Effect.Effect<Readonly<Record<string, string>>>;
@@ -286,8 +330,101 @@ declare const GraphMemory_base: Context.ServiceClass<GraphMemory, "empty-vessel/
 export declare class GraphMemory extends GraphMemory_base {
 }
 
-## graphOnStore (src/base/graph-memory)
-export declare const graphOnStore: (root: string) => Layer.Layer<GraphMemory | Memory, never, Store>;
+## GraphNear (src/base/graph-memory)
+export type GraphNear = {
+    readonly by: "time" | "vector";
+    readonly limit?: number;
+    readonly includeRetired?: boolean;
+};
+
+## GraphOps (src/base/graph-memory)
+export interface GraphOps {
+    readonly now: () => number;
+    readonly add: (fact: GraphAdd) => GraphFact;
+    readonly link: (link: GraphLink) => GraphLink & {
+        readonly id: string;
+        readonly weight: number;
+        readonly learned_at: number;
+    };
+    readonly retire: (id: string) => void;
+    readonly update: (id: string, changes: {
+        readonly valid_from?: GraphTime | null;
+        readonly valid_until?: GraphTime | null;
+        readonly attrs?: Readonly<Record<string, unknown>>;
+        readonly text?: string;
+    }) => GraphFact;
+    readonly show: (id: string) => GraphFact | null;
+    readonly query: (q?: GraphQuery) => ReadonlyArray<GraphSummary>;
+    readonly why: (id: string) => GraphWhy | null;
+    readonly near: (from: string | ReadonlyArray<number>, options: GraphNear) => ReadonlyArray<GraphSummary>;
+    readonly reportUsage: (report: {
+        readonly shown?: ReadonlyArray<string>;
+        readonly picked?: ReadonlyArray<string>;
+        readonly outcome?: "good" | "bad";
+    }) => void;
+    readonly exportMarkdown: (options?: {
+        readonly kinds?: ReadonlyArray<string>;
+        readonly attrs?: GraphAttrs;
+        readonly groupBy?: string;
+    }) => string;
+    readonly observations: (q: {
+        readonly sourcePrefix: string;
+        readonly after: GraphMark;
+        readonly limit: number;
+    }) => ReadonlyArray<GraphFact>;
+    readonly stats: () => ReadonlyArray<{
+        readonly kind: string;
+        readonly status: GraphStatus;
+        readonly count: number;
+    }>;
+    readonly meta: {
+        readonly get: (key: string) => unknown;
+        readonly set: (key: string, value: unknown) => void;
+    };
+}
+
+## GraphQuery (src/base/graph-memory)
+export type GraphQuery = {
+    readonly text?: string;
+    readonly kind?: string;
+    readonly attrs?: GraphAttrs;
+    readonly status?: GraphStatus | ReadonlyArray<GraphStatus>;
+    readonly about?: string;
+    readonly at?: GraphTime;
+    readonly includeRetired?: boolean;
+    readonly limit?: number;
+};
+
+## GraphStatus (src/base/graph-memory)
+export type GraphStatus = "unverified" | "supported" | "verified" | "contested" | "debunked";
+
+## GraphSummary (src/base/graph-memory)
+export type GraphSummary = {
+    readonly id: string;
+    readonly kind: string;
+    readonly text: string;
+    readonly status: GraphStatus;
+    readonly evidence: number;
+    readonly usefulness: number;
+    readonly valid_from: number | null;
+    readonly valid_until: number | null;
+};
+
+## GraphTime (src/base/graph-memory)
+export type GraphTime = number | string;
+
+## GraphUse (src/base/graph-memory)
+export type GraphUse = <A>(f: (ops: GraphOps) => A) => Effect.Effect<A, MemoryError>;
+
+## GraphWhy (src/base/graph-memory)
+export type GraphWhy = {
+    readonly fact: GraphSummary;
+    readonly evidence: ReadonlyArray<{
+        readonly type: "supports" | "contradicts";
+        readonly weight: number;
+        readonly fact: GraphSummary;
+    }>;
+};
 
 ## GuardVerdict (src/tools/action-guard)
 export type GuardVerdict = {
@@ -390,6 +527,7 @@ declare const MemoryError_base: new <A extends Record<string, any> = {}>(args: V
 } & Readonly<A>;
 export declare class MemoryError extends MemoryError_base<{
     message: string;
+    cause?: unknown;
 }> {
 }
 

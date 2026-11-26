@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer } from "effect"
-import { add, query, show, usage, why } from "empty-graph"
-import { GraphMemory, graphOnStore } from "../../src/base/graph-memory"
+import { open, usage } from "empty-graph"
+import { GraphMemory } from "../../src/base/graph-memory"
+import { GRAPH_FILE, graphOnStore } from "../../src/plugins/graph"
 import { ActiveAgent, Memory, MemoryPull } from "../../src/base/memory"
 import { projectDir } from "../../src/base/project"
 import { diskStore } from "../../src/base/store"
@@ -39,7 +40,7 @@ test("first open migrates every scope's notes into note facts with scope, agent 
   writeNotes(home, root)
   const run = graphIn(home, root)
 
-  const facts = await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { kind: "note", limit: 100 }).map((s) => ({ ...show(g, s.id)!, why: why(g, s.id)! })))))
+  const facts = await run(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ kind: "note", limit: 100 }).map((s) => ({ ...ops.show(s.id)!, why: ops.why(s.id)! })))))
   const attrsOf = (text: string) => facts.find((f) => f.text === text)?.attrs
 
   expect(facts.length).toBe(7)
@@ -70,7 +71,7 @@ test("migration runs once: a second open, or notes written later, migrate nothin
   const { home, root } = dirs()
   writeNotes(home, root)
   const run = graphIn(home, root)
-  const count = Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { kind: "note", limit: 100 }).length))
+  const count = Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ kind: "note", limit: 100 }).length))
 
   expect(await run(count)).toBe(7)
   writeFileSync(join(home, "agents/memory.md"), "- rg isn't installed: use grep\n- a later line\n")
@@ -81,15 +82,15 @@ test("migration runs once: a second open, or notes written later, migrate nothin
 test("two processes opening an empty graph at once migrate the notes once", async () => {
   const { home, root } = dirs()
   writeNotes(home, root)
-  const script = `import { Effect, Layer } from "effect"; import { query } from "empty-graph"; import { GraphMemory, graphOnStore } from "./src/base/graph-memory"; import { diskStore } from "./src/base/store"
-    await Effect.runPromise(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, {}).length)).pipe(Effect.provide(graphOnStore(${JSON.stringify(root)}).pipe(Layer.provide(diskStore(${JSON.stringify(home)})))), Effect.scoped))`
+  const script = `import { Effect, Layer } from "effect"; import { GraphMemory } from "./src/base/graph-memory"; import { graphOnStore } from "./src/plugins/graph"; import { diskStore } from "./src/base/store"
+    await Effect.runPromise(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({}).length)).pipe(Effect.provide(graphOnStore(${JSON.stringify(root)}).pipe(Layer.provide(diskStore(${JSON.stringify(home)})))), Effect.scoped))`
   const spawn = () => Bun.spawn(["bun", "-e", script], { cwd: join(import.meta.dir, "../.."), stdout: "pipe", stderr: "pipe" })
 
   const both = [spawn(), spawn()]
   await Promise.all(both.map((p) => p.exited))
 
   expect(both.map((p) => p.exitCode)).toEqual([0, 0])
-  expect(await graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { kind: "note", limit: 100 }).length)))).toBe(7)
+  expect(await graphIn(home, root)(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ kind: "note", limit: 100 }).length)))).toBe(7)
 })
 
 test("a named agent sees its own facts and the shared ones, not another agent's; empty-vessel doesn't see a named agent's", async () => {
@@ -116,7 +117,7 @@ test("a named agent sees its own facts and the shared ones, not another agent's;
 test("memory.add creates a fact GraphMemory.query reads; replace ends the old one; remove retires it", async () => {
   const { home, root } = dirs()
   const run = graphIn(home, root)
-  const texts = Effect.flatMap(GraphMemory, (gm) => gm.use((g) => query(g, { text: "bun" }).map((s) => s.text)))
+  const texts = Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.query({ text: "bun" }).map((s) => s.text)))
 
   await run(Effect.flatMap(Memory, (m) => m.add("project", "tests run with bun test")))
   expect(await run(texts)).toEqual(["tests run with bun test"])
@@ -134,7 +135,7 @@ test("pull candidates: FTS matches on the goal first, then the top facts; never 
   const { home, root } = dirs()
   writeNotes(home, root)
   const run = graphIn(home, root)
-  await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => add(g, { kind: "note", text: "the parser lives in src/parse.ts", attrs: { role: "existence" } }))))
+  await run(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => ops.add({ kind: "note", text: "the parser lives in src/parse.ts", attrs: { role: "existence" } }))))
 
   const candidates = await run(pulled("why do the tests fail with Node"))
 
@@ -145,7 +146,9 @@ test("pull candidates: FTS matches on the goal first, then the top facts; never 
 
   const [picked, other] = candidates
   await run(Effect.gen(function* () { yield* (yield* MemoryPull).reportUsage!({ shown: candidates.map((c) => c.id), picked: [picked!.id], outcome: "done" }) }))
-  const counts = await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => [usage(g, picked!.id), usage(g, other!.id)])))
+  const g = open(join(home, GRAPH_FILE)) // usage counters aren't in GraphOps: read them from the file
+  const counts = [usage(g, picked!.id), usage(g, other!.id)]
+  g.close()
   expect(counts[0]).toMatchObject({ shown: 1, picked: 1, good: 1, bad: 0 })
   expect(counts[1]).toMatchObject({ shown: 1, picked: 0, good: 0, bad: 0 })
 })
@@ -153,9 +156,9 @@ test("pull candidates: FTS matches on the goal first, then the top facts; never 
 test("pull candidates: a note still shows among far more captured observations", async () => {
   const { home, root } = dirs()
   const run = graphIn(home, root)
-  await run(Effect.flatMap(GraphMemory, (gm) => gm.use((g) => {
-    add(g, { kind: "note", text: "tests: bun test", attrs: { scope: "project" } })
-    for (let i = 0; i < 130; i++) add(g, { kind: "turn", text: `run the tests → tests pass ${i}`, source: `session:s1#${i}`, source_trust: "asserted", attrs: { origin: "user" } })
+  await run(Effect.flatMap(GraphMemory, (gm) => gm.use((ops) => {
+    ops.add({ kind: "note", text: "tests: bun test", attrs: { scope: "project" } })
+    for (let i = 0; i < 130; i++) ops.add({ kind: "turn", text: `run the tests → tests pass ${i}`, source: `session:s1#${i}`, source_trust: "asserted", attrs: { origin: "user" } })
   })))
 
   expect((await run(pulled("run the tests"))).map((c) => c.text)).toEqual(["tests: bun test"])

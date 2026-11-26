@@ -17,7 +17,8 @@ export type Scope = "agent" | "project" | "user"
 export type Limits = Readonly<Record<Scope, number>> // characters per scope (per agent, for "agent")
 export const SCOPES: ReadonlyArray<Scope> = ["agent", "project", "user"]
 
-export class MemoryError extends Data.TaggedError("MemoryError")<{ message: string }> {}
+// `cause`: what failed underneath, when there was something (a graph backend's GraphInvalid: src/base/graph-memory.ts).
+export class MemoryError extends Data.TaggedError("MemoryError")<{ message: string; cause?: unknown }> {}
 
 export class Memory extends Context.Service<Memory, {
   readonly snapshot: Effect.Effect<string> // every scope, for the prompt at the start of a session

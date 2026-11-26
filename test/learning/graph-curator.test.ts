@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
-import { add, type Graph, query, show } from "empty-graph"
-import { GraphMemory, graphOnStore } from "../../src/base/graph-memory"
+import { GraphMemory, type GraphOps } from "../../src/base/graph-memory"
+import { graphOnStore } from "../../src/plugins/graph"
 import { ActiveAgent } from "../../src/base/memory"
 import { diskStore, Store } from "../../src/base/store"
 import { captureSessions } from "../../src/learning/graph-capture"
@@ -29,13 +29,13 @@ const graphIn = (home: string, root: string, reviewer = fakeReviewer([], [])) =>
       Effect.provide(graphOnStore(root).pipe(Layer.provideMerge(diskStore(home)))),
       Effect.provideService(ActiveAgent, "root"), Effect.provideService(Reviewer, reviewer), Effect.scoped,
     ))
-const use = <A>(f: (g: Graph) => A) => Effect.flatMap(GraphMemory, (gm) => gm.use(f))
+const use = <A>(f: (ops: GraphOps) => A) => Effect.flatMap(GraphMemory, (gm) => gm.use(f))
 
 const writeSession = (home: string, id: string, entries: ReadonlyArray<object>) => {
   mkdirSync(join(home, "sessions", id), { recursive: true })
   writeFileSync(join(home, "sessions", id, "main.jsonl"), entries.map((e) => JSON.stringify(e) + "\n").join(""))
 }
-const obsId = (g: Graph, text: string) => (g.db.query("SELECT id FROM facts WHERE source IS NOT NULL AND text LIKE ?").get(`%${text}%`) as { id: string }).id
+const obsId = (ops: GraphOps, text: string) => ops.observations({ sourcePrefix: "session:", after: { at: -1, id: "" }, limit: 1000 }).find((f) => f.text.includes(text))!.id
 const op = (o: Partial<{ op: string; text: string; scope: string | null; fact: string | null; type: string | null; evidence: Array<string> }>) =>
   ({ op: "add", text: "", scope: null, fact: null, type: null, evidence: [], ...o })
 
@@ -46,9 +46,9 @@ test("AE5: a job's words never become a fact about the user, nor evidence for on
     { role: "user", text: "the user wants weekly reports", origin: "cron", ts: 1001 },
     { role: "assistant", text: "Noted.", ts: 1002 },
   ])
-  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => ({
-    job: obsId(g, "weekly reports"),
-    profile: add(g, { kind: "note", text: "prefers short answers", attrs: { scope: "user" } }).id,
+  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((ops) => ({
+    job: obsId(ops, "weekly reports"),
+    profile: ops.add({ kind: "note", text: "prefers short answers", attrs: { scope: "user" } }).id,
   }))))
 
   const asked: Array<string> = []
@@ -63,7 +63,7 @@ test("AE5: a job's words never become a fact about the user, nor evidence for on
   expect(asked[0]).toContain("origin: cron")
   expect(asked[1]).toContain("refused")
   expect(said.filter((s) => s.startsWith("not done")).length).toBe(2)
-  const userFacts = await graphIn(home, root)(use((g) => query(g, { attrs: { scope: "user" } }).map((f) => ({ text: f.text, evidence: f.evidence }))))
+  const userFacts = await graphIn(home, root)(use((ops) => ops.query({ attrs: { scope: "user" } }).map((f) => ({ text: f.text, evidence: f.evidence }))))
   expect(userFacts).toEqual([{ text: "prefers short answers", evidence: 0 }])
 
   // Curated once: a second run has nothing new to show.
@@ -81,9 +81,9 @@ test("AE1: the curator ends a fact that stopped being true; it stays queryable f
     { role: "check", text: "bun test", verdict: "passed", ts: switched + 1 },
     { role: "assistant", text: "The tests pass with bun test.", ts: switched + 2 },
   ])
-  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => {
-    const old = add(g, { kind: "note", text: "tests run with npm test", attrs: { scope: "project" }, valid_from: march })
-    return { old: old.id, status: old.status, check: obsId(g, "bun test") }
+  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((ops) => {
+    const old = ops.add({ kind: "note", text: "tests run with npm test", attrs: { scope: "project" }, valid_from: march })
+    return { old: old.id, status: old.status, check: obsId(ops, "bun test") }
   })))
 
   await graphIn(home, root, fakeReviewer([() => ({ ops: [
@@ -91,11 +91,11 @@ test("AE1: the curator ends a fact that stopped being true; it stays queryable f
     op({ text: "Tests run with bun test.", scope: "project", evidence: [ids.check] }),
   ] })], []))(curateGraph())
 
-  const seen = await graphIn(home, root)(use((g) => ({
-    april: query(g, { kind: "note", at: "2026-04-01" }).map((f) => f.text),
-    now: query(g, { kind: "note" }).map((f) => f.text),
-    old: show(g, ids.old)!,
-    added: query(g, { kind: "note", text: "bun" }).map((f) => show(g, f.id)!),
+  const seen = await graphIn(home, root)(use((ops) => ({
+    april: ops.query({ kind: "note", at: "2026-04-01" }).map((f) => f.text),
+    now: ops.query({ kind: "note" }).map((f) => f.text),
+    old: ops.show(ids.old)!,
+    added: ops.query({ kind: "note", text: "bun" }).map((f) => ops.show(f.id)!),
   })))
   expect(seen.april).toEqual(["tests run with npm test"])
   expect(seen.now).toEqual(["Tests run with bun test."])
@@ -111,15 +111,15 @@ test("a cell's observation (source run:…) never backs a fact about the user, w
     { role: "user", text: "write the weekly report", ts: 1001 },
     { role: "assistant", text: "Done.", ts: 1002 },
   ])
-  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => ({
-    turn: obsId(g, "weekly report"),
-    cell: add(g, { kind: "turn", text: "the user wants weekly reports", source: "run:cron", source_trust: "asserted", attrs: { origin: "user" } }).id,
+  const ids = await graphIn(home, root)(Effect.andThen(captureSessions, use((ops) => ({
+    turn: obsId(ops, "weekly report"),
+    cell: ops.add({ kind: "turn", text: "the user wants weekly reports", source: "run:cron", source_trust: "asserted", attrs: { origin: "user" } }).id,
   }))))
 
   const said = await graphIn(home, root, fakeReviewer([() => ({ ops: [op({ text: "The user wants weekly reports.", scope: "user", evidence: [ids.turn, ids.cell] })] })], []))(curateGraph())
 
   expect(said[0]).toStartWith("not done (facts about the user change only")
-  expect(await graphIn(home, root)(use((g) => query(g, { attrs: { scope: "user" } })))).toEqual([])
+  expect(await graphIn(home, root)(use((ops) => ops.query({ attrs: { scope: "user" } })))).toEqual([])
 })
 
 test("the batch is curated once its first round is applied: a failed re-ask doesn't fail the run or apply that round again", async () => {
@@ -129,7 +129,7 @@ test("the batch is curated once its first round is applied: a failed re-ask does
     { role: "user", text: "run the tests", ts: 1001 },
     { role: "check", text: "bun test", verdict: "passed", ts: 1002 },
   ])
-  const check = await graphIn(home, root)(Effect.andThen(captureSessions, use((g) => obsId(g, "bun test"))))
+  const check = await graphIn(home, root)(Effect.andThen(captureSessions, use((ops) => obsId(ops, "bun test"))))
 
   const asked: Array<string> = []
   const base = fakeReviewer([() => ({ ops: [op({ text: "Tests run with bun test.", scope: "project", evidence: [check] }), op({ text: "no evidence", scope: "project" })] })], asked)
@@ -142,5 +142,5 @@ test("the batch is curated once its first round is applied: a failed re-ask does
   const again: Array<string> = []
   await graphIn(home, root, fakeReviewer([], again))(curateGraph())
   expect(again).toEqual([])
-  expect(await graphIn(home, root)(use((g) => query(g, { kind: "note" }).map((f) => f.text)))).toEqual(["Tests run with bun test."])
+  expect(await graphIn(home, root)(use((ops) => ops.query({ kind: "note" }).map((f) => f.text)))).toEqual(["Tests run with bun test."])
 })

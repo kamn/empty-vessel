@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs"
 import { Context, Effect, Option } from "effect"
-import { add, link, near, query, retire, show, why } from "empty-graph"
 import { discoverSkills, loadSkill, saveSkill } from "../base/skills"
 import { describeFlags } from "../base/skill-scan"
 import { EMPTY_VESSEL_HOME } from "../base/home"
@@ -14,7 +13,7 @@ import { DETACHED, jobsRefusal, TIMER, Timers } from "./jobs"
 import { recheck } from "./recheck"
 import type { Grants } from "../base/grants"
 import { ActiveAgent, Memory, type Scope, SCOPES } from "../base/memory"
-import { attrsOf, GraphMemory } from "../base/graph-memory"
+import { attrsOf, type GraphAdd, GraphMemory } from "../base/graph-memory"
 import { type PastArgs, pastSessions } from "./past"
 import { fillParameters, helpers, systemOneTools, kernelImports, libraryDir, loadLibrary, loadPool, promote, TSC, usableWith, writeBuiltins } from "./library"
 import { record } from "./pool"
@@ -192,7 +191,7 @@ export const makeHost = (ctx: Ctx, services: Context.Context<Needs>, home = EMPT
   return host
 }
 
-// The graph built-ins (graph.add …, src/tools/kernel-builtins.ts): each one empty-graph action on the open graph (KTD4),
+// The graph built-ins (graph.add …, src/tools/kernel-builtins.ts): each one graph action (GraphOps) in its own GraphMemory.use (KTD4),
 // recorded in the session; host functions graph.<action>, so the journal knows a query from a write. Only with
 // memory.use = graph. From a run the user didn't start (a job, a sub-agent), a fact about the user isn't written, linked
 // to or retired, and an observation's source, trust and origin are the run's own, never what the cell gives (R26): its
@@ -207,8 +206,8 @@ const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GR
   const files = yield* gm.value.files.pipe(Effect.provideContext(services))
   const agent = yield* ActiveAgent.pipe(Effect.provideContext(services))
 
-  const result = yield* gm.value.use((g): unknown => {
-    const aboutUser = (id: unknown) => typeof id === "string" && show(g, id)?.attrs.scope === "user"
+  const result = yield* gm.value.use((ops): unknown => {
+    const aboutUser = (id: unknown) => typeof id === "string" && ops.show(id)?.attrs.scope === "user"
     const touchesUser = action === "add" ? a.attrs?.scope === "user" : action === "link" ? aboutUser(a.from) || aboutUser(a.to) : action === "retire" && aboutUser(arg)
     if (origin !== "user" && touchesUser) throw new Error("not done: facts about the user are written, linked to or retired only from the user's own turns")
 
@@ -216,14 +215,14 @@ const graphCall = (ctx: Ctx, services: Context.Context<Needs>, action: typeof GR
       const own = files.findLast((f) => f.scope === a.attrs?.scope) // the attributes memory.add gives a fact of that scope
       const attrs = { ...(own ? attrsOf(own) : {}), ...a.attrs }
       const seen = a.source !== undefined ? { source: `run:${origin}`, source_trust: "asserted", attrs: { ...attrs, origin } } : { attrs }
-      return add(g, { ...a, ...seen } as Parameters<typeof add>[1])
+      return ops.add({ ...a, ...seen } as GraphAdd)
     }
-    if (action === "link") return link(g, a as Parameters<typeof link>[1])
-    if (action === "retire") return (retire(g, String(arg)), `retired ${arg}`)
-    if (action === "query") return query(g, { ...a, attrs: { ...a.attrs, agent: agent === "root" ? [null] : [null, agent] } })
-    if (action === "why") return why(g, String(arg))
+    if (action === "link") return ops.link(a as Parameters<typeof ops.link>[0])
+    if (action === "retire") return (ops.retire(String(arg)), `retired ${arg}`)
+    if (action === "query") return ops.query({ ...a, attrs: { ...a.attrs, agent: agent === "root" ? [null] : [null, agent] } })
+    if (action === "why") return ops.why(String(arg))
     const { from, ...options } = a
-    return near(g, from, options as Parameters<typeof near>[2])
+    return ops.near(from, options as Parameters<typeof ops.near>[1])
   }).pipe(Effect.mapError((e) => new Error(e.message)))
 
   const said = action === "add" ? `${(result as { id: string }).id}: ${a.text}` : (JSON.stringify(arg) ?? "").slice(0, 300)

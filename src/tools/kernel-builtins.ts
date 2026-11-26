@@ -60,7 +60,7 @@ export type PastArgs = {
 export type PastMessage = { readonly seq: number; readonly at: string; readonly role: "user" | "assistant" | "system"; readonly text: string }
 export type PastSession = { readonly session: string; readonly started: string; readonly messages: ReadonlyArray<PastMessage> }
 export type PastResult = { readonly sessions: ReadonlyArray<PastSession>; readonly summary?: string; readonly truncated?: boolean }
-// The graph built-ins' arguments and results, as empty-graph has them (it can't be imported here). Types only.
+// The graph built-ins' arguments and results: a copy of src/base/graph-memory.ts's (the kernel can't import it). Types only.
 export type GraphAction = "add" | "link" | "retire" | "query" | "why" | "near"
 export type GraphStatus = "unverified" | "supported" | "verified" | "contested" | "debunked"
 export type GraphTime = number | string // ms since 1970, or an ISO date

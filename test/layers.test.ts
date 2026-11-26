@@ -45,3 +45,11 @@ test("plugins import the core only by its package name", () => {
       .map((spec) => `${relative(SRC, file)} → ${spec}`))
   expect(wrong).toEqual([])
 })
+
+// Graph memory is a contract (src/base/graph-memory.ts: GraphOps, GraphMemory): only the bundled graph plugin knows its
+// empty-graph backend, so another backend can stand in for it.
+test("only src/plugins/graph imports empty-graph", () => {
+  const files = readdirSync(SRC, { recursive: true }).map(String).filter((f) => f.endsWith(".ts") && !f.startsWith("plugins/graph/"))
+  const wrong = files.filter((f) => /from "empty-graph(\/[^"]*)?"|import\("empty-graph/.test(readFileSync(join(SRC, f), "utf8")))
+  expect(wrong).toEqual([])
+})

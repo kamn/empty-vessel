@@ -1,13 +1,12 @@
 import { Effect, Schema } from "effect"
-import { add, EGraphInvalid, type Fact, type Graph, link, query, show, update, withRetry } from "empty-graph"
-import { GraphMemory } from "../base/graph-memory"
+import { type GraphFact, GraphInvalid, type GraphMark, GraphMemory, type GraphOps as Ops } from "../base/graph-memory"
 import { Reviewer } from "./reviewer"
 
 // The curator (KTD15, R24, R25): the Reviewer (the model curateMemory uses) is shown the observations captured since the
 // last curation (src/learning/graph-capture.ts) and the facts they may bear on, and answers with graph operations: add a
 // fact resting on observations, link observations to a fact as supporting or contradicting it, or retire a fact that
 // stopped being true (it gets a valid-until time, the time of the evidence, so it stays true for earlier times: AE1).
-// Statuses follow the evidence (empty-graph derives them). Refused operations go back to it once with the reasons.
+// Statuses follow the evidence (the graph derives them). Refused operations go back to it once with the reasons.
 // The guard keys on scope, not kind (R26): a fact with attrs.scope = user is created, supported, contradicted or retired
 // only on evidence that is all from the user's own turns (origin user); a job's or a sub-agent's words never are.
 const CURATED = "empty-vessel.curated" // meta key: { at, id } of the last observation curated (learned_at, then id)
@@ -36,22 +35,18 @@ const INSTRUCTIONS = [
   "Changing nothing is a fine answer: an empty list.",
 ].join("\n")
 
-class Refused extends Error {}
-const refuse = (why: string): never => { throw new Refused(why) }
-const timeOf = (f: Fact) => f.valid_from ?? f.learned_at
+// A refusal is invalid input, as the graph's own (GraphInvalid): either rolls the operation back and goes to the Reviewer.
+const refuse = (why: string): never => { throw new GraphInvalid(why) }
+const timeOf = (f: GraphFact) => f.valid_from ?? f.learned_at
 
-// One operation, applied in one transaction (retried while the file is busy): what it did, or why it was refused.
-// Anything else (the file stayed busy, a broken file) fails the run, so the batch isn't marked curated.
-const apply = (g: Graph, o: GraphOp): { done: string } | { refused: string } => {
-  try {
-    return { done: withRetry(() => applyOne(g, o)) }
-  } catch (e) {
-    if (e instanceof Refused || e instanceof EGraphInvalid) return { refused: e.message }
-    throw e
-  }
-}
-const applyOne = (g: Graph, o: GraphOp) => g.db.transaction(() => {
-  const evidence = o.evidence.map((id) => show(g, id))
+// One operation, applied in one GraphMemory.use (one transaction, retried while the store is busy): what it did, or why
+// it was refused. Anything else (the store stayed busy, a broken file) fails the run, so the batch isn't marked curated.
+const apply = (gm: GraphMemory["Service"], o: GraphOp) => gm.use((ops) => applyOne(ops, o)).pipe(
+  Effect.map((done): { done: string } | { refused: string } => ({ done })),
+  Effect.catchIf((e) => e.cause instanceof GraphInvalid, (e) => Effect.succeed({ refused: e.message })),
+)
+const applyOne = (ops: Ops, o: GraphOp) => {
+  const evidence = o.evidence.map((id) => ops.show(id))
   if (!evidence.length) refuse("no evidence: list the observations it rests on")
   const observed = evidence.map((f, i) => (f && f.source !== null ? f : refuse(`${o.evidence[i]} is not an observation`)))
   // What the user said: their own /memory add, or a captured line from a turn they started. A cell's observation
@@ -64,44 +59,37 @@ const applyOne = (g: Graph, o: GraphOp) => g.db.transaction(() => {
     if (o.scope === "user" && !fromUser) refuse(guard)
     const { project, agent } = observed[0]!.attrs
     const attrs = { scope: o.scope, ...(o.scope === "project" && project ? { project } : {}), ...(o.scope === "agent" && agent ? { agent } : {}) }
-    const fact = add(g, { kind: "note", text: o.text, attrs, valid_from: Math.min(...observed.map(timeOf)) })
-    for (const e of observed) link(g, { from: e.id, to: fact.id, type: "supports" })
+    const fact = ops.add({ kind: "note", text: o.text, attrs, valid_from: Math.min(...observed.map(timeOf)) })
+    for (const e of observed) ops.link({ from: e.id, to: fact.id, type: "supports" })
     return `added (${o.scope}): ${o.text}`
   }
 
-  const target = o.fact ? show(g, o.fact) : null
+  const target = o.fact ? ops.show(o.fact) : null
   if (!target || target.source !== null) refuse(`no fact ${o.fact}`)
   if (target!.attrs.scope === "user" && !fromUser) refuse(guard)
 
   if (o.op === "link") {
     const type = o.type ?? refuse("a link needs a type: supports or contradicts")
-    for (const e of observed) link(g, { from: e.id, to: target!.id, type })
+    for (const e of observed) ops.link({ from: e.id, to: target!.id, type })
     return `linked (${type}): ${target!.text}`
   }
 
-  // Valid until the change: evidence dated from then on doesn't count against it (empty-graph, AE6).
+  // Valid until the change: evidence dated from then on doesn't count against it (AE6).
   const until = Math.max(...observed.map(timeOf))
   if (target!.valid_from !== null && until < target!.valid_from) refuse("the evidence is older than the fact")
-  update(g, target!.id, { valid_until: until })
-  for (const e of observed) link(g, { from: e.id, to: target!.id, type: "contradicts" })
+  ops.update(target!.id, { valid_until: until })
+  for (const e of observed) ops.link({ from: e.id, to: target!.id, type: "contradicts" })
   return `retired: ${target!.text}`
-}).immediate()
-
-type Mark = { at: number; id: string }
+}
 
 // The next batch of captured observations not yet curated, oldest first, and the facts true now they may bear on.
-const uncurated = (g: Graph) => {
-  const row = g.db.query("SELECT value FROM meta WHERE key = ?").get(CURATED) as { value: string } | null
-  const mark: Mark = row ? JSON.parse(row.value) : { at: -1, id: "" }
-  const ids = g.db.query(`SELECT id FROM facts WHERE source LIKE 'session:%' AND retired_at IS NULL
-    AND (learned_at > ?1 OR (learned_at = ?1 AND id > ?2)) ORDER BY learned_at, id LIMIT ?3`).all(mark.at, mark.id, BATCH) as Array<{ id: string }>
-  return ids.map(({ id }) => show(g, id)!)
-}
-const related = (g: Graph, observations: ReadonlyArray<Fact>) =>
-  query(g, { kind: "note", text: observations.map((o) => o.text).join(" "), limit: 40 }).map((s) => show(g, s.id)!)
-const markAt = (g: Graph, last: Fact) => g.db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [CURATED, JSON.stringify({ at: last.learned_at, id: last.id })])
+const uncurated = (ops: Ops) =>
+  ops.observations({ sourcePrefix: "session:", after: (ops.meta.get(CURATED) ?? { at: -1, id: "" }) as GraphMark, limit: BATCH })
+const related = (ops: Ops, observations: ReadonlyArray<GraphFact>) =>
+  ops.query({ kind: "note", text: observations.map((o) => o.text).join(" "), limit: 40 }).map((s) => ops.show(s.id)!)
+const markAt = (ops: Ops, last: GraphFact) => ops.meta.set(CURATED, { at: last.learned_at, id: last.id })
 
-const describe = (f: Fact) => `- ${f.id} [${Object.entries(f.source === null ? { scope: f.attrs.scope ?? "none", status: f.status } : { kind: f.kind, ...f.attrs }).map(([k, v]) => k === "kind" ? v : `${k}: ${v}`).join(", ")}] ${f.text}`
+const describe = (f: GraphFact) => `- ${f.id} [${Object.entries(f.source === null ? { scope: f.attrs.scope ?? "none", status: f.status } : { kind: f.kind, ...f.attrs }).map(([k, v]) => k === "kind" ? v : `${k}: ${v}`).join(", ")}] ${f.text}`
 
 // Curate what was captured since the last run (`window`: what prompted it, from a memory nudge). Gives what happened to
 // each operation, one line each. Called by `empty-vessel graph curate`, the nudge review with the graph on, and the
@@ -118,7 +106,7 @@ export const curateGraph = (window?: string) =>
       let refused: Array<string> = []
 
       for (let round = 0; round < 2 && (round === 0 || refused.length > 0); round++) {
-        const facts = yield* gm.use((g) => related(g, observations))
+        const facts = yield* gm.use((ops) => related(ops, observations))
         const digest = [`New observations:\n${observations.map(describe).join("\n")}`,
           `Facts now that may relate:\n${facts.map(describe).join("\n") || "(none yet)"}`,
           ...(window ? [window] : []),
@@ -130,7 +118,7 @@ export const curateGraph = (window?: string) =>
 
         refused = []
         for (const o of answer.value.ops) {
-          const done = yield* gm.use((g) => apply(g, o))
+          const done = yield* apply(gm, o)
           if ("done" in done) said.push(done.done)
           else {
             refused.push(`- ${o.op} ${o.fact ?? o.text} on ${o.evidence.join(", ") || "nothing"}: ${done.refused}`)
@@ -138,7 +126,7 @@ export const curateGraph = (window?: string) =>
           }
         }
         // Marked right after the first round's ops, so a failure later never applies them a second time.
-        if (round === 0) yield* gm.use((g) => markAt(g, observations.at(-1)!))
+        if (round === 0) yield* gm.use((ops) => markAt(ops, observations.at(-1)!))
       }
     }
 
