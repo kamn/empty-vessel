@@ -81,7 +81,9 @@ export type GraphQuery = {
   readonly text?: string; readonly kind?: string; readonly attrs?: Readonly<Record<string, GraphAttr | ReadonlyArray<GraphAttr>>>; readonly status?: GraphStatus | ReadonlyArray<GraphStatus>
   readonly about?: string; readonly at?: GraphTime; readonly includeRetired?: boolean; readonly limit?: number
 }
-export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary }> }
+// Where a piece of evidence came from (null: a fact with no source, not an observation).
+export type GraphWhySource = { readonly id: string; readonly label: string | null; readonly trust: string | null }
+export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary; readonly source: GraphWhySource | null }> }
 export type GraphNear = { readonly by: "time" | "vector"; readonly limit?: number; readonly includeRetired?: boolean }
 type MemoryScope = "agent" | "project" | "user"
 type MemoryChange = { readonly action: "add" | "replace" | "remove"; readonly scope: MemoryScope; readonly text?: string; readonly old?: string }

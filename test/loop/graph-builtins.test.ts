@@ -65,7 +65,7 @@ test("graph.add with a scope gets the attributes memory.add gives it, so the not
   expect(typeof fact.attrs.project).toBe("string")
 })
 
-test("graph.why gives one level of evidence and no deeper", async () => {
+test("graph.why gives one level of evidence, each with its source, and no deeper", async () => {
   const { run } = setUp()
   const why = await run((host) => Effect.gen(function* () {
     const fact = (yield* host["graph.add"]!({ kind: "note", text: "the user prefers squash merges" })) as { id: string }
@@ -79,6 +79,7 @@ test("graph.why gives one level of evidence and no deeper", async () => {
   const { evidence } = (why.why as { evidence: Array<{ type: string; fact: Record<string, unknown> }> })
   expect(evidence.map((e) => [e.type, e.fact.id])).toEqual([["supports", why.seen]])
   expect(evidence[0]!.fact).not.toHaveProperty("evidence", expect.any(Array))
+  expect((evidence[0] as { source?: unknown }).source).toEqual({ id: "run:user:s1", label: null, trust: "asserted" }) // where it came from: the run's own source
 })
 
 test("a job's or a sub-agent's cell can't write, support, contradict or retire a fact about the user; its observations carry its own source (AE5)", async () => {

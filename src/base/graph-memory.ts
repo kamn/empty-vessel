@@ -36,7 +36,9 @@ export type GraphQuery = {
   readonly text?: string; readonly kind?: string; readonly attrs?: GraphAttrs; readonly status?: GraphStatus | ReadonlyArray<GraphStatus>
   readonly about?: string; readonly at?: GraphTime; readonly includeRetired?: boolean; readonly limit?: number
 }
-export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary }> }
+// Where a piece of evidence came from (null: a fact with no source, not an observation).
+export type GraphWhySource = { readonly id: string; readonly label: string | null; readonly trust: string | null }
+export type GraphWhy = { readonly fact: GraphSummary; readonly evidence: ReadonlyArray<{ readonly type: "supports" | "contradicts"; readonly weight: number; readonly fact: GraphSummary; readonly source: GraphWhySource | null }> }
 export type GraphNear = { readonly by: "time" | "vector"; readonly limit?: number; readonly includeRetired?: boolean }
 export type GraphMark = { readonly at: number; readonly id: string } // a fact's learned_at, then its id
 // Where observations come from (a document, a run, the user): one source counts as one voice however many observations
